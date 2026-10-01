@@ -20,6 +20,9 @@ public class ConfigManager {
     private static final String FLAG_HAS_NEW_VERSION  = "zzz_has_new_version";
     private static final String PREFIX_PLUGIN_ON      = "zzz_plugin_on_";
 
+    public static final String KEY_PIC_SUMMARY_URL    = "zzz_pic_summary_url";
+    public static final String KEY_PIC_SUMMARY_KEY    = "zzz_pic_summary_key";
+
     private static final Map<String, Boolean> sFlagCache = new ConcurrentHashMap<>();
     private static volatile boolean sCacheLoaded = false;
     private static boolean sColdStartChecked = false;
@@ -167,5 +170,33 @@ public class ConfigManager {
         if (sp != null) {
             sp.edit().putBoolean(flagName, present).apply();
         }
+    }
+
+    public static String getString(String key, String defValue) {
+        SharedPreferences sp = getPreferences();
+        return sp != null ? sp.getString(key, defValue) : defValue;
+    }
+
+    public static void setString(String key, String value) {
+        SharedPreferences sp = getPreferences();
+        if (sp != null) {
+            sp.edit().putString(key, value).apply();
+        }
+    }
+
+    public static String getPicSummaryUrl() {
+        return getString(KEY_PIC_SUMMARY_URL, "");
+    }
+
+    public static void setPicSummaryUrl(String url) {
+        setString(KEY_PIC_SUMMARY_URL, url);
+    }
+
+    public static String getPicSummaryKey() {
+        return getString(KEY_PIC_SUMMARY_KEY, "");
+    }
+
+    public static void setPicSummaryKey(String key) {
+        setString(KEY_PIC_SUMMARY_KEY, key);
     }
 }

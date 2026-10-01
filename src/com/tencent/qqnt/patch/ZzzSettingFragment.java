@@ -5,6 +5,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.view.View;
@@ -114,7 +116,6 @@ public class ZzzSettingFragment {
                     for (PluginManager.PluginItem item : allPlugins) {
                         final String pId = item.id;
                         final String pName = item.name;
-                        // ★ 核心改动：如果有第二行提示（包含 Hook），则传入副标题触发双行展示
                         final String pSub = (item.subName != null && !item.subName.isEmpty()) ? item.subName : null;
 
                         pluginItems.add(NativeSettingHelper.createSwitch(
@@ -149,20 +150,42 @@ public class ZzzSettingFragment {
                 // 页面 A: Zzz 核心设置页
                 // =====================================================
 
-                // 1. 核心功能 (自动适配左侧双行标题)
                 List<Object> funcItems = new ArrayList<>();
                 for (IPatchModule module : ModuleManager.getModules()) {
                     if (!module.showInSettings()) continue;
                     final IPatchModule m = module;
+
+                    // 1. 挂载主开关
                     funcItems.add(NativeSettingHelper.createSwitch(
                             cl, m.getName(), m.getSubName(), m.isEnabled(),
                             (btn, checked) -> {
                                 m.setEnabled(checked);
                                 ToastHelper.show(activity, m.getName() + (checked ? " 已开启" : " 已关闭"));
+
+                                // ★ 若具备二级配置栏，切换开关时触发延迟重绘，即时展开/折叠二级项
+                                if (m.hasConfig()) {
+                                    new Handler(Looper.getMainLooper()).post(() -> {
+                                        if (!activity.isFinishing() && !activity.isDestroyed()) {
+                                            renderSettingsList(fragment, activity, cl, pageType);
+                                        }
+                                    });
+                                }
                             }
                     ));
+
+                    // ★ 核心改动：仅在开关处于开启 (isEnabled) 状态时，才展示二级配置栏
+                    if (m.hasConfig() && m.isEnabled()) {
+                        funcItems.add(NativeSettingHelper.createClickable(
+                                cl, "  ↳ " + m.getName() + "配置", "配置", true, false,
+                                v -> m.onConfigClick(activity, () -> {
+                                    if (!activity.isFinishing() && !activity.isDestroyed()) {
+                                        renderSettingsList(fragment, activity, cl, pageType);
+                                    }
+                                })
+                        ));
+                    }
                 }
-                groups.add(NativeSettingHelper.createGroup(cl, "核心功能 (" + funcItems.size() + " 个模块)", "", funcItems));
+                groups.add(NativeSettingHelper.createGroup(cl, "核心功能 (" + funcItems.size() + " 个项)", "", funcItems));
 
                 // 2. 高级与调试
                 List<Object> advancedItems = new ArrayList<>();

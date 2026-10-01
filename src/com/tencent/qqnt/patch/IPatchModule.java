@@ -1,5 +1,6 @@
 package com.tencent.qqnt.patch;
 
+import android.app.Activity;
 import android.content.Context;
 import com.tencent.qqnt.kernel.nativeinterface.IQQNTWrapperSession;
 import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
@@ -33,6 +34,12 @@ public interface IPatchModule {
 
     /** 是否在设置页面自动生成开关 */
     default boolean showInSettings() { return true; }
+
+    /** 是否支持独立配置弹窗 */
+    default boolean hasConfig() { return false; }
+
+    /** 点击配置项回调 */
+    default void onConfigClick(Activity activity, Runnable onSaved) {}
 
     // === 事件生命周期分发 ===
     default void onInit(Context context) {}
