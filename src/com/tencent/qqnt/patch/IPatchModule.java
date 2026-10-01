@@ -7,6 +7,7 @@ import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public interface IPatchModule {
@@ -40,6 +41,21 @@ public interface IPatchModule {
 
     /** 点击配置项回调 */
     default void onConfigClick(Activity activity, Runnable onSaved) {}
+
+    /**
+     * 自定义二级配置栏列表（模块开启时自动挂载于下方）
+     */
+    default List<Object> getSubSettingItems(ClassLoader cl, Activity activity, Runnable onRefresh) {
+        if (hasConfig()) {
+            List<Object> list = new ArrayList<>();
+            list.add(NativeSettingHelper.createClickable(
+                    cl, "  ↳ " + getName() + "配置", "配置", true, false,
+                    v -> onConfigClick(activity, onRefresh)
+            ));
+            return list;
+        }
+        return Collections.emptyList();
+    }
 
     // === 事件生命周期分发 ===
     default void onInit(Context context) {}

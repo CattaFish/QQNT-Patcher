@@ -20,8 +20,9 @@ public class ConfigManager {
     private static final String FLAG_HAS_NEW_VERSION  = "zzz_has_new_version";
     private static final String PREFIX_PLUGIN_ON      = "zzz_plugin_on_";
 
-    public static final String KEY_PIC_SUMMARY_URL    = "zzz_pic_summary_url";
-    public static final String KEY_PIC_SUMMARY_KEY    = "zzz_pic_summary_key";
+    public static final String KEY_PIC_SUMMARY_URL       = "zzz_pic_summary_url";
+    public static final String KEY_PIC_SUMMARY_KEY       = "zzz_pic_summary_key";
+    public static final String KEY_PIC_SUMMARY_USE_LOCAL = "zzz_pic_summary_use_local";
 
     private static final Map<String, Boolean> sFlagCache = new ConcurrentHashMap<>();
     private static volatile boolean sCacheLoaded = false;
@@ -198,5 +199,13 @@ public class ConfigManager {
 
     public static void setPicSummaryKey(String key) {
         setString(KEY_PIC_SUMMARY_KEY, key);
+    }
+
+    public static boolean isPicSummaryUseLocal() {
+        return hasFlag(KEY_PIC_SUMMARY_USE_LOCAL);
+    }
+
+    public static void setPicSummaryUseLocal(boolean useLocal) {
+        setFlag(KEY_PIC_SUMMARY_USE_LOCAL, useLocal);
     }
 }

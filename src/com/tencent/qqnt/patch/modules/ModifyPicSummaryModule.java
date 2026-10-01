@@ -8,10 +8,12 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Environment;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -19,6 +21,7 @@ import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.ConfigManager;
 import com.tencent.qqnt.patch.IPatchModule;
+import com.tencent.qqnt.patch.NativeSettingHelper;
 import com.tencent.qqnt.patch.PLog;
 import com.tencent.qqnt.patch.ToastHelper;
 import me.yxp.qfun.utils.ui.ThemeHelper;
@@ -49,7 +52,7 @@ public class ModifyPicSummaryModule implements IPatchModule {
     private static volatile boolean sIsFetching = false;
     private static final Random sRandom = new Random();
 
-    // 本地文件缓存池与最后修改时间戳
+    // 本地词库缓存
     private static final List<String> sLocalLines = new ArrayList<>();
     private static volatile long sLocalFileLastModified = -1L;
     private static volatile String sCurrentSourceDesc = "";
@@ -72,7 +75,7 @@ public class ModifyPicSummaryModule implements IPatchModule {
         if (sCachedSummary != null && !sCachedSummary.isEmpty()) {
             return (sCurrentSourceDesc.isEmpty() ? "" : sCurrentSourceDesc + ": ") + sCachedSummary;
         }
-        return "已开启，等待获取外显内容";
+        return ConfigManager.isPicSummaryUseLocal() ? "本地词库模式(待挑选)" : "指定外显模式(待获取)";
     }
 
     @Override
@@ -99,6 +102,23 @@ public class ModifyPicSummaryModule implements IPatchModule {
     }
 
     // =========================================================================
+    // 设置界面：仅保留唯一的配置入口，彻底去除多余按钮
+    // =========================================================================
+    @Override
+    public List<Object> getSubSettingItems(ClassLoader cl, Activity activity, Runnable onRefresh) {
+        List<Object> items = new ArrayList<>();
+        items.add(NativeSettingHelper.createClickable(
+                cl,
+                "  ↳ 图片外显配置",
+                "配置",
+                true,
+                false,
+                v -> onConfigClick(activity, onRefresh)
+        ));
+        return items;
+    }
+
+    // =========================================================================
     // 拦截发包并注入 Summary
     // =========================================================================
     @Override
@@ -112,13 +132,13 @@ public class ModifyPicSummaryModule implements IPatchModule {
         for (MsgElement element : elements) {
             if (element == null) continue;
 
-            // 1. 普通图片外显
+            // 普通图片
             if (element.picElement != null) {
                 element.picElement.summary = summary;
                 hasPic = true;
             }
 
-            // 2. 商城大表情外显
+            // 商城大表情
             try {
                 if (element.marketFaceElement != null) {
                     element.marketFaceElement.faceName = summary;
@@ -129,61 +149,59 @@ public class ModifyPicSummaryModule implements IPatchModule {
 
         if (hasPic) {
             PLog.i(TAG, "成功注入图片/表情外显: " + summary);
-            // 发送后自动挑选/拉取下一条
             fetchNextSummary();
         }
     }
 
     // =========================================================================
-    // 外显内容调度引擎 (优先本地文件 -> 次选网络 API -> 最后普通静态文本)
+    // 调度引擎（按开关严格区分模式）
     // =========================================================================
     public static void fetchNextSummary() {
-        final String configInput = ConfigManager.getPicSummaryUrl().trim();
+        boolean useLocal = ConfigManager.isPicSummaryUseLocal();
 
-        // 1. 尝试匹配本地 .txt 文件 (包括手动指定路径 或 默认 zzz/ 目录探测)
-        File localTxt = resolveLocalTxtFile(configInput);
-        if (localTxt != null && localTxt.exists() && localTxt.isFile()) {
-            loadFromLocalFile(localTxt);
-            return;
-        }
-
-        // 2. 匹配网络 API (http:// 或 https://)
-        if (configInput.startsWith("http://") || configInput.startsWith("https://")) {
-            sCurrentSourceDesc = "API 轮询";
-            fetchFromHttpApi(configInput);
-            return;
-        }
-
-        // 3. 普通单行固定静态文本
-        if (!configInput.isEmpty()) {
-            sCurrentSourceDesc = "固定外显";
-            sCachedSummary = configInput.length() <= 30 ? configInput : configInput.substring(0, 30);
+        if (useLocal) {
+            // ===== 模式 A: 本地词库模式 =====
+            final String customPath = ConfigManager.getPicSummaryUrl().trim();
+            File localTxt = resolveLocalTxtFile(customPath);
+            if (localTxt != null && localTxt.exists() && localTxt.isFile()) {
+                loadFromLocalFile(localTxt);
+            } else {
+                sCachedSummary = "";
+                sCurrentSourceDesc = "未找到本地词库";
+                PLog.w(TAG, "本地词库模式已开启，但在 zzz/ 目录下未找到 .txt 文件");
+            }
         } else {
-            sCurrentSourceDesc = "";
-            sCachedSummary = "";
+            // ===== 模式 B: 指定界面外显模式 (API 或 固定文本) =====
+            final String configInput = ConfigManager.getPicSummaryUrl().trim();
+            if (configInput.isEmpty()) {
+                sCurrentSourceDesc = "";
+                sCachedSummary = "";
+                return;
+            }
+
+            if (configInput.startsWith("http://") || configInput.startsWith("https://")) {
+                sCurrentSourceDesc = "API轮询";
+                fetchFromHttpApi(configInput);
+            } else {
+                sCurrentSourceDesc = "指定外显";
+                sCachedSummary = configInput.length() <= 30 ? configInput : configInput.substring(0, 30);
+            }
         }
     }
 
-    /**
-     * 解析本地 .txt 文件路径
-     */
     private static File resolveLocalTxtFile(String configInput) {
-        // A. 用户直接填了本地文件路径且以 .txt 结尾
         if (configInput.toLowerCase().endsWith(".txt")) {
             File f = new File(configInput);
             if (f.exists() && f.isFile()) return f;
         }
 
-        // B. 扫描专属外部媒体目录: Android/media/com.tencent.mobileqq/zzz/
         File zzzDir = getZzzBaseDir();
         if (zzzDir.exists() && zzzDir.isDirectory()) {
-            // 优先匹配 summary.txt
             File defaultTxt = new File(zzzDir, "summary.txt");
             if (defaultTxt.exists() && defaultTxt.isFile()) {
                 return defaultTxt;
             }
 
-            // 扫描当前目录下存在的任意其他 .txt 文件
             File[] files = zzzDir.listFiles();
             if (files != null) {
                 for (File f : files) {
@@ -196,9 +214,6 @@ public class ModifyPicSummaryModule implements IPatchModule {
         return null;
     }
 
-    /**
-     * 从本地文件加载并随机挑选一行 (已过滤空行)
-     */
     private static synchronized void loadFromLocalFile(File txtFile) {
         try {
             long lastMod = txtFile.lastModified();
@@ -207,15 +222,18 @@ public class ModifyPicSummaryModule implements IPatchModule {
                 try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(txtFile), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = br.readLine()) != null) {
+                        // 清除 UTF-8 BOM 与空白字符
+                        if (line.startsWith("\uFEFF")) {
+                            line = line.substring(1);
+                        }
                         line = line.trim();
-                        // 过滤空行与空白字符
                         if (!line.isEmpty()) {
                             sLocalLines.add(line);
                         }
                     }
                 }
                 sLocalFileLastModified = lastMod;
-                PLog.i(TAG, "已成功装载本地外显词库 [" + txtFile.getName() + "]，有效行数: " + sLocalLines.size());
+                PLog.i(TAG, "装载本地词库 [" + txtFile.getName() + "] 成功，有效行数: " + sLocalLines.size());
             }
 
             if (!sLocalLines.isEmpty()) {
@@ -223,7 +241,6 @@ public class ModifyPicSummaryModule implements IPatchModule {
                 String picked = sLocalLines.get(index);
                 sCachedSummary = picked.length() <= 30 ? picked : picked.substring(0, 30);
                 sCurrentSourceDesc = "本地词库(" + txtFile.getName() + ")";
-                PLog.d(TAG, "已从本地词库挑选: " + sCachedSummary);
             } else {
                 sCachedSummary = "";
                 sCurrentSourceDesc = "本地文件为空";
@@ -233,9 +250,6 @@ public class ModifyPicSummaryModule implements IPatchModule {
         }
     }
 
-    /**
-     * 异步拉取 HTTP 接口内容
-     */
     private static void fetchFromHttpApi(String apiUrl) {
         final String key = ConfigManager.getPicSummaryKey().trim();
 
@@ -277,7 +291,7 @@ public class ModifyPicSummaryModule implements IPatchModule {
                             sCachedSummary = apiUrl.length() <= 30 ? apiUrl : "";
                         }
                     }
-                    PLog.d(TAG, "预拉取下条 API 外显就绪: " + sCachedSummary);
+                    PLog.d(TAG, "预拉取下条 API 外显: " + sCachedSummary);
                 }
             } catch (Throwable t) {
                 PLog.w(TAG, "拉取 API 图片外显异常: " + t.getMessage());
@@ -317,7 +331,7 @@ public class ModifyPicSummaryModule implements IPatchModule {
     }
 
     // =========================================================================
-    // 配置弹窗 (直观显示本地词库状态)
+    // 弹窗配置（高清晰拟物化开关 + 纯文字状态无 Emoji）
     // =========================================================================
     @Override
     public void onConfigClick(Activity activity, Runnable onSaved) {
@@ -353,38 +367,128 @@ public class ModifyPicSummaryModule implements IPatchModule {
         title.getPaint().setFakeBoldText(true);
         title.setTextColor(textColor);
         title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 0, 0, dp2px(activity, 10f));
+        title.setPadding(0, 0, 0, dp2px(activity, 14f));
         root.addView(title);
 
-        // 检测当前本地目录的 .txt 状态
-        File detectedFile = resolveLocalTxtFile(ConfigManager.getPicSummaryUrl());
-        String localStatusText;
-        if (detectedFile != null && detectedFile.exists()) {
-            localStatusText = "已发现本地词库: " + detectedFile.getName();
-        } else {
-            localStatusText = "支持在 zzz/ 目录下放入任意 .txt 词库自动按行轮换";
-        }
+        // 模式切换行 (整行支持点击)
+        LinearLayout modeRow = new LinearLayout(activity);
+        modeRow.setOrientation(LinearLayout.HORIZONTAL);
+        modeRow.setGravity(Gravity.CENTER_VERTICAL);
+        modeRow.setPadding(dp2px(activity, 4f), 0, dp2px(activity, 4f), dp2px(activity, 12f));
 
-        TextView desc = new TextView(activity);
-        desc.setText(localStatusText);
-        desc.setTextSize(12);
-        desc.setTextColor(detectedFile != null ? Color.parseColor("#34C759") : subTextColor);
-        desc.setPadding(0, 0, 0, dp2px(activity, 12f));
-        root.addView(desc);
+        LinearLayout modeTextCol = new LinearLayout(activity);
+        modeTextCol.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams mtLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
 
-        // 输入框 1: 本地路径 / API 链接 / 普通文本
-        EditText etUrl = createStyledEditText(activity, inputBgColor, textColor, subTextColor,
-                "API链接 / 本地txt路径 / 固定文本 (留空读zzz/*.txt)", ConfigManager.getPicSummaryUrl());
+        TextView modeTitle = new TextView(activity);
+        modeTitle.setText("使用本地词库模式");
+        modeTitle.setTextSize(15);
+        modeTitle.getPaint().setFakeBoldText(true);
+        modeTitle.setTextColor(textColor);
+
+        TextView modeDesc = new TextView(activity);
+        modeDesc.setTextSize(12);
+        modeDesc.setTextColor(subTextColor);
+
+        modeTextCol.addView(modeTitle);
+        modeTextCol.addView(modeDesc);
+        modeRow.addView(modeTextCol, mtLp);
+
+        // ★★★ 核心修复：纯原生自绘高清晰胶囊开关（彻底解决宿主无图元导致的微缩字体问题）★★★
+        int trackW = dp2px(activity, 52f);
+        int trackH = dp2px(activity, 30f);
+        int thumbSize = dp2px(activity, 24f);
+        int thumbMargin = dp2px(activity, 3f);
+
+        LinearLayout switchContainer = new LinearLayout(activity);
+        switchContainer.setOrientation(LinearLayout.HORIZONTAL);
+        switchContainer.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView tvStatus = new TextView(activity);
+        tvStatus.setTextSize(13);
+        tvStatus.getPaint().setFakeBoldText(true);
+        tvStatus.setPadding(0, 0, dp2px(activity, 8f), 0);
+        switchContainer.addView(tvStatus);
+
+        FrameLayout switchTrack = new FrameLayout(activity);
+        GradientDrawable trackBg = new GradientDrawable();
+        trackBg.setCornerRadius(trackH / 2f);
+        switchTrack.setBackground(trackBg);
+
+        View switchThumb = new View(activity);
+        GradientDrawable thumbBg = new GradientDrawable();
+        thumbBg.setShape(GradientDrawable.OVAL);
+        thumbBg.setColor(Color.WHITE);
+        switchThumb.setBackground(thumbBg);
+
+        FrameLayout.LayoutParams thumbLp = new FrameLayout.LayoutParams(thumbSize, thumbSize);
+        thumbLp.gravity = Gravity.CENTER_VERTICAL;
+        switchTrack.addView(switchThumb, thumbLp);
+
+        switchContainer.addView(switchTrack, new LinearLayout.LayoutParams(trackW, trackH));
+        modeRow.addView(switchContainer);
+        root.addView(modeRow);
+
+        // 词库与接口状态文字（无 Emoji）
+        TextView statusDesc = new TextView(activity);
+        statusDesc.setTextSize(12);
+        statusDesc.setPadding(0, 0, 0, dp2px(activity, 12f));
+        root.addView(statusDesc);
+
+        // 输入框 1
+        EditText etUrl = createStyledEditText(activity, inputBgColor, textColor, subTextColor, "", ConfigManager.getPicSummaryUrl());
         LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(activity, 44f));
         lp1.bottomMargin = dp2px(activity, 10f);
         root.addView(etUrl, lp1);
 
-        // 输入框 2: JSON Key
-        EditText etKey = createStyledEditText(activity, inputBgColor, textColor, subTextColor,
-                "JSON 提取 Key (仅 API 模式生效，支持深度查找)", ConfigManager.getPicSummaryKey());
+        // 输入框 2 (JSON Key)
+        EditText etKey = createStyledEditText(activity, inputBgColor, textColor, subTextColor, "JSON 提取 Key (仅 API 模式生效，支持深度查找)", ConfigManager.getPicSummaryKey());
         LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(activity, 44f));
         lp2.bottomMargin = dp2px(activity, 16f);
         root.addView(etKey, lp2);
+
+        // 状态变量与联动更新
+        final boolean[] isLocalMode = new boolean[]{ ConfigManager.isPicSummaryUseLocal() };
+
+        Runnable updateUIState = () -> {
+            boolean isLocal = isLocalMode[0];
+            if (isLocal) {
+                tvStatus.setText("已开启");
+                tvStatus.setTextColor(Color.parseColor("#34C759"));
+                trackBg.setColor(Color.parseColor("#34C759"));
+                thumbLp.leftMargin = trackW - thumbSize - thumbMargin;
+
+                modeDesc.setText("开启：从本地 .txt 词库中随机抽取");
+                File f = resolveLocalTxtFile(etUrl.getText().toString());
+                if (f != null && f.exists()) {
+                    statusDesc.setText("[已关联词库] " + f.getName());
+                    statusDesc.setTextColor(Color.parseColor("#34C759"));
+                } else {
+                    statusDesc.setText("[提示] 留空默认读取 /zzz/ 目录下的 .txt 词库");
+                    statusDesc.setTextColor(subTextColor);
+                }
+                etUrl.setHint("自定义本地.txt绝对路径 (留空默认读 zzz/*.txt)");
+                etKey.setVisibility(View.GONE);
+            } else {
+                tvStatus.setText("已关闭");
+                tvStatus.setTextColor(subTextColor);
+                trackBg.setColor(isNight ? Color.parseColor("#3A3A3C") : Color.parseColor("#D1D1D6"));
+                thumbLp.leftMargin = thumbMargin;
+
+                modeDesc.setText("关闭：使用下方填写的固定文本或 API 接口");
+                statusDesc.setText("[提示] 支持输入固定外显文本(<=30字)或 API 网络接口");
+                statusDesc.setTextColor(subTextColor);
+                etUrl.setHint("普通外显文本 或 http(s):// API 接口");
+                etKey.setVisibility(View.VISIBLE);
+            }
+            switchThumb.setLayoutParams(thumbLp);
+        };
+
+        modeRow.setOnClickListener(v -> {
+            isLocalMode[0] = !isLocalMode[0];
+            updateUIState.run();
+        });
+        updateUIState.run();
 
         // 按钮行
         LinearLayout btnRow = new LinearLayout(activity);
@@ -415,11 +519,13 @@ public class ModifyPicSummaryModule implements IPatchModule {
         saveBtn.setBackground(saveBg);
         LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
         saveBtn.setOnClickListener(v -> {
+            boolean useLocal = isLocalMode[0];
             String newUrl = etUrl.getText() != null ? etUrl.getText().toString().trim() : "";
             String newKey = etKey.getText() != null ? etKey.getText().toString().trim() : "";
+            ConfigManager.setPicSummaryUseLocal(useLocal);
             ConfigManager.setPicSummaryUrl(newUrl);
             ConfigManager.setPicSummaryKey(newKey);
-            sLocalFileLastModified = -1L; // 重置本地缓存标记
+            sLocalFileLastModified = -1L;
             fetchNextSummary();
             dialog.dismiss();
             ToastHelper.show(activity, "已保存图片外显配置");

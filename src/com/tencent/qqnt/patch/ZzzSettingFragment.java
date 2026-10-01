@@ -162,7 +162,7 @@ public class ZzzSettingFragment {
                                 m.setEnabled(checked);
                                 ToastHelper.show(activity, m.getName() + (checked ? " 已开启" : " 已关闭"));
 
-                                // ★ 若具备二级配置栏，切换开关时触发延迟重绘，即时展开/折叠二级项
+                                // 若具备二级配置栏，切换主开关时延迟重绘，即时展开/折叠二级项
                                 if (m.hasConfig()) {
                                     new Handler(Looper.getMainLooper()).post(() -> {
                                         if (!activity.isFinishing() && !activity.isDestroyed()) {
@@ -173,16 +173,16 @@ public class ZzzSettingFragment {
                             }
                     ));
 
-                    // ★ 核心改动：仅在开关处于开启 (isEnabled) 状态时，才展示二级配置栏
+                    // 2. 仅在主开关开启时，展示二级配置项
                     if (m.hasConfig() && m.isEnabled()) {
-                        funcItems.add(NativeSettingHelper.createClickable(
-                                cl, "  ↳ " + m.getName() + "配置", "配置", true, false,
-                                v -> m.onConfigClick(activity, () -> {
-                                    if (!activity.isFinishing() && !activity.isDestroyed()) {
-                                        renderSettingsList(fragment, activity, cl, pageType);
-                                    }
-                                })
-                        ));
+                        List<Object> subItems = m.getSubSettingItems(cl, activity, () -> {
+                            if (!activity.isFinishing() && !activity.isDestroyed()) {
+                                renderSettingsList(fragment, activity, cl, pageType);
+                            }
+                        });
+                        if (subItems != null && !subItems.isEmpty()) {
+                            funcItems.addAll(subItems);
+                        }
                     }
                 }
                 groups.add(NativeSettingHelper.createGroup(cl, "核心功能 (" + funcItems.size() + " 个项)", "", funcItems));
