@@ -495,6 +495,20 @@ def resolve_dynamic_rules_with_cache(dex_data_dict, orig_apk_md5, orig_sig_md5, 
         if dyn_todo_rule:
             log("OK", f"-> 群待办通知动态匹配: [{dyn_todo_rule['name']}]")
             all_rules.append(dyn_todo_rule)
+            
+    # 6. 伪装处于非多窗口模式 (multi_window_rules.py)
+    mw_py = os.path.join(rules_dir, "multi_window_rules.py")
+    mw_mtime = get_file_mtime_safe(mw_py)
+    cached_mw = cache_data.get("multi_window")
+    if cached_mw and cached_mw.get("mtime") == mw_mtime and "rules" in cached_mw:
+        dyn_mw_rules = cached_mw["rules"]
+        log("INFO", f"规则推导缓存命中: [伪装非多窗口模式] ({len(dyn_mw_rules)} 项)")
+    else:
+        dyn_mw_rules = rules.get_dynamic_multi_window_rules(dex_data_dict)
+        new_cache_modules["multi_window"] = {"mtime": mw_mtime, "rules": dyn_mw_rules}
+        for r in dyn_mw_rules:
+            log("OK", f"-> 伪装非多窗口模式动态匹配: [{r['name']}]")
+    all_rules.extend(dyn_mw_rules)
 
     try:
         with open(cache_path, "w", encoding="utf-8") as f:

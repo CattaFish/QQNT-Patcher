@@ -1,5 +1,7 @@
 package com.tencent.qqnt.patch;
 
+import android.app.Activity;
+import android.os.Build;
 import android.view.View;
 import com.tencent.qqnt.kernel.nativeinterface.IKernelMsgListener;
 import com.tencent.qqnt.kernel.nativeinterface.IQQNTWrapperSession;
@@ -15,6 +17,27 @@ public class PatchBridge {
 
     public static boolean isTabletModeEnabled() {
         return ConfigManager.isModuleEnabled("tablet_mode", false);
+    }
+
+    public static boolean isDisableSplitScreenLimit() {
+        return ConfigManager.isModuleEnabled("disable_split_screen_limit", false);
+    }
+
+    public static boolean isInMultiWindowMode(Object activityObj) {
+        if (isDisableSplitScreenLimit()) {
+            return false;
+        }
+        if (activityObj instanceof Activity && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            return ((Activity) activityObj).isInMultiWindowMode();
+        }
+        // 针对代理包装类的反射兜底
+        if (activityObj != null) {
+            try {
+                java.lang.reflect.Method m = activityObj.getClass().getMethod("isInMultiWindowMode");
+                return (Boolean) m.invoke(activityObj);
+            } catch (Throwable ignored) {}
+        }
+        return false;
     }
 
     public static boolean shouldDropTroopToDo() {

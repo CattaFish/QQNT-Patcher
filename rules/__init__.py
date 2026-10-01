@@ -7,12 +7,9 @@ from .setting_rules import build_setting_rule
 from .tablet_rules import build_tablet_rule
 from .group_file_rules import build_group_file_rules
 from .troop_todo_rules import build_troop_todo_rule
+from .multi_window_rules import build_multi_window_rules
 from .parser import FastDexParser
 
-# =========================================================================
-# ★ 特性总控开关：默认全部为 True！无需额外写代码，新功能默认构建
-# （如果某天调试想彻底关闭某块，将对应值设为 False 即可）
-# =========================================================================
 FEATURES = {
     "BASE": True,            # 基础总线规则 (MSF、AIO长按菜单、收发消息)
     "SECURITY": True,        # 反风控、致盲查签
@@ -20,6 +17,7 @@ FEATURES = {
     "GROUP_FILE": True,      # 群文件下载次数
     "TABLET_MODE": True,     # 平板模式
     "TROOP_TODO": True,      # 静默群待办
+    "MULTI_WINDOW": True,    # 伪装处于非多窗口模式
 }
 
 def get_base_rules():
@@ -44,5 +42,9 @@ def get_dynamic_group_file_rules(dex_data_dict):
 def get_dynamic_troop_todo_rule(dex_data_dict):
     if not FEATURES.get("TROOP_TODO", True): return None
     return build_troop_todo_rule(dex_data_dict)
+
+def get_dynamic_multi_window_rules(dex_data_dict):
+    if not FEATURES.get("MULTI_WINDOW", True): return []
+    return build_multi_window_rules(dex_data_dict)
 
 RULES = get_base_rules()
