@@ -191,3 +191,11 @@ def build_security_rules(dex_data_dict, orig_apk_md5="", orig_sig_md5=""):
 
     sec_rules.extend(static_rules)
     return sec_rules
+# === 规则插件契约 ===
+RULE_ID = "security"
+RULE_NAME = "安全穿透规则"
+RULE_ENABLED = True
+
+def resolve_rules(dex_data_dict, meta=None):
+    meta = meta or {}
+    return build_security_rules(dex_data_dict, meta.get("orig_apk_md5", ""), meta.get("orig_sig_md5", ""))

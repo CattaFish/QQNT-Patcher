@@ -67,3 +67,12 @@ def build_troop_todo_rule(dex_data_dict):
 """
                             }
     return None
+
+# === 规则插件契约 ===
+RULE_ID = "troop_todo"
+RULE_NAME = "静默群待办强提醒"
+RULE_ENABLED = True
+
+def resolve_rules(dex_data_dict, meta=None):
+    r = build_troop_todo_rule(dex_data_dict)
+    return [r] if r else []

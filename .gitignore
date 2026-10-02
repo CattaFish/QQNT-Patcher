@@ -12,7 +12,6 @@ preset_plugins/*
 build_cache/
 bin/
 dex_out/
-tools/
 *.apk
 *.idsig
 *.dex

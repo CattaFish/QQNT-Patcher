@@ -143,3 +143,10 @@ def build_group_file_rules(dex_data_dict):
                         break
 
     return rules_list
+# === 规则插件契约 ===
+RULE_ID = "group_file"
+RULE_NAME = "群文件下载次数"
+RULE_ENABLED = True
+
+def resolve_rules(dex_data_dict, meta=None):
+    return build_group_file_rules(dex_data_dict)

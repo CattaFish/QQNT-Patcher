@@ -36,3 +36,11 @@ def build_setting_rule(dex_data_dict):
     return-object v0"""
         }
     return None
+# === 规则插件契约 ===
+RULE_ID = "setting"
+RULE_NAME = "设置中心动态挂载"
+RULE_ENABLED = True
+
+def resolve_rules(dex_data_dict, meta=None):
+    r = build_setting_rule(dex_data_dict)
+    return [r] if r else []

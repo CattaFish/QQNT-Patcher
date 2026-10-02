@@ -208,3 +208,11 @@ BASE_RULES = [
     return-object v0"""
     }
 ]
+
+# === 规则插件契约 ===
+RULE_ID = "base"
+RULE_NAME = "核心基础总线规则"
+RULE_ENABLED = True
+
+def resolve_rules(dex_data_dict, meta=None):
+    return list(BASE_RULES)

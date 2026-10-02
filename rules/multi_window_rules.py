@@ -52,3 +52,10 @@ def build_multi_window_rules(dex_data_dict):
                     })
 
     return rules_list
+# === 规则插件契约 ===
+RULE_ID = "multi_window"
+RULE_NAME = "伪装非多窗口模式"
+RULE_ENABLED = True
+
+def resolve_rules(dex_data_dict, meta=None):
+    return build_multi_window_rules(dex_data_dict)

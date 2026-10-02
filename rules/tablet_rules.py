@@ -37,3 +37,11 @@ def build_tablet_rule(dex_data_dict):
 """
                         }
     return None
+# === 规则插件契约 ===
+RULE_ID = "tablet"
+RULE_NAME = "平板模式动态穿透"
+RULE_ENABLED = True
+
+def resolve_rules(dex_data_dict, meta=None):
+    r = build_tablet_rule(dex_data_dict)
+    return [r] if r else []

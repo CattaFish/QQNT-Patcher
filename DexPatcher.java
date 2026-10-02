@@ -125,7 +125,7 @@ public class DexPatcher {
                         smaliCode = applyRule(smaliCode, r);
                     }
                     
-                    // ★ 纯内存即时汇编单个 ClassDef，彻底摆脱临时文件
+                    // 纯内存即时汇编单个 ClassDef，彻底摆脱临时文件
                     ClassDef newClassDef = assembleSingleClassInMemory(smaliCode, opcodes, clsType);
                     if (newClassDef != null) {
                         replacedClasses.put(clsType, newClassDef);
@@ -161,21 +161,14 @@ public class DexPatcher {
         return sw.toString();
     }
 
-    /**
-     * ★★★ 核心突破：纯内存 Smali 编译管线 ★★★
-     * 绕过命令行包装器 Smali.assemble()，直接调度 ANTLR 解析流并在内存中构建 DEX 字节数组
-     */
     private static ClassDef assembleSingleClassInMemory(String smaliCode, Opcodes opcodes, String classType) {
         try {
-            // 1. 词法分析 (Lexer)
             StringReader reader = new StringReader(smaliCode);
             smaliFlexLexer lexer = new smaliFlexLexer(reader, opcodes.api);
             
-            // 极其重要：设置虚拟源文件路径，防止 ANTLR 语法报错回溯行号时抛出 NullPointerException
             String virtualFileName = (classType != null) ? classType.replaceAll("[L;]", "").replace('/', '.') + ".smali" : "inline.smali";
             lexer.setSourceFile(new File(virtualFileName));
 
-            // 2. 语法分析 (Parser)
             CommonTokenStream tokens = new CommonTokenStream(lexer);
             smaliParser parser = new smaliParser(tokens);
             parser.setApiLevel(opcodes.api);
@@ -187,7 +180,6 @@ public class DexPatcher {
                 return null;
             }
 
-            // 3. 语法树分析 (AST TreeWalker)
             CommonTree tree = (CommonTree) result.getTree();
             CommonTreeNodeStream treeStream = new CommonTreeNodeStream(tree);
             treeStream.setTokenStream(tokens);
@@ -204,11 +196,9 @@ public class DexPatcher {
                 return null;
             }
 
-            // 4. 纯内存写入：利用 MemoryDataStore 承载字节流，0 磁盘开销
             MemoryDataStore memoryStore = new MemoryDataStore();
             dexBuilder.writeTo(memoryStore);
 
-            // 5. 将内存 byte[] 包装为 DexBackedDexFile 并提取目标 ClassDef
             DexBackedDexFile singleDex = new DexBackedDexFile(opcodes, memoryStore.getData());
             Set<? extends ClassDef> classes = singleDex.getClasses();
             return classes.isEmpty() ? null : classes.iterator().next();
@@ -247,6 +237,20 @@ public class DexPatcher {
 
         Matcher methodMatcher = pattern.matcher(code);
         if (!methodMatcher.find()) {
+            // 自动合成全新的静态代码块，容错目标类无 <clinit> 的情况
+            if ("<clinit>()V".equals(rule.targetMethod) && "INSERT_BEFORE".equals(rule.type)) {
+                StringBuilder sb = new StringBuilder();
+                sb.append("\n# injected by KillerPatcher\n");
+                sb.append(".method static constructor <clinit>()V\n");
+                sb.append("    .registers 0\n\n");
+                sb.append("    ").append(rule.smali.trim()).append("\n\n");
+                sb.append("    return-void\n");
+                sb.append(".end method\n");
+                int idx = code.indexOf("\n.method ");
+                if (idx < 0) idx = code.length();
+                System.out.println("[DexPatcher] -> 目标类无静态代码块，已自动合成全新 <clinit>: " + rule.targetClass);
+                return code.substring(0, idx) + sb.toString() + code.substring(idx);
+            }
             System.err.println("[WARN] 未在类中定位到目标方法: " + rule.targetClass + "->" + rule.targetMethod);
             return code;
         }
