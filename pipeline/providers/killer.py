@@ -30,9 +30,16 @@ class KillerProvider(BaseProvider):
         killer_lib = os.path.join(self.work_killer, "lib")
         if os.path.isdir(killer_lib):
             for abi in target_abis:
-                src_so = os.path.join(killer_lib, abi, "libzcraft.so")
-                if os.path.isfile(src_so):
-                    so_list.append((abi, f"lib/{abi}/libzcraft.so", src_so))
+                abi_dir = os.path.join(killer_lib, abi)
+                if not os.path.isdir(abi_dir): continue
+                
+                # 自动容错：无论本地库名叫 libzcraft.so 还是 libSignedByRS.so，统一识别
+                src_zcraft = os.path.join(abi_dir, "libzcraft.so")
+                src_rs = os.path.join(abi_dir, "libSignedByRS.so")
+                
+                real_src = src_zcraft if os.path.isfile(src_zcraft) else (src_rs if os.path.isfile(src_rs) else None)
+                if real_src:
+                    so_list.append((abi, f"lib/{abi}/libzcraft.so", real_src))
         return so_list
 
     def get_extra_assets(self, ctx):
