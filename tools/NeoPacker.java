@@ -62,7 +62,7 @@ public class NeoPacker {
                     throw new IllegalStateException("Keystore 中未找到别名 androiddebugkey");
                 }
                 sigKey = new GenericSignatureKey(entry.getPrivateKey(), (X509Certificate) entry.getCertificate());
-                System.out.println("[NeoPacker] 已通过 Java 原生加载 Keystore 签名证书 (零 OpenSSL 依赖)");
+                System.out.println("[NeoPacker] 已通过 Java 原生加载 Keystore 签名证书");
             } else {
                 // DER 格式兼容
                 File certFile = new File(args[4]);
@@ -121,7 +121,7 @@ public class NeoPacker {
                         host.putNextVirtualEntry(name);
                         virtualCount++;
                     }
-                    System.out.println("[NeoPacker] 虚拟条目映射完成: " + virtualCount + " 个文件直接复用原包数据段 (零体积膨胀)");
+                    System.out.println("[NeoPacker] 虚拟条目映射完成: " + virtualCount + " 个文件直接复用原包数据段");
                 } else {
                     for (ZipEntry entry : origZip.getEntries()) {
                         String name = entry.getName();

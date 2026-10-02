@@ -56,7 +56,7 @@ class KillerProvider(BaseProvider):
         return ctx.fixed_keystore
 
     def sign(self, ctx, in_apk, out_apk):
-        ctx.log("INFO", "5. 正在执行 NeoPacker 流式打包、MT数据复用与原地 V2 签名 (零 OpenSSL 依赖)...")
+        ctx.log("INFO", "5. 正在执行 NeoPacker 流式打包、MT数据复用与原地 V2 签名...")
         
         keystore_path = self._ensure_keystore(ctx)
         neoapk_jar = os.path.join(ctx.tools_dir, "neoapk.jar")
@@ -81,4 +81,4 @@ class KillerProvider(BaseProvider):
                 ctx.log("WARN", "apksigner 校验提示: " + ret_verify.stderr.strip())
 
         final_mb = os.path.getsize(out_apk) // (1024 * 1024)
-        ctx.log("OK", f"-> 构建完成！最终产物体积: {final_mb}MB (NeoApk MT复用生效，保留原版V1壳，V2签名合法)")
+        ctx.log("OK", f"-> 构建完成！最终产物体积: {final_mb}MB")
