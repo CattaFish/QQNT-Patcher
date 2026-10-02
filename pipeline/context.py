@@ -62,8 +62,14 @@ class PipelineContext:
             os.path.abspath(os.path.join(self.root_dir, "signature-killer")),
         ]
         for c in candidates:
-            if os.path.isdir(c) and os.path.isfile(os.path.join(c, "v2_sign.py")):
-                return c
+            target = os.path.join(c, "signature-killer") if os.path.isdir(os.path.join(c, "signature-killer")) else c
+            # 只要包含 killer 源码模块或 work_killer 目录即视为有效 Killer 仓库，杜绝依赖旧版 Python 脚本
+            if os.path.isdir(target) and (
+                os.path.isdir(os.path.join(target, "killer")) or
+                os.path.isdir(os.path.join(target, "work_killer")) or
+                os.path.isfile(os.path.join(target, "settings.gradle"))
+            ):
+                return target
         return None
 
     def log(self, tag, msg):

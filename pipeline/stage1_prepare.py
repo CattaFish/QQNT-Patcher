@@ -95,6 +95,17 @@ def run_stage1(ctx):
                     zf.write(fp, os.path.relpath(fp, ctx.preset_plugins_dir))
         ctx.preset_plugins_zip = p_zip
 
+    # 新设备自适应保护: 若 work_killer 未解包但 tools/killer-release.aar 存在，自动同步解包
+    if not ctx.no_killer and ctx.work_killer:
+        has_dex = os.path.isfile(os.path.join(ctx.work_killer, "classes.dex"))
+        has_lib = os.path.isdir(os.path.join(ctx.work_killer, "lib"))
+        aar_file = os.path.join(ctx.tools_dir, "killer-release.aar")
+        if not (has_dex and has_lib) and os.path.isfile(aar_file):
+            ctx.log("INFO", "检测到新设备首次运行，正在自动从 AAR 解包 Killer 载荷...")
+            import sync_killer
+            sync_killer.unpack_aar()
+
+
     # 编译 NeoPacker.java
     packer_src = os.path.join(ctx.tools_dir, "NeoPacker.java")
     packer_class = os.path.join(ctx.engine_bin, "com/tencent/qqnt/patcher/NeoPacker.class")
