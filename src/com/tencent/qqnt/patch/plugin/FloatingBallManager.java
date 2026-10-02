@@ -191,10 +191,8 @@ public class FloatingBallManager {
             sLastY = sp.getInt("float_y", (int) (screenH * 0.62f));
 
             ImageView imageView = new ImageView(activity);
-            try (InputStream is = activity.getAssets().open("zzz_icon.png")) {
-                Bitmap bmp = BitmapFactory.decodeStream(is);
-                if (bmp != null) imageView.setImageBitmap(bmp);
-            } catch (Throwable ignored) {}
+            Bitmap bmp = com.tencent.qqnt.patch.PatchAssetHelper.getBitmap(activity, "zzz_icon.png");
+            if (bmp != null) imageView.setImageBitmap(bmp);
 
             imageView.setLayoutParams(new ViewGroup.LayoutParams(size, size));
             sFloatBtn = imageView;

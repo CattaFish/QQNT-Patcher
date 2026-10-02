@@ -90,10 +90,10 @@ public class NeoPacker {
                     maker.closeEntry();
                 }
 
-                // 3.2 Killer 模式: 挂载原包 assets/SignedByRS/input.apk 并建立零拷贝虚拟条目映射
+                // 3.2 Killer 模式: 挂载原包 assets/Zcraft/input.apk 并建立零拷贝虚拟条目映射
                 if (enableKiller) {
-                    System.out.println("[NeoPacker] 正在以 16KB 对齐挂载原包 assets/SignedByRS/input.apk...");
-                    ZipMaker.HostEntryHolder host = maker.putNextHostEntry("assets/SignedByRS/input.apk", origZip);
+                    System.out.println("[NeoPacker] 正在以 16KB 对齐挂载原包 assets/Zcraft/input.apk...");
+                    ZipMaker.HostEntryHolder host = maker.putNextHostEntry("assets/Zcraft/input.apk", origZip);
 
                     int virtualCount = 0;
                     for (ZipEntry entry : origZip.getEntries()) {

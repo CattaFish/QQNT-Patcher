@@ -317,7 +317,7 @@ public class PluginManager {
                 dexBytes = readFileToByteArray(customDex);
             }
             if (dexBytes == null || dexBytes.length == 0) {
-                try (InputStream is = context.getAssets().open("bsh.dex");
+                try (InputStream is = com.tencent.qqnt.patch.PatchAssetHelper.openStream(context, "bsh.dex");
                      ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
                     byte[] buf = new byte[8192];
                     int n;

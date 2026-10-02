@@ -30,13 +30,13 @@ class KillerProvider(BaseProvider):
         killer_lib = os.path.join(self.work_killer, "lib")
         if os.path.isdir(killer_lib):
             for abi in target_abis:
-                src_so = os.path.join(killer_lib, abi, "libSignedByRS.so")
+                src_so = os.path.join(killer_lib, abi, "libzcraft.so")
                 if os.path.isfile(src_so):
-                    so_list.append((abi, f"lib/{abi}/libSignedByRS.so", src_so))
+                    so_list.append((abi, f"lib/{abi}/libzcraft.so", src_so))
         return so_list
 
     def get_extra_assets(self, ctx):
-        # NeoPacker 会原生处理 assets/SignedByRS/input.apk 的 16KB 对齐与流式内嵌，无需外部提前写盘
+        # NeoPacker 会原生处理 assets/Zcraft/input.apk 的 16KB 对齐与流式内嵌，无需外部提前写盘
         return []
 
     def _ensure_v2_keys(self, ctx):

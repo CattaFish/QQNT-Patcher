@@ -122,8 +122,7 @@ public class SettingInjector {
      */
     private static CharSequence createTitleWithIcon(Context context, String assetName, String title, float iconDp) {
         try {
-            InputStream is = context.getAssets().open(assetName);
-            Bitmap rawBitmap = BitmapFactory.decodeStream(is);
+            Bitmap rawBitmap = PatchAssetHelper.getBitmap(context, assetName);
             if (rawBitmap != null) {
                 float density = context.getResources().getDisplayMetrics().density;
                 int iconSize = (int) (iconDp * density + 0.5f);
