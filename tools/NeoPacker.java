@@ -184,7 +184,7 @@ public class NeoPacker {
             if (f.isDirectory()) {
                 scanDirRecursive(root, f, result);
             } else if (f.isFile() && !f.getName().startsWith(".")) {
-                String relPath = root.toPath().relativize(f.toPath()).toString().replace('\', '/');
+                String relPath = root.toPath().relativize(f.toPath()).toString().replace(File.separator, "/");
                 result.put(relPath, f);
             }
         }
