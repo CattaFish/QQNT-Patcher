@@ -58,6 +58,14 @@ def main():
     input_apk = args[0] if len(args) > 0 else "QQ.apk"
     output_apk = args[1] if len(args) > 1 else "QQ_Patched.apk"
 
+    if "--clean" in args:
+        import shutil
+        cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_cache")
+        if os.path.isdir(cache_dir):
+            shutil.rmtree(cache_dir, ignore_errors=True)
+            print("[OK] 构建缓存已彻底清空: build_cache/")
+        sys.exit(0)
+
     if not os.path.exists(input_apk):
         print(f"\033[1;31m[ERROR]\033[0m 未找到输入 APK 文件: {input_apk}")
         sys.exit(1)
