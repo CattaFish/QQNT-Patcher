@@ -46,29 +46,25 @@ class KillerProvider(BaseProvider):
         # NeoPacker 会原生处理 assets/Zcraft/input.apk 的 16KB 对齐与流式内嵌，无需外部提前写盘
         return []
 
-    def _ensure_v2_keys(self, ctx):
-        key_pem = os.path.abspath(os.path.join(self.work_killer, "v2_key.pem"))
-        cert_der = os.path.abspath(os.path.join(self.work_killer, "v2_cert.der"))
-        cert_pem = os.path.abspath(os.path.join(self.work_killer, "v2_cert.pem"))
-        pk8_der = os.path.abspath(os.path.join(self.work_killer, "v2_key_pk8.der"))
+    
 
-        if not (os.path.isfile(pk8_der) and os.path.isfile(cert_der)):
-            ctx.run_cmd(f"openssl genrsa -out {shlex.quote(key_pem)} 2048")
-            ctx.run_cmd(f"openssl pkcs8 -topk8 -nocrypt -in {shlex.quote(key_pem)} -outform DER -out {shlex.quote(pk8_der)}")
-            ctx.run_cmd(f"openssl req -new -x509 -key {shlex.quote(key_pem)} -out {shlex.quote(cert_pem)} -days 10000 -subj /CN=K")
-            ctx.run_cmd(f"openssl x509 -in {shlex.quote(cert_pem)} -outform DER -out {shlex.quote(cert_der)}")
-        return pk8_der, cert_der
+    def _ensure_keystore(self, ctx):
+        # 保证 JDK 自带的 debug.keystore 存在 (所有 Java 环境必带 keytool，免装 openssl)
+        if not os.path.exists(ctx.fixed_keystore):
+            ctx.log("INFO", "正在初始化签名证书 (keytool)...")
+            ctx.run_cmd(f"keytool -genkeypair -v -keystore {shlex.quote(ctx.fixed_keystore)} -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname 'CN=Android Debug,O=Android,C=US'")
+        return ctx.fixed_keystore
 
     def sign(self, ctx, in_apk, out_apk):
-        ctx.log("INFO", "5. 正在执行 NeoPacker 流式打包、MT数据复用与原地 V2 签名...")
+        ctx.log("INFO", "5. 正在执行 NeoPacker 流式打包、MT数据复用与原地 V2 签名 (零 OpenSSL 依赖)...")
         
-        pk8_der, cert_der = self._ensure_v2_keys(ctx)
+        keystore_path = self._ensure_keystore(ctx)
         neoapk_jar = os.path.join(ctx.tools_dir, "neoapk.jar")
         inject_dir = os.path.join(ctx.work_dir, "inject")
         
-        # 调度 NeoPacker 一步到位完成：流式挂载原包 -> 虚拟条目映射 -> 保留V1壳 -> V2原地签名
+        # 调度 NeoPacker: 直接传递标准 Keystore 完成合法 V2 签名
         cp = f"{shlex.quote(neoapk_jar)}:{shlex.quote(ctx.engine_bin)}"
-        cmd = f"java -cp {cp} com.tencent.qqnt.patcher.NeoPacker {shlex.quote(ctx.input_apk)} {shlex.quote(out_apk)} {shlex.quote(inject_dir)} {shlex.quote(pk8_der)} {shlex.quote(cert_der)}"
+        cmd = f"java -cp {cp} com.tencent.qqnt.patcher.NeoPacker {shlex.quote(ctx.input_apk)} {shlex.quote(out_apk)} {shlex.quote(inject_dir)} {shlex.quote(keystore_path)}"
         
         ret = ctx.run_cmd_stream(cmd)
         if ret != 0 or not os.path.isfile(out_apk):

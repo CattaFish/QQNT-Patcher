@@ -9,8 +9,8 @@ import top.nkbe.nza.zip.ZipMaker;
 
 import java.io.*;
 import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.security.KeyFactory;
+import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -20,53 +20,71 @@ import java.util.*;
 public class NeoPacker {
 
     public static void main(String[] args) {
-        if (args.length < 5) {
-            System.err.println("用法: java NeoPacker <orig_apk> <output_apk> <inject_dir> <key_pk8> <cert_der> [--no-killer]");
+        if (args.length < 4) {
+            System.err.println("用法: java NeoPacker <orig_apk> <output_apk> <inject_dir> <keystore_or_pk8> [cert_der] [--no-killer]");
             System.exit(1);
         }
 
         File origFile = new File(args[0]);
         File outFile = new File(args[1]);
         File injectDir = new File(args[2]);
-        File pk8File = new File(args[3]);
-        File certFile = new File(args[4]);
-        boolean enableKiller = args.length < 6 || !"--no-killer".equals(args[5]);
+        File keyOrStoreFile = new File(args[3]);
+        
+        boolean enableKiller = true;
+        for (String arg : args) {
+            if ("--no-killer".equals(arg)) enableKiller = false;
+        }
 
         long t0 = System.currentTimeMillis();
         System.out.println("[NeoPacker] 启动 NeoApk 工业级流式打包签名引擎...");
 
         try {
-            // 1. 扫描 inject_dir 收集所有需要注入/覆盖的文件
+            // 1. 扫描 inject_dir
             Map<String, File> injectedMap = new LinkedHashMap<>();
             if (injectDir.isDirectory()) {
                 scanDirRecursive(injectDir, injectDir, injectedMap);
             }
             System.out.println("[NeoPacker] 待注入新资源/DEX/SO: " + injectedMap.size() + " 项");
 
-            // 2. 准备签名密钥
-            byte[] pk8Bytes = Files.readAllBytes(pk8File.toPath());
-            KeyFactory kf = KeyFactory.getInstance("RSA");
-            PrivateKey privKey = kf.generatePrivate(new PKCS8EncodedKeySpec(pk8Bytes));
-
-            byte[] certBytes = Files.readAllBytes(certFile.toPath());
-            CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            X509Certificate cert = (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(certBytes));
-            GenericSignatureKey sigKey = new GenericSignatureKey(privKey, cert);
+            // 2. 原生加载签名密钥 (自适应 Keystore 或 DER，彻底摆脱 OpenSSL 外部依赖)
+            GenericSignatureKey sigKey = null;
+            String nameLower = keyOrStoreFile.getName().toLowerCase();
+            
+            if (nameLower.endsWith(".keystore") || nameLower.endsWith(".jks") || nameLower.endsWith(".p12")) {
+                KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
+                try (InputStream is = new FileInputStream(keyOrStoreFile)) {
+                    ks.load(is, "android".toCharArray());
+                }
+                KeyStore.PrivateKeyEntry entry = (KeyStore.PrivateKeyEntry) ks.getEntry(
+                        "androiddebugkey", new KeyStore.PasswordProtection("android".toCharArray())
+                );
+                if (entry == null) {
+                    throw new IllegalStateException("Keystore 中未找到别名 androiddebugkey");
+                }
+                sigKey = new GenericSignatureKey(entry.getPrivateKey(), (X509Certificate) entry.getCertificate());
+                System.out.println("[NeoPacker] 已通过 Java 原生加载 Keystore 签名证书 (零 OpenSSL 依赖)");
+            } else {
+                // DER 格式兼容
+                File certFile = new File(args[4]);
+                byte[] pk8Bytes = Files.readAllBytes(keyOrStoreFile.toPath());
+                PrivateKey privKey = KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(pk8Bytes));
+                byte[] certBytes = Files.readAllBytes(certFile.toPath());
+                X509Certificate cert = (X509Certificate) CertificateFactory.getInstance("X.509").generateCertificate(new ByteArrayInputStream(certBytes));
+                sigKey = new GenericSignatureKey(privKey, cert);
+            }
 
             if (outFile.exists()) outFile.delete();
 
             try (ZipFile origZip = new ZipFile(origFile);
                  ZipMaker maker = new ZipMaker(outFile)) {
 
-                // 设置极速压缩等级 (兼顾压缩体积与打包速度，耗时大幅减少)
                 maker.setLevel(ZipMaker.LEVEL_FASTER);
 
-                // 3.1 写入注入/修改的文件 (智能匹配压缩方式，杜绝 DEX 裸存膨胀)
+                // 3.1 写入新资源/DEX/SO (智能继承原包压缩方式，DEX 极速 Deflate 压缩)
                 for (Map.Entry<String, File> e : injectedMap.entrySet()) {
                     String name = e.getKey();
                     File f = e.getValue();
-                    
-                    // ★★★ 核心修复：优先继承原包压缩方式；新增 DEX 启用 Deflate 压缩 ★★★
+
                     ZipEntry origEntry = origZip.getEntry(name);
                     if (origEntry != null) {
                         maker.setMethod(origEntry.getMethod());
@@ -74,7 +92,6 @@ public class NeoPacker {
                         if (name.endsWith(".dex")) {
                             maker.setMethod(ZipMaker.METHOD_DEFLATED);
                         } else if (name.endsWith(".so")) {
-                            // SO 库按原包方式对齐 (若新 SO 则 STORED 并 16KB 对齐)
                             maker.setMethod(ZipMaker.METHOD_STORED);
                         } else if (name.endsWith(".zip") || name.endsWith(".apk")) {
                             maker.setMethod(ZipMaker.METHOD_STORED);
@@ -90,7 +107,7 @@ public class NeoPacker {
                     maker.closeEntry();
                 }
 
-                // 3.2 Killer 模式: 挂载原包 assets/Zcraft/input.apk 并建立零拷贝虚拟条目映射
+                // 3.2 Killer 模式: 挂载原包 assets/Zcraft/input.apk 并建立虚拟条目映射
                 if (enableKiller) {
                     System.out.println("[NeoPacker] 正在以 16KB 对齐挂载原包 assets/Zcraft/input.apk...");
                     ZipMaker.HostEntryHolder host = maker.putNextHostEntry("assets/Zcraft/input.apk", origZip);
@@ -114,7 +131,7 @@ public class NeoPacker {
                     }
                 }
 
-                // 3.3 注入原版 V1 证书三件套壳 (META-INF/*.RSA, *.SF, MANIFEST.MF)
+                // 3.3 注入原版 V1 证书三件套壳
                 byte[] rsaBytes = null;
                 boolean hasCertRsa = false;
                 for (ZipEntry entry : origZip.getEntries()) {
@@ -134,7 +151,7 @@ public class NeoPacker {
                         }
                     }
                 }
-                
+
                 if (!hasCertRsa && rsaBytes != null) {
                     maker.setMethod(ZipMaker.METHOD_STORED);
                     maker.putNextEntry("META-INF/CERT.RSA");
@@ -142,7 +159,7 @@ public class NeoPacker {
                     maker.closeEntry();
                     System.out.println("[NeoPacker] 已自动生成 META-INF/CERT.RSA 原版证书壳别名");
                 }
-            } // ZipMaker close() 自动写入 Central Directory 与 EOCD
+            }
 
             System.out.println("[NeoPacker] ZIP 打包完成，正在执行 NeoApk 原地 V2 签名...");
 
@@ -167,7 +184,7 @@ public class NeoPacker {
             if (f.isDirectory()) {
                 scanDirRecursive(root, f, result);
             } else if (f.isFile() && !f.getName().startsWith(".")) {
-                String relPath = root.toPath().relativize(f.toPath()).toString().replace('\\', '/');
+                String relPath = root.toPath().relativize(f.toPath()).toString().replace('\', '/');
                 result.put(relPath, f);
             }
         }

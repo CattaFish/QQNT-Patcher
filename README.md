@@ -111,6 +111,7 @@ sudo apt install python3 openjdk-17-jdk android-sdk-build-tools zipalign zip cur
 ```bash
 pkg update
 pkg install python openjdk-17 d8 apksigner android-tools zip curl -y
+# 注: 本项目已全量采用 Java 原生 KeyStore 与纯 JVM 引擎，无需安装 openssl-tool
 ```
 
 ---
