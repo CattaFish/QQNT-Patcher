@@ -10,8 +10,10 @@ import shlex
 from rules.engine import discover_rule_plugins
 
 def get_file_mtime_safe(file_path):
-    try: return os.path.getmtime(file_path)
-    except Exception: return 0
+    try:
+        return os.path.getmtime(file_path)
+    except Exception:
+        return 0
 
 def extract_apk_metadata(ctx):
     cache_file = os.path.join(ctx.work_dir, "apk_meta_cache.json")
@@ -19,37 +21,51 @@ def extract_apk_metadata(ctx):
     
     if os.path.exists(cache_file):
         try:
-            with open(cache_file, "r", encoding="utf-8") as cf: d = json.load(cf)
+            with open(cache_file, "r", encoding="utf-8") as cf:
+                d = json.load(cf)
             if d.get("apk_path") == ctx.input_apk and d.get("mtime") == apk_stat.st_mtime and d.get("size") == apk_stat.st_size:
                 ctx.orig_apk_md5 = d.get("apk_md5", "")
                 ctx.orig_sig_md5 = d.get("sig_md5", "")
                 ctx.log("OK", f"  -> 原版 APK MD5 : \033[36m{ctx.orig_apk_md5}\033[0m (缓存)")
                 ctx.log("OK", f"  -> 原版 签名 MD5: \033[36m{ctx.orig_sig_md5}\033[0m (缓存)")
                 return
-        except Exception: pass
+        except Exception:
+            pass
 
     ctx.log("INFO", "0. 正在提取官方原包特征指纹...")
     h = hashlib.md5()
     with open(ctx.input_apk, "rb") as f:
-        while chunk := f.read(65536): h.update(chunk)
+        while chunk := f.read(65536):
+            h.update(chunk)
     ctx.orig_apk_md5 = h.hexdigest().lower()
     ctx.log("OK", f"  -> 原版 APK MD5 : \033[36m{ctx.orig_apk_md5}\033[0m")
 
     try:
         cert_out = subprocess.getoutput(f"apksigner verify --print-certs {shlex.quote(ctx.input_apk)}")
         m = re.search(r"certificate MD5 digest:\s*([0-9a-fA-F]{32})", cert_out)
-        if m: ctx.orig_sig_md5 = m.group(1).lower()
-    except Exception: pass
+        if m:
+            ctx.orig_sig_md5 = m.group(1).lower()
+    except Exception:
+        pass
 
-    if ctx.orig_sig_md5: ctx.log("OK", f"  -> 原版 签名 MD5: \033[36m{ctx.orig_sig_md5}\033[0m")
+    if ctx.orig_sig_md5:
+        ctx.log("OK", f"  -> 原版 签名 MD5: \033[36m{ctx.orig_sig_md5}\033[0m")
 
     try:
         with open(cache_file, "w", encoding="utf-8") as cf:
-            json.dump({"apk_path": ctx.input_apk, "mtime": apk_stat.st_mtime, "size": apk_stat.st_size, "apk_md5": ctx.orig_apk_md5, "sig_md5": ctx.orig_sig_md5}, cf)
-    except Exception: pass
+            json.dump({
+                "apk_path": ctx.input_apk,
+                "mtime": apk_stat.st_mtime,
+                "size": apk_stat.st_size,
+                "apk_md5": ctx.orig_apk_md5,
+                "sig_md5": ctx.orig_sig_md5
+            }, cf)
+    except Exception:
+        pass
 
 def get_defined_classes(dex_bytes):
-    if len(dex_bytes) < 0x70 or dex_bytes[:4] != b'dex\n': return set()
+    if len(dex_bytes) < 0x70 or dex_bytes[:4] != b'dex\n':
+        return set()
     try:
         string_ids_off = struct.unpack_from('<I', dex_bytes, 0x3C)[0]
         type_ids_off = struct.unpack_from('<I', dex_bytes, 0x44)[0]
@@ -60,29 +76,40 @@ def get_defined_classes(dex_bytes):
             desc_idx = struct.unpack_from('<I', dex_bytes, type_ids_off + class_idx * 4)[0]
             str_off = struct.unpack_from('<I', dex_bytes, string_ids_off + desc_idx * 4)[0]
             p = str_off
-            while dex_bytes[p] & 0x80: p += 1
+            while dex_bytes[p] & 0x80:
+                p += 1
             p += 1
             end = dex_bytes.find(b'\x00', p)
-            if end != -1: classes.add(dex_bytes[p:end].decode('utf-8', errors='ignore'))
+            if end != -1:
+                classes.add(dex_bytes[p:end].decode('utf-8', errors='ignore'))
         return classes
-    except Exception: return set()
+    except Exception:
+        return set()
 
 def resolve_dynamic_rules_with_cache(ctx):
     """
     通用插件化规则调度引擎：
     1. 自动扫描 rules/ 下的所有插件模块；
-    2. 基于各插件源码 mtime 独立复用缓存；
-    3. 纯通用循环处理，零硬编码。
+    2. 严格隔离不同 provider（killer / debug / none）下的规则推导缓存；
+    3. 基于各插件源码 mtime 独立复用缓存。
     """
     cache_path = os.path.join(ctx.work_dir, "rule_discovery_cache.json")
+    provider_name = ctx.provider.name
     cache_data = {}
+    full_providers_cache = {}
+
     if os.path.exists(cache_path):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
                 if loaded.get("apk_md5") == ctx.orig_apk_md5:
-                    cache_data = loaded.get("modules", {})
-        except Exception: pass
+                    if "providers" in loaded and isinstance(loaded["providers"], dict):
+                        full_providers_cache = loaded["providers"]
+                        cache_data = full_providers_cache.get(provider_name, {})
+                    elif loaded.get("provider") == provider_name:
+                        cache_data = loaded.get("modules", {})
+        except Exception:
+            pass
 
     rules_dir = os.path.join(ctx.root_dir, "rules")
     plugins = discover_rule_plugins(rules_dir)
@@ -91,14 +118,15 @@ def resolve_dynamic_rules_with_cache(ctx):
         "orig_apk_md5": ctx.orig_apk_md5,
         "orig_sig_md5": ctx.orig_sig_md5,
         "no_killer": ctx.no_killer,
-        "provider": ctx.provider.name,
+        "provider": provider_name,
     }
 
     all_rules = []
     new_cache = dict(cache_data)
 
     for p in plugins:
-        if not p.enabled: continue
+        if not p.enabled:
+            continue
         
         mtime = get_file_mtime_safe(p.file_path)
         cached_entry = cache_data.get(p.plugin_id)
@@ -119,10 +147,18 @@ def resolve_dynamic_rules_with_cache(ctx):
                 
         all_rules.extend(mod_rules)
 
+    full_providers_cache[provider_name] = new_cache
+
     try:
         with open(cache_path, "w", encoding="utf-8") as f:
-            json.dump({"apk_md5": ctx.orig_apk_md5, "modules": new_cache}, f, ensure_ascii=False)
-    except Exception: pass
+            json.dump({
+                "apk_md5": ctx.orig_apk_md5,
+                "provider": provider_name,
+                "providers": full_providers_cache,
+                "modules": new_cache
+            }, f, ensure_ascii=False)
+    except Exception:
+        pass
 
     return all_rules
 
@@ -136,20 +172,22 @@ def run_stage2(ctx):
                 ctx.dex_data_dict[name] = zf.read(name)
 
     def dex_index(name):
-        if name == "classes.dex": return 1
+        if name == "classes.dex":
+            return 1
         m = re.match(r'classes(\d+)\.dex', name)
         return int(m.group(1)) if m else 0
 
     dex_list = sorted(ctx.dex_data_dict.keys(), key=dex_index)
     ctx.max_dex_idx = dex_index(dex_list[-1])
 
-    # 执行插件自发现与缓存解析
+    # 执行插件自发现与缓存解析 (已按 provider 维度隔离)
     ctx.all_rules = resolve_dynamic_rules_with_cache(ctx)
 
     filtered = []
     for r in ctx.all_rules:
         r_name = r.get("name", "")
-        if ctx.only_keywords and not any(k in r_name for k in ctx.only_keywords): continue
+        if ctx.only_keywords and not any(k in r_name for k in ctx.only_keywords):
+            continue
         if ctx.skipped_keywords and any(k in r_name for k in ctx.skipped_keywords):
             ctx.log("WARN", f"-> 调试跳过规则: [{r_name}]")
             continue
@@ -164,7 +202,8 @@ def run_stage2(ctx):
                 c_data = json.load(f)
                 if c_data.get("apk_md5") == ctx.orig_apk_md5:
                     ctx.dex_classes_map = {k: set(v) for k, v in c_data.get("map", {}).items()}
-        except Exception: pass
+        except Exception:
+            pass
 
     if not ctx.dex_classes_map:
         for dex_name in dex_list:
@@ -172,7 +211,8 @@ def run_stage2(ctx):
         try:
             with open(dex_classes_cache_file, "w", encoding="utf-8") as f:
                 json.dump({"apk_md5": ctx.orig_apk_md5, "map": {k: list(v) for k, v in ctx.dex_classes_map.items()}}, f)
-        except Exception: pass
+        except Exception:
+            pass
 
     # 规则与 DEX 分包映射
     ctx.dex_to_rules = {}
