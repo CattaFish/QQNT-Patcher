@@ -1,0 +1,108 @@
+name: Build QQNT Patch & Signature Killer
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: '官方原版 QQ.apk 直链下载 URL'
+        required: true
+        type: string
+      signer:
+        description: '签名模式 (killer=免Root去签 / debug=纯净签名 / none=免签)'
+        required: false
+        default: 'killer'
+        type: choice
+        options:
+          - killer
+          - debug
+          - none
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Checkout qqPatch (主仓库)
+        uses: actions/checkout@v4
+        with:
+          path: 'qqPatch'
+
+      - name: 2. Checkout ApkSignatureKillerEx (去签引擎)
+        uses: actions/checkout@v4
+        with:
+          repository: 'Cattafish/ApkSignatureKillerEx'
+          path: 'ApkSignatureKillerEx'
+
+      - name: 3. Checkout NeoApk (流式打包签名引擎)
+        uses: actions/checkout@v4
+        with:
+          repository: 'HSSkyBoy/NeoApk'
+          path: 'NeoApk'
+
+      - name: 4. Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 5. Setup Android SDK & NDK
+        run: |
+          yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
+          ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --install "build-tools;34.0.0" "platforms;android-34" "ndk;27.0.11902837" >/dev/null || true
+
+      - name: 6. 编译 NeoApk (单体 JAR 产物)
+        run: |
+          cd NeoApk
+          # 动态注入 Java 17 适配与 FatJar 组装任务
+          cat << 'GRADLE_EOF' >> build.gradle.kts
+
+          java {
+              sourceCompatibility = JavaVersion.VERSION_17
+              targetCompatibility = JavaVersion.VERSION_17
+          }
+          kotlin { jvmToolchain(17) }
+          tasks.register<Jar>("fatJar") {
+              archiveBaseName.set("NeoApk")
+              archiveClassifier.set("all")
+              from(sourceSets.main.get().output)
+              dependsOn(configurations.runtimeClasspath)
+              from({ configurations.runtimeClasspath.get().filter { it.name.endsWith("jar") }.map { zipTree(it) } })
+              duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+          }
+          GRADLE_EOF
+          
+          chmod +x gradlew
+          ./gradlew fatJar --no-daemon
+          mkdir -p ../qqPatch/tools
+          cp build/libs/NeoApk-*-all.jar ../qqPatch/tools/neoapk.jar
+
+      - name: 7. 编译 ApkSignatureKillerEx (底层 Native 去签 SO)
+        run: |
+          cd ApkSignatureKillerEx
+          chmod +x gradlew
+          ./gradlew :killer:assembleRelease --no-daemon
+          cp killer/build/outputs/aar/killer-release.aar ../qqPatch/tools/killer-release.aar
+
+      - name: 8. 下载基础组件并同步环境
+        run: |
+          cd qqPatch
+          chmod +x setup_tools.sh
+          ./setup_tools.sh
+          python3 sync_killer.py
+
+      - name: 9. 下载官方原版 QQ
+        run: |
+          cd qqPatch
+          curl -fL --retry 3 -sS -o QQ.apk "${{ github.event.inputs.apk_url }}"
+
+      - name: 10. 执行自动化构建与打包流水线
+        run: |
+          cd qqPatch
+          python3 patcher.py --signer=${{ github.event.inputs.signer }} QQ.apk QQ_Patched.apk
+
+      - name: 11. 上传编译产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: QQ_Patched_Signed
+          path: qqPatch/QQ_Patched.apk
+          retention-days: 7
