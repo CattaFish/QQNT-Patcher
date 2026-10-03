@@ -25,7 +25,8 @@ public class ModuleManager {
         register(new com.tencent.qqnt.patch.modules.AutoRemarkApkModule());
         register(new com.tencent.qqnt.patch.modules.ShowDownloadTimesModule());
         register(new com.tencent.qqnt.patch.modules.ModifyPicSummaryModule());
-        register(new com.tencent.qqnt.patch.modules.DisableSplitScreenLimitModule()); // ★ 新增注册
+        register(new com.tencent.qqnt.patch.modules.DisableSplitScreenLimitModule());
+        register(new com.tencent.qqnt.patch.modules.TgStickerModule());
     }
 
     public static void register(IPatchModule module) {
