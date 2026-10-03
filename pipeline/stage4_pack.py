@@ -33,12 +33,12 @@ def run_stage4(ctx):
     if ctx.patch_dex_path and os.path.isfile(ctx.patch_dex_path):
         shutil.copyfile(ctx.patch_dex_path, os.path.join(inject_dir, patch_dex_name))
 
-    # 4.4 从 Provider 索取额外的 Dex 载荷 (例如 Killer Dex)
+    # 4.4 从 Provider 索取额外的 Dex 载荷 (仅 KillerProvider 会提供)
     for dex_name, src_path in ctx.provider.get_extra_dexes(ctx):
         shutil.copyfile(src_path, os.path.join(inject_dir, dex_name))
         ctx.log("OK", f"-> [Provider:{ctx.provider.name}] 注入 Dex: {dex_name}")
 
-    # 4.5 从 Provider 索取额外的 SO 载荷 (自动按原包 ABI 过滤)
+    # 4.5 从 Provider 索取额外的 SO 载荷 (仅 KillerProvider 会提供，且按原包 ABI 过滤)
     apk_abis = set()
     with zipfile.ZipFile(ctx.input_apk, 'r') as zf:
         for n in zf.namelist():
@@ -51,7 +51,7 @@ def run_stage4(ctx):
         shutil.copyfile(src_path, os.path.join(dst_so_dir, os.path.basename(rel_so_path)))
         ctx.log("OK", f"-> [Provider:{ctx.provider.name}] 注入 Native 库: {rel_so_path}")
 
-    # 4.6 挂载静态资产与扩展插件 (递归扫描支持子目录)
+    # 4.6 挂载静态资产与扩展插件 (递归支持子目录，绝不放入 input.apk)
     if ctx.bsh_standalone_dex and os.path.isfile(ctx.bsh_standalone_dex):
         os.makedirs(os.path.join(inject_dir, "assets"), exist_ok=True)
         shutil.copyfile(ctx.bsh_standalone_dex, os.path.join(inject_dir, "assets/bsh.dex"))
@@ -71,4 +71,4 @@ def run_stage4(ctx):
                     shutil.copyfile(src_fp, dst_fp)
                     ctx.log("OK", f"-> 注入静态图标资源: assets/{rel_fp}")
 
-    ctx.log("OK", "-> 注入目录整理就绪 (由 NeoPacker 在阶段 5 直接接管流式装配)")
+    ctx.log("OK", "-> 注入目录整理就绪 (绝无 input.apk 冗余磁盘拷贝)")
