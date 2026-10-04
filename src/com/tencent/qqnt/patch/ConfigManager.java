@@ -3,6 +3,7 @@ package com.tencent.qqnt.patch;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import java.io.File;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -72,10 +73,35 @@ public class ConfigManager {
                 AppContext.init(ctx);
                 ModuleManager.initAll(ctx);
                 com.tencent.qqnt.patch.plugin.PluginManager.init(ctx);
+
+                // ★ 自动异步清理以往残留的 signed.apk.tmp.* 孤儿垃圾文件，释放数 GB 存储
+                cleanLegacyTmpFilesAsync(ctx);
             }
         } catch (Throwable t) {
             PLog.e("Core", "启动引擎异常", t);
         }
+    }
+
+    private static void cleanLegacyTmpFilesAsync(Context context) {
+        new Thread(() -> {
+            try {
+                File filesDir = context.getFilesDir();
+                File dataDir = filesDir != null ? filesDir.getParentFile() : null;
+                if (dataDir != null && dataDir.exists()) {
+                    File[] files = dataDir.listFiles();
+                    if (files != null) {
+                        for (File f : files) {
+                            if (f.isFile() && f.getName().contains(".apk.tmp.")) {
+                                long mb = f.length() / (1024 * 1024);
+                                if (f.delete()) {
+                                    PLog.i("Core", "已自动清理残留临时文件: " + f.getName() + " (" + mb + "MB)");
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }).start();
     }
 
     public static boolean isModuleEnabled(String moduleId, boolean defValue) {
