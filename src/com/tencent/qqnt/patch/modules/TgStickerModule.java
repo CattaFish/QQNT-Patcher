@@ -47,6 +47,7 @@ public class TgStickerModule implements IPatchModule {
 
     public static final String KEY_REMOVE_QQ_EMOTICONS = "zzz_tg_remove_qq_emoticons";
     public static final String KEY_REMOVE_QQ_MISC      = "zzz_tg_remove_qq_misc";
+    public static final String KEY_PANEL_COLUMNS       = "zzz_tg_panel_columns";
 
     private static final Set<String> ALLOWED_EXTS = new HashSet<>(
             Arrays.asList(".png", ".jpg", ".jpeg", ".gif", ".webp")
@@ -73,9 +74,9 @@ public class TgStickerModule implements IPatchModule {
             return "加载 /zzz/stickers/ 目录下的外部表情包";
         }
         int count = getPanels().size();
-        String summary = "已加载 " + count + " 个表情包";
+        String summary = "已加载 " + count + " 个表情包 (" + getPanelColumns() + "列)";
         if (isRemoveQQEmoticons() || isRemoveQQMisc()) {
-            summary += " (净化已开启)";
+            summary += " · 净化中";
         }
         return summary;
     }
@@ -91,7 +92,7 @@ public class TgStickerModule implements IPatchModule {
     }
 
     // =========================================================================
-    // 外面仅保留一个唯一的配置入口 (与修改图片外显完全对齐)
+    // 外面仅保留一个单独的配置入口
     // =========================================================================
     @Override
     public List<Object> getSubSettingItems(ClassLoader cl, Activity activity, Runnable onRefresh) {
@@ -108,7 +109,7 @@ public class TgStickerModule implements IPatchModule {
     }
 
     // =========================================================================
-    // 沉浸式高级配置弹窗 (卡片拟物化胶囊开关，自适应夜间模式)
+    // 沉浸式高级配置弹窗 (列数调节 + 净化选项)
     // =========================================================================
     @Override
     public void onConfigClick(Activity activity, Runnable onSaved) {
@@ -154,14 +155,22 @@ public class TgStickerModule implements IPatchModule {
         statusDesc.setText("[路径] /Android/media/.../zzz/stickers/\n[状态] 当前已识别 " + currentPanels.size() + " 个表情包文件夹");
         statusDesc.setTextColor(Color.parseColor("#34C759"));
         statusDesc.setLineSpacing(dp2px(activity, 2f), 1f);
-        statusDesc.setPadding(dp2px(activity, 4f), 0, dp2px(activity, 4f), dp2px(activity, 14f));
+        statusDesc.setPadding(dp2px(activity, 4f), 0, dp2px(activity, 4f), dp2px(activity, 12f));
         root.addView(statusDesc);
 
         // 3. 状态变量暂存
+        final int[] tempColumns = new int[]{ getPanelColumns() };
         final boolean[] tempRemoveEmoticons = new boolean[]{ isRemoveQQEmoticons() };
         final boolean[] tempRemoveMisc = new boolean[]{ isRemoveQQMisc() };
 
-        // 4. 开关行 A: 移除 QQ 商店表情
+        // 4. 列数步进调节控件 (默认 5 列，支持 3 ~ 8 列)
+        View columnStepperRow = createColumnStepperRow(
+                activity, isNight, textColor, subTextColor, inputBgColor,
+                tempColumns
+        );
+        root.addView(columnStepperRow);
+
+        // 5. 开关行 A: 移除 QQ 商店表情
         View switchRowA = createCapsuleSwitchRow(
                 activity, isNight, textColor, subTextColor,
                 "移除 QQ 商店表情",
@@ -171,7 +180,7 @@ public class TgStickerModule implements IPatchModule {
         );
         root.addView(switchRowA);
 
-        // 5. 开关行 B: 移除 QQ 杂项入口
+        // 6. 开关行 B: 移除 QQ 杂项入口
         View switchRowB = createCapsuleSwitchRow(
                 activity, isNight, textColor, subTextColor,
                 "移除 QQ 杂项入口",
@@ -181,7 +190,7 @@ public class TgStickerModule implements IPatchModule {
         );
         root.addView(switchRowB);
 
-        // 6. 底部操作按钮栏
+        // 7. 底部操作按钮栏
         LinearLayout btnRow = new LinearLayout(activity);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
         btnRow.setPadding(0, dp2px(activity, 6f), 0, 0);
@@ -211,11 +220,12 @@ public class TgStickerModule implements IPatchModule {
         saveBtn.setBackground(saveBg);
         LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
         saveBtn.setOnClickListener(v -> {
+            setPanelColumns(tempColumns[0]);
             setRemoveQQEmoticons(tempRemoveEmoticons[0]);
             setRemoveQQMisc(tempRemoveMisc[0]);
             sLastScanTime = 0L; // 立即重置缓存
             dialog.dismiss();
-            ToastHelper.show(activity, "已保存表情包配置");
+            ToastHelper.show(activity, "已保存配置 (当前设定: " + tempColumns[0] + "列)");
             if (onSaved != null) onSaved.run();
         });
         btnRow.addView(saveBtn, saveLp);
@@ -229,6 +239,94 @@ public class TgStickerModule implements IPatchModule {
             int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.88);
             dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
+    }
+
+    // =========================================================================
+    // 列数微调组件构建函数 ([-] X 列 [+])
+    // =========================================================================
+    private static View createColumnStepperRow(Activity activity, boolean isNight, int textColor, int subTextColor,
+                                               int inputBgColor, final int[] tempColumns) {
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp2px(activity, 4f), dp2px(activity, 4f), dp2px(activity, 4f), dp2px(activity, 12f));
+
+        LinearLayout textCol = new LinearLayout(activity);
+        textCol.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+
+        TextView tvTitle = new TextView(activity);
+        tvTitle.setText("表情包显示列数");
+        tvTitle.setTextSize(15);
+        tvTitle.getPaint().setFakeBoldText(true);
+        tvTitle.setTextColor(textColor);
+
+        TextView tvDesc = new TextView(activity);
+        tvDesc.setTextSize(12);
+        tvDesc.setTextColor(subTextColor);
+        tvDesc.setPadding(0, dp2px(activity, 2f), 0, 0);
+
+        textCol.addView(tvTitle);
+        textCol.addView(tvDesc);
+        row.addView(textCol, tLp);
+
+        // 步进调节胶囊组件
+        LinearLayout stepper = new LinearLayout(activity);
+        stepper.setOrientation(LinearLayout.HORIZONTAL);
+        stepper.setGravity(Gravity.CENTER);
+        GradientDrawable stepBg = new GradientDrawable();
+        stepBg.setColor(inputBgColor);
+        stepBg.setCornerRadius(dp2px(activity, 8f));
+        stepper.setBackground(stepBg);
+        stepper.setPadding(dp2px(activity, 4f), dp2px(activity, 2f), dp2px(activity, 4f), dp2px(activity, 2f));
+
+        TextView btnMinus = new TextView(activity);
+        btnMinus.setText(" - ");
+        btnMinus.setTextSize(16);
+        btnMinus.getPaint().setFakeBoldText(true);
+        btnMinus.setTextColor(Color.parseColor("#007AFF"));
+        btnMinus.setPadding(dp2px(activity, 8f), dp2px(activity, 4f), dp2px(activity, 8f), dp2px(activity, 4f));
+
+        TextView tvVal = new TextView(activity);
+        tvVal.setTextSize(14);
+        tvVal.getPaint().setFakeBoldText(true);
+        tvVal.setTextColor(textColor);
+        tvVal.setGravity(Gravity.CENTER);
+        tvVal.setMinWidth(dp2px(activity, 44f));
+
+        TextView btnPlus = new TextView(activity);
+        btnPlus.setText(" + ");
+        btnPlus.setTextSize(16);
+        btnPlus.getPaint().setFakeBoldText(true);
+        btnPlus.setTextColor(Color.parseColor("#007AFF"));
+        btnPlus.setPadding(dp2px(activity, 8f), dp2px(activity, 4f), dp2px(activity, 8f), dp2px(activity, 4f));
+
+        Runnable updateDisplay = () -> {
+            tvVal.setText(tempColumns[0] + " 列");
+            tvDesc.setText("每行排列 " + tempColumns[0] + " 个表情 (范围: 3 ~ 8 列)");
+        };
+
+        btnMinus.setOnClickListener(v -> {
+            if (tempColumns[0] > 3) {
+                tempColumns[0]--;
+                updateDisplay.run();
+            }
+        });
+
+        btnPlus.setOnClickListener(v -> {
+            if (tempColumns[0] < 8) {
+                tempColumns[0]++;
+                updateDisplay.run();
+            }
+        });
+
+        stepper.addView(btnMinus);
+        stepper.addView(tvVal);
+        stepper.addView(btnPlus);
+        row.addView(stepper);
+
+        updateDisplay.run();
+        return row;
     }
 
     private interface OnSwitchStateListener {
@@ -262,7 +360,7 @@ public class TgStickerModule implements IPatchModule {
         textCol.addView(tvDesc);
         row.addView(textCol, tLp);
 
-        // 拟物化高清晰自绘胶囊开关
+        // 拟物化自绘胶囊开关
         int trackW = dp2px(activity, 50f);
         int trackH = dp2px(activity, 28f);
         int thumbSize = dp2px(activity, 22f);
@@ -322,6 +420,19 @@ public class TgStickerModule implements IPatchModule {
 
         updateUI.run();
         return row;
+    }
+
+    public static int getPanelColumns() {
+        String val = ConfigManager.getString(KEY_PANEL_COLUMNS, "5");
+        try {
+            int c = Integer.parseInt(val.trim());
+            if (c >= 3 && c <= 8) return c;
+        } catch (Throwable ignored) {}
+        return 5; // 默认 5 列
+    }
+
+    public static void setPanelColumns(int columns) {
+        ConfigManager.setString(KEY_PANEL_COLUMNS, String.valueOf(columns));
     }
 
     public static boolean isRemoveQQEmoticons() {
@@ -419,7 +530,7 @@ public class TgStickerModule implements IPatchModule {
     }
 
     // =========================================================================
-    // 静态插桩调用 1: 拦截并修改 Tab 列表 (执行净化过滤 + 插入 TG 贴纸)
+    // 静态插桩调用 1: 拦截并修改 Tab 列表 (动态列数 + 净化过滤 + 插入 TG 贴纸)
     // =========================================================================
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static List modifyPanelDataList(List originalList) {
@@ -446,7 +557,6 @@ public class TgStickerModule implements IPatchModule {
                 if (!(itemObj instanceof EmotionPanelInfo)) continue;
                 EmotionPanelInfo info = (EmotionPanelInfo) itemObj;
 
-                // 自身注入的贴纸包不参与净化删除
                 if (info.emotionPkg != null && info.emotionPkg.epId != null && info.emotionPkg.epId.startsWith(EPID_PREFIX)) {
                     continue;
                 }
@@ -470,6 +580,9 @@ public class TgStickerModule implements IPatchModule {
             // -----------------------------------------------------------------
             List<StickerPanel> panels = getPanels();
             if (panels.isEmpty()) return originalList;
+
+            // 动态获取用户设置的列数 (默认 5)
+            int columnNum = getPanelColumns();
 
             // 1. 优先寻找未被净化的第一个原生“商城大表情包 (type == 6)”，插在其正前方
             int targetInsertIndex = -1;
@@ -549,14 +662,15 @@ public class TgStickerModule implements IPatchModule {
                 String epId = panel.getEpId();
                 if (existingEpIds.contains(epId)) continue;
 
-                EmotionPanelInfo panelInfo = new EmotionPanelInfo(6, 4, panel.getEmoticonPackage());
+                // 使用用户配置的 columnNum 动态实例化
+                EmotionPanelInfo panelInfo = new EmotionPanelInfo(6, columnNum, panel.getEmoticonPackage());
                 int insertPos = Math.min(targetInsertIndex + offset, originalList.size());
                 originalList.add(insertPos, panelInfo);
                 existingEpIds.add(epId);
                 offset++;
             }
 
-            PLog.d(TAG, "挂载 TG 贴纸完成 (净化: 商城=" + removeEmoticons + ", 杂项=" + removeMisc + ", 插入点=" + targetInsertIndex + ")");
+            PLog.d(TAG, "挂载 TG 贴纸完成 (列数: " + columnNum + ", 净化: 商城=" + removeEmoticons + ", 杂项=" + removeMisc + ")");
         } catch (Throwable t) {
             PLog.e(TAG, "modifyPanelDataList 异常", t);
         }
