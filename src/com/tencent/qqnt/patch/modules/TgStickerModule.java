@@ -49,6 +49,7 @@ public class TgStickerModule implements IPatchModule {
     public static final String KEY_REMOVE_QQ_MISC      = "zzz_tg_remove_qq_misc";
     public static final String KEY_PANEL_COLUMNS       = "zzz_tg_panel_columns";
 
+    // 严禁包含视频格式，仅放行 QQ 原生图片解码器支持的格式 (支持动态 WebP 与 GIF)
     private static final Set<String> ALLOWED_EXTS = new HashSet<>(
             Arrays.asList(".png", ".jpg", ".jpeg", ".gif", ".webp")
     );
@@ -56,7 +57,7 @@ public class TgStickerModule implements IPatchModule {
     // 面板缓存
     private static final Map<String, StickerPanel> sPanelMap = new ConcurrentHashMap<>();
     private static volatile long sLastScanTime = 0L;
-    private static final long SCAN_INTERVAL_MS = 3000L; // 3 秒内避免频繁扫盘
+    private static final long SCAN_INTERVAL_MS = 5000L;
 
     @Override
     public String getId() {
@@ -73,7 +74,7 @@ public class TgStickerModule implements IPatchModule {
         if (!isEnabled()) {
             return "加载 /zzz/stickers/ 目录下的外部表情包";
         }
-        int count = getPanels().size();
+        int count = sPanelMap.size();
         String summary = "已加载 " + count + " 个表情包 (" + getPanelColumns() + "列)";
         if (isRemoveQQEmoticons() || isRemoveQQMisc()) {
             summary += " · 净化中";
@@ -91,9 +92,6 @@ public class TgStickerModule implements IPatchModule {
         return true;
     }
 
-    // =========================================================================
-    // 外面仅保留一个单独的配置入口
-    // =========================================================================
     @Override
     public List<Object> getSubSettingItems(ClassLoader cl, Activity activity, Runnable onRefresh) {
         List<Object> items = new ArrayList<>();
@@ -108,9 +106,6 @@ public class TgStickerModule implements IPatchModule {
         return items;
     }
 
-    // =========================================================================
-    // 沉浸式高级配置弹窗 (列数调节 + 净化选项)
-    // =========================================================================
     @Override
     public void onConfigClick(Activity activity, Runnable onSaved) {
         if (activity == null || activity.isFinishing()) return;
@@ -138,7 +133,6 @@ public class TgStickerModule implements IPatchModule {
         bg.setCornerRadius(dp2px(activity, 18f));
         root.setBackground(bg);
 
-        // 1. 标题
         TextView title = new TextView(activity);
         title.setText("Telegram 表情包设置");
         title.setTextSize(17);
@@ -148,29 +142,25 @@ public class TgStickerModule implements IPatchModule {
         title.setPadding(0, 0, 0, dp2px(activity, 10f));
         root.addView(title);
 
-        // 2. 状态与存储路径信息栏
         List<StickerPanel> currentPanels = getPanels();
         TextView statusDesc = new TextView(activity);
         statusDesc.setTextSize(12);
-        statusDesc.setText("[路径] /Android/media/.../zzz/stickers/\n[状态] 当前已识别 " + currentPanels.size() + " 个表情包文件夹");
+        statusDesc.setText("[路径] /Android/media/.../zzz/stickers/\n[状态] 当前识别 " + currentPanels.size() + " 个表情包 (支持 PNG/JPG/WebP/GIF)");
         statusDesc.setTextColor(Color.parseColor("#34C759"));
         statusDesc.setLineSpacing(dp2px(activity, 2f), 1f);
         statusDesc.setPadding(dp2px(activity, 4f), 0, dp2px(activity, 4f), dp2px(activity, 12f));
         root.addView(statusDesc);
 
-        // 3. 状态变量暂存
         final int[] tempColumns = new int[]{ getPanelColumns() };
         final boolean[] tempRemoveEmoticons = new boolean[]{ isRemoveQQEmoticons() };
         final boolean[] tempRemoveMisc = new boolean[]{ isRemoveQQMisc() };
 
-        // 4. 列数步进调节控件 (默认 5 列，支持 3 ~ 8 列)
         View columnStepperRow = createColumnStepperRow(
                 activity, isNight, textColor, subTextColor, inputBgColor,
                 tempColumns
         );
         root.addView(columnStepperRow);
 
-        // 5. 开关行 A: 移除 QQ 商店表情
         View switchRowA = createCapsuleSwitchRow(
                 activity, isNight, textColor, subTextColor,
                 "移除 QQ 商店表情",
@@ -180,7 +170,6 @@ public class TgStickerModule implements IPatchModule {
         );
         root.addView(switchRowA);
 
-        // 6. 开关行 B: 移除 QQ 杂项入口
         View switchRowB = createCapsuleSwitchRow(
                 activity, isNight, textColor, subTextColor,
                 "移除 QQ 杂项入口",
@@ -190,7 +179,6 @@ public class TgStickerModule implements IPatchModule {
         );
         root.addView(switchRowB);
 
-        // 7. 底部操作按钮栏
         LinearLayout btnRow = new LinearLayout(activity);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
         btnRow.setPadding(0, dp2px(activity, 6f), 0, 0);
@@ -223,7 +211,8 @@ public class TgStickerModule implements IPatchModule {
             setPanelColumns(tempColumns[0]);
             setRemoveQQEmoticons(tempRemoveEmoticons[0]);
             setRemoveQQMisc(tempRemoveMisc[0]);
-            sLastScanTime = 0L; // 立即重置缓存
+            sLastScanTime = 0L;
+            sPanelMap.clear();
             dialog.dismiss();
             ToastHelper.show(activity, "已保存配置 (当前设定: " + tempColumns[0] + "列)");
             if (onSaved != null) onSaved.run();
@@ -241,9 +230,6 @@ public class TgStickerModule implements IPatchModule {
         }
     }
 
-    // =========================================================================
-    // 列数微调组件构建函数 ([-] X 列 [+])
-    // =========================================================================
     private static View createColumnStepperRow(Activity activity, boolean isNight, int textColor, int subTextColor,
                                                int inputBgColor, final int[] tempColumns) {
         LinearLayout row = new LinearLayout(activity);
@@ -270,7 +256,6 @@ public class TgStickerModule implements IPatchModule {
         textCol.addView(tvDesc);
         row.addView(textCol, tLp);
 
-        // 步进调节胶囊组件
         LinearLayout stepper = new LinearLayout(activity);
         stepper.setOrientation(LinearLayout.HORIZONTAL);
         stepper.setGravity(Gravity.CENTER);
@@ -360,7 +345,6 @@ public class TgStickerModule implements IPatchModule {
         textCol.addView(tvDesc);
         row.addView(textCol, tLp);
 
-        // 拟物化自绘胶囊开关
         int trackW = dp2px(activity, 50f);
         int trackH = dp2px(activity, 28f);
         int thumbSize = dp2px(activity, 22f);
@@ -428,7 +412,7 @@ public class TgStickerModule implements IPatchModule {
             int c = Integer.parseInt(val.trim());
             if (c >= 3 && c <= 8) return c;
         } catch (Throwable ignored) {}
-        return 5; // 默认 5 列
+        return 5;
     }
 
     public static void setPanelColumns(int columns) {
@@ -506,7 +490,7 @@ public class TgStickerModule implements IPatchModule {
         Set<String> currentKeys = new HashSet<>();
 
         if (subDirs != null) {
-            Arrays.sort(subDirs, (f1, f2) -> f1.getName().compareToIgnoreCase(f2.getName()));
+            Arrays.sort(subDirs, (f1, f2) -> compareNatural(f1.getName(), f2.getName()));
             for (File dir : subDirs) {
                 if (dir.isDirectory() && !dir.getName().startsWith(".")) {
                     String panelId = dir.getName();
@@ -530,7 +514,7 @@ public class TgStickerModule implements IPatchModule {
     }
 
     // =========================================================================
-    // 静态插桩调用 1: 拦截并修改 Tab 列表 (动态列数 + 净化过滤 + 插入 TG 贴纸)
+    // 静态插桩调用 1: 拦截并修改 Tab 列表 (带 Reaction 防御与零卡顿保护)
     // =========================================================================
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static List modifyPanelDataList(List originalList) {
@@ -538,19 +522,24 @@ public class TgStickerModule implements IPatchModule {
             return originalList;
         }
 
+        // ★ 核心关键防御：如果只有一个元素且为 AIOEmoReply (type 16，消息长按快捷回应)，绝对不处理！
+        if (originalList.size() == 1) {
+            Object first = originalList.get(0);
+            if (first instanceof EmotionPanelInfo && ((EmotionPanelInfo) first).type == 16) {
+                return originalList;
+            }
+        }
+
         try {
             boolean removeEmoticons = isRemoveQQEmoticons();
             boolean removeMisc = isRemoveQQMisc();
 
-            // 基础白名单：系统 Emoji/小黄脸(7/1), 收藏表情(4), 搜索(18)
             Set<Integer> baseWhiteList = new HashSet<>(Arrays.asList(18, 7, 1, 4));
             if (!removeMisc) {
                 baseWhiteList.addAll(Arrays.asList(13, 12, 17, 19, 21, 14));
             }
 
-            // -----------------------------------------------------------------
-            // 阶段 A: 执行净化过滤
-            // -----------------------------------------------------------------
+            // 净化过滤
             Iterator iterator = originalList.iterator();
             while (iterator.hasNext()) {
                 Object itemObj = iterator.next();
@@ -561,7 +550,6 @@ public class TgStickerModule implements IPatchModule {
                     continue;
                 }
 
-                // 1. 过滤商城大表情 (type == 6 或 10)
                 if (info.type == 6 || info.type == 10) {
                     if (removeEmoticons) {
                         iterator.remove();
@@ -569,22 +557,17 @@ public class TgStickerModule implements IPatchModule {
                     continue;
                 }
 
-                // 2. 过滤杂项 (商城入口13, GIF12, 推荐8, 动效推广等)
                 if (!baseWhiteList.contains(info.type)) {
                     iterator.remove();
                 }
             }
 
-            // -----------------------------------------------------------------
-            // 阶段 B: 计算目标插入位置并挂载 Telegram 贴纸
-            // -----------------------------------------------------------------
             List<StickerPanel> panels = getPanels();
             if (panels.isEmpty()) return originalList;
 
-            // 动态获取用户设置的列数 (默认 5)
             int columnNum = getPanelColumns();
 
-            // 1. 优先寻找未被净化的第一个原生“商城大表情包 (type == 6)”，插在其正前方
+            // 查找插入点
             int targetInsertIndex = -1;
             for (int i = 0; i < originalList.size(); i++) {
                 Object itemObj = originalList.get(i);
@@ -599,41 +582,32 @@ public class TgStickerModule implements IPatchModule {
                 }
             }
 
-            // 2. 若无商城大表情，则寻找“收藏表情 (type == 4)”，插在其后
             if (targetInsertIndex < 0) {
                 for (int i = 0; i < originalList.size(); i++) {
                     Object itemObj = originalList.get(i);
-                    if (itemObj instanceof EmotionPanelInfo) {
-                        EmotionPanelInfo item = (EmotionPanelInfo) itemObj;
-                        if (item.type == 4) {
-                            targetInsertIndex = i + 1;
-                            break;
-                        }
+                    if (itemObj instanceof EmotionPanelInfo && ((EmotionPanelInfo) itemObj).type == 4) {
+                        targetInsertIndex = i + 1;
+                        break;
                     }
                 }
             }
 
-            // 3. 若无收藏表情，则寻找“GIF动图 (type == 12)”，插在其后
             if (targetInsertIndex < 0) {
                 for (int i = 0; i < originalList.size(); i++) {
                     Object itemObj = originalList.get(i);
-                    if (itemObj instanceof EmotionPanelInfo) {
-                        EmotionPanelInfo item = (EmotionPanelInfo) itemObj;
-                        if (item.type == 12) {
-                            targetInsertIndex = i + 1;
-                            break;
-                        }
+                    if (itemObj instanceof EmotionPanelInfo && ((EmotionPanelInfo) itemObj).type == 12) {
+                        targetInsertIndex = i + 1;
+                        break;
                     }
                 }
             }
 
-            // 4. 若无上述项，保证插在末尾的“商城加号 (13) / 设置 (14)”之前
             if (targetInsertIndex < 0) {
                 for (int i = 0; i < originalList.size(); i++) {
                     Object itemObj = originalList.get(i);
                     if (itemObj instanceof EmotionPanelInfo) {
-                        EmotionPanelInfo item = (EmotionPanelInfo) itemObj;
-                        if (item.type == 13 || item.type == 14 || item.type == 8) {
+                        int t = ((EmotionPanelInfo) itemObj).type;
+                        if (t == 13 || t == 14 || t == 8) {
                             targetInsertIndex = i;
                             break;
                         }
@@ -641,12 +615,10 @@ public class TgStickerModule implements IPatchModule {
                 }
             }
 
-            // 5. 兜底插入位置
             if (targetInsertIndex < 0) {
                 targetInsertIndex = originalList.size();
             }
 
-            // 查重并按序插入
             Set<String> existingEpIds = new HashSet<>();
             for (Object itemObj : originalList) {
                 if (itemObj instanceof EmotionPanelInfo) {
@@ -662,7 +634,6 @@ public class TgStickerModule implements IPatchModule {
                 String epId = panel.getEpId();
                 if (existingEpIds.contains(epId)) continue;
 
-                // 使用用户配置的 columnNum 动态实例化
                 EmotionPanelInfo panelInfo = new EmotionPanelInfo(6, columnNum, panel.getEmoticonPackage());
                 int insertPos = Math.min(targetInsertIndex + offset, originalList.size());
                 originalList.add(insertPos, panelInfo);
@@ -670,7 +641,6 @@ public class TgStickerModule implements IPatchModule {
                 offset++;
             }
 
-            PLog.d(TAG, "挂载 TG 贴纸完成 (列数: " + columnNum + ", 净化: 商城=" + removeEmoticons + ", 杂项=" + removeMisc + ")");
         } catch (Throwable t) {
             PLog.e(TAG, "modifyPanelDataList 异常", t);
         }
@@ -678,9 +648,6 @@ public class TgStickerModule implements IPatchModule {
         return originalList;
     }
 
-    // =========================================================================
-    // 静态插桩调用 2: 获取自定义表情包内的表情网格列表
-    // =========================================================================
     public static List<EmotionPanelData> getEmoticonData(Object emotionPanelInfoObj) {
         if (emotionPanelInfoObj instanceof EmotionPanelInfo) {
             EmotionPanelInfo info = (EmotionPanelInfo) emotionPanelInfoObj;
@@ -699,9 +666,6 @@ public class TgStickerModule implements IPatchModule {
         return null;
     }
 
-    // =========================================================================
-    // 静态插桩调用 3: 判断是否为 TG 表情包 (防 handleIPSite 崩溃)
-    // =========================================================================
     public static boolean isTgEmoticonPackage(Object pkgObj) {
         if (pkgObj instanceof EmoticonPackage) {
             EmoticonPackage pkg = (EmoticonPackage) pkgObj;
@@ -710,9 +674,6 @@ public class TgStickerModule implements IPatchModule {
         return false;
     }
 
-    // =========================================================================
-    // 静态插桩调用 4: 生成 Tab 栏图标 URL (返回 file:// 本地协议)
-    // =========================================================================
     public static URL getTabUrl(String epId) {
         if (epId != null && epId.startsWith(EPID_PREFIX)) {
             String panelId = epId.substring(EPID_PREFIX.length());
@@ -729,9 +690,6 @@ public class TgStickerModule implements IPatchModule {
         return null;
     }
 
-    // =========================================================================
-    // 静态插桩调用 5: 判断是否为 TG 表情 Info (转调 getZoomDrawable 防 OOM)
-    // =========================================================================
     public static boolean isTgFavoriteEmoticon(Object favInfoObj) {
         if (favInfoObj instanceof FavoriteEmoticonInfo) {
             FavoriteEmoticonInfo fav = (FavoriteEmoticonInfo) favInfoObj;
@@ -748,7 +706,44 @@ public class TgStickerModule implements IPatchModule {
     }
 
     // =========================================================================
-    // 贴纸面板数据管理内部类
+    // 极速自然数字排序算法 (0 对象创建，纯字符流计算，杜绝卡顿)
+    // =========================================================================
+    public static int compareNatural(String s1, String s2) {
+        if (s1 == null || s2 == null) return 0;
+        int i = 0, j = 0;
+        int len1 = s1.length(), len2 = s2.length();
+        while (i < len1 && j < len2) {
+            char c1 = s1.charAt(i);
+            char c2 = s2.charAt(j);
+            if (Character.isDigit(c1) && Character.isDigit(c2)) {
+                long n1 = 0;
+                while (i < len1 && Character.isDigit(s1.charAt(i))) {
+                    n1 = n1 * 10 + (s1.charAt(i) - '0');
+                    i++;
+                }
+                long n2 = 0;
+                while (j < len2 && Character.isDigit(s2.charAt(j))) {
+                    n2 = n2 * 10 + (s2.charAt(j) - '0');
+                    j++;
+                }
+                if (n1 != n2) {
+                    return Long.compare(n1, n2);
+                }
+            } else {
+                char l1 = Character.toLowerCase(c1);
+                char l2 = Character.toLowerCase(c2);
+                if (l1 != l2) {
+                    return l1 - l2;
+                }
+                i++;
+                j++;
+            }
+        }
+        return len1 - len2;
+    }
+
+    // =========================================================================
+    // 贴纸面板数据管理内部类 (纯图片秒级扫描，杜绝视频阻塞)
     // =========================================================================
     public static class StickerPanel {
         private final File dir;
@@ -768,7 +763,7 @@ public class TgStickerModule implements IPatchModule {
             this.pkg.epId = this.epId;
             this.pkg.name = panelId;
             this.pkg.type = 3;
-            this.pkg.status = 2; // 已就绪
+            this.pkg.status = 2;
             this.pkg.valid = true;
             this.pkg.aio = true;
             this.pkg.latestVersion = 1488377358;
@@ -794,7 +789,8 @@ public class TgStickerModule implements IPatchModule {
             coverPath = null;
 
             if (files != null) {
-                Arrays.sort(files, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+                Arrays.sort(files, (a, b) -> compareNatural(a.getName(), b.getName()));
+
                 for (File f : files) {
                     String name = f.getName();
                     if (name.startsWith(".") || name.endsWith(".nomedia") || name.endsWith(".txt.jpg")) continue;
@@ -802,6 +798,7 @@ public class TgStickerModule implements IPatchModule {
                     int dotIdx = name.lastIndexOf(".");
                     if (dotIdx == -1) continue;
                     String ext = name.substring(dotIdx).toLowerCase();
+                    // 仅收录合法图片文件，遇到 .webm 或其他非图片文件安全忽略，绝不卡死
                     if (!ALLOWED_EXTS.contains(ext)) continue;
 
                     if (name.startsWith("__cover__.")) {
