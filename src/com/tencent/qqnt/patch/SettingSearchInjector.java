@@ -13,8 +13,8 @@ public class SettingSearchInjector {
         if (!(rootNodeObj instanceof c)) return;
         try {
             c rootNode = (c) rootNodeObj;
-            
-            // 防重复挂载检测
+
+            // 防重复挂载检查
             ArrayList<c> currentChildren = rootNode.d();
             if (currentChildren != null) {
                 for (c child : currentChildren) {
@@ -24,9 +24,9 @@ public class SettingSearchInjector {
                 }
             }
 
-            // 挂载全动态 Zzz 分类根节点
+            // 注入动态 Zzz 根节点
             rootNode.a(new ZzzParentSearchNode());
-            PLog.i("Search", "已成功将全动态 Zzz 功能树挂载进前台搜索索引！");
+            PLog.i("Search", "已成功将全动态 Zzz 功能树挂载进原生搜索索引！");
         } catch (Throwable t) {
             PLog.e("Search", "挂载搜索节点异常", t);
         }
@@ -77,10 +77,12 @@ public class SettingSearchInjector {
         @Override
         public void f(String title, Context context, String search) {
             PLog.i("Search", "用户在搜索结果中点击了: " + title);
+
+            // 智能分流并带上点击项标题触发原生滚动与闪烁高亮
             if ("动态脚本".equals(title) || isPluginItem(title)) {
-                ZzzSettingFragment.startPlugins(context);
+                ZzzSettingFragment.startPlugins(context, title);
             } else {
-                ZzzSettingFragment.startCore(context);
+                ZzzSettingFragment.startCore(context, title);
             }
         }
 
@@ -122,9 +124,9 @@ public class SettingSearchInjector {
         @Override
         public void f(String title, Context context, String search) {
             if (isPlugin) {
-                ZzzSettingFragment.startPlugins(context);
+                ZzzSettingFragment.startPlugins(context, title);
             } else {
-                ZzzSettingFragment.startCore(context);
+                ZzzSettingFragment.startCore(context, title);
             }
         }
     }

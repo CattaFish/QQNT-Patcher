@@ -26,15 +26,37 @@ public class ZzzSettingFragment {
     public static final String PAGE_CORE = "page_core";
     public static final String PAGE_PLUGINS = "page_plugins";
 
-    public static void startCore(Context context) { start(context, PAGE_CORE); }
-    public static void startPlugins(Context context) { start(context, PAGE_PLUGINS); }
+    public static void startCore(Context context) { 
+        start(context, PAGE_CORE, null); 
+    }
+    
+    public static void startCore(Context context, String searchTitle) { 
+        start(context, PAGE_CORE, searchTitle); 
+    }
+
+    public static void startPlugins(Context context) { 
+        start(context, PAGE_PLUGINS, null); 
+    }
+    
+    public static void startPlugins(Context context, String searchTitle) { 
+        start(context, PAGE_PLUGINS, searchTitle); 
+    }
 
     public static void start(Context context, String pageType) {
+        start(context, pageType, null);
+    }
+
+    public static void start(Context context, String pageType, String searchTitle) {
         try {
             ClassLoader cl = context.getClassLoader();
             Intent intent = new Intent();
             intent.putExtra(EXTRA_FLAG, true);
             intent.putExtra(EXTRA_PAGE, pageType);
+
+            // 传递 QQ 原生高亮与滚动定位识别的搜索标题
+            if (searchTitle != null && !searchTitle.trim().isEmpty()) {
+                intent.putExtra("setting_search_title", searchTitle);
+            }
 
             Class<?> fragmentClass = cl.loadClass("com.tencent.mobileqq.setting.generalSetting.GeneralSettingFragment");
             Class<?> activityClass = cl.loadClass("com.tencent.mobileqq.activity.QPublicFragmentActivity");
@@ -149,7 +171,6 @@ public class ZzzSettingFragment {
                 // =====================================================
                 // 页面 A: Zzz 核心设置页
                 // =====================================================
-
                 List<Object> funcItems = new ArrayList<>();
                 for (IPatchModule module : ModuleManager.getModules()) {
                     if (!module.showInSettings()) continue;
@@ -162,7 +183,6 @@ public class ZzzSettingFragment {
                                 m.setEnabled(checked);
                                 ToastHelper.show(activity, m.getName() + (checked ? " 已开启" : " 已关闭"));
 
-                                // 若具备二级配置栏，切换主开关时延迟重绘，即时展开/折叠二级项
                                 if (m.hasConfig()) {
                                     new Handler(Looper.getMainLooper()).post(() -> {
                                         if (!activity.isFinishing() && !activity.isDestroyed()) {

@@ -98,7 +98,7 @@ def build_setting_rules(dex_data_dict):
     return-object v0"""
         })
 
-    # 2. ★ 前台搜索 UI 树动态嗅探与挂载 (自适应任意混淆方法名与字段名)
+    # 2. 前台搜索 UI 树动态嗅探与挂载 (自适应任意混淆方法名与字段名)
     search_frag_cls = "Lcom/tencent/mobileqq/setting/search/FunctionSearchFragment;"
     for _, dex_bytes in dex_data_dict.items():
         if b"FunctionSearchFragment" in dex_bytes:
