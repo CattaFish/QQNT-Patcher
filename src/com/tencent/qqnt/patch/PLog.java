@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Environment;
@@ -16,6 +17,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import me.yxp.qfun.utils.ui.ThemeHelper;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -56,7 +59,6 @@ public class PLog {
     );
 
     static {
-        // 静态就绪锚点
         i("Core", "PLog 运行监视器已就绪");
     }
 
@@ -102,7 +104,6 @@ public class PLog {
 
         String formattedLine = "[" + time + "][" + levelChar + "][" + subTag + "] " + msg;
 
-        // ★★★ 核心关键：内存环形缓冲永远无条件记录，打开弹窗随时能看！★★★
         synchronized (sLogBuffer) {
             if (sLogBuffer.size() >= MAX_BUFFER_LINES) {
                 sLogBuffer.removeFirst();
@@ -110,7 +111,6 @@ public class PLog {
             sLogBuffer.add(formattedLine);
         }
 
-        // 仅在输出到系统底层 Logcat 时，才受调试开关控制
         boolean debugOn = ConfigManager.isDebugLogEnabled();
         if (priority >= WARN || debugOn) {
             String fullMsg = "[" + subTag + "] " + msg;
@@ -180,6 +180,19 @@ public class PLog {
     public static void showLogDialog(Activity activity) {
         if (activity == null || activity.isFinishing()) return;
 
+        // 智能感知日间 / 夜间模式
+        boolean isNight = false;
+        try {
+            isNight = ThemeHelper.INSTANCE.isNightMode();
+        } catch (Throwable ignored) {}
+
+        int bgColor           = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
+        int titleTextColor    = isNight ? Color.WHITE : Color.parseColor("#1D1D1F");
+        int logBgColor        = isNight ? Color.parseColor("#000000") : Color.parseColor("#F2F2F7");
+        int logTextColor      = isNight ? Color.parseColor("#34C759") : Color.parseColor("#1C1C1E");
+        int clearBtnBgColor   = isNight ? Color.parseColor("#2C2C2E") : Color.parseColor("#E5E5EA");
+        int clearBtnTextColor = isNight ? Color.parseColor("#FF453A") : Color.parseColor("#FF3B30");
+
         Dialog dialog = new Dialog(activity);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         if (dialog.getWindow() != null) {
@@ -192,7 +205,7 @@ public class PLog {
         root.setPadding(pad, pad, pad, pad);
 
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#1C1C1E"));
+        bg.setColor(bgColor);
         bg.setCornerRadius(dp2px(activity, 16f));
         root.setBackground(bg);
 
@@ -200,7 +213,8 @@ public class PLog {
         TextView title = new TextView(activity);
         title.setText("运行日志 (最近 " + getBufferCount() + " 条)");
         title.setTextSize(16);
-        title.setTextColor(Color.WHITE);
+        title.getPaint().setFakeBoldText(true);
+        title.setTextColor(titleTextColor);
         title.setGravity(Gravity.CENTER);
         title.setPadding(0, 0, 0, dp2px(activity, 10f));
         root.addView(title);
@@ -211,11 +225,12 @@ public class PLog {
         String text = dumpToString();
         logView.setText(text.isEmpty() ? "暂无日志记录" : text);
         logView.setTextSize(11);
-        logView.setTextColor(Color.parseColor("#34C759")); // 终端黑客绿
-        logView.setPadding(dp2px(activity, 8f), dp2px(activity, 8f), dp2px(activity, 8f), dp2px(activity, 8f));
+        logView.setTypeface(Typeface.MONOSPACE); // 采用等宽编程字体，规范整齐
+        logView.setTextColor(logTextColor);
+        logView.setPadding(dp2px(activity, 10f), dp2px(activity, 8f), dp2px(activity, 10f), dp2px(activity, 8f));
 
         GradientDrawable logBg = new GradientDrawable();
-        logBg.setColor(Color.parseColor("#000000"));
+        logBg.setColor(logBgColor);
         logBg.setCornerRadius(dp2px(activity, 8f));
         logView.setBackground(logBg);
 
@@ -224,7 +239,7 @@ public class PLog {
         scrollLp.bottomMargin = dp2px(activity, 12f);
         root.addView(scroll, scrollLp);
 
-        // 按钮栏 (导出 / 刷新 / 清空)
+        // 按钮栏 (刷新 / 导出 / 清空)
         LinearLayout btnRow = new LinearLayout(activity);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
 
@@ -269,10 +284,10 @@ public class PLog {
         Button clearBtn = new Button(activity);
         clearBtn.setText("清空");
         clearBtn.setTextSize(13);
-        clearBtn.setTextColor(Color.parseColor("#FF3B30"));
+        clearBtn.setTextColor(clearBtnTextColor);
         clearBtn.setAllCaps(false);
         GradientDrawable clearBg = new GradientDrawable();
-        clearBg.setColor(Color.parseColor("#2C2C2E"));
+        clearBg.setColor(clearBtnBgColor);
         clearBg.setCornerRadius(dp2px(activity, 8f));
         clearBtn.setBackground(clearBg);
         LinearLayout.LayoutParams clearLp = new LinearLayout.LayoutParams(0, dp2px(activity, 40f), 1f);
