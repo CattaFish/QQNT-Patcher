@@ -137,10 +137,14 @@ public class ZzzSettingFragment {
                     for (PluginManager.PluginItem item : allPlugins) {
                         final String pId = item.id;
                         final String pName = item.name;
-                        final String pSub = (item.subName != null && !item.subName.isEmpty()) ? item.subName : null;
+
+                        // 保持主标题为纯净的 pName，确保与搜索结果严格对齐；ID 放入副标题
+                        String subText = (item.subName != null && !item.subName.isEmpty()) 
+                                ? item.subName + "  ·  ID: " + pId 
+                                : "ID: " + pId;
 
                         pluginItems.add(NativeSettingHelper.createSwitch(
-                                cl, pName + " (" + pId + ")", pSub, item.isEnabled,
+                                cl, pName, subText, item.isEnabled,
                                 (btn, checked) -> {
                                     ToastHelper.show(activity, pName + (checked ? " 正在启动..." : " 正在停止..."));
                                     PluginManager.setPluginActive(activity, pId, checked, () -> {
@@ -206,7 +210,7 @@ public class ZzzSettingFragment {
                 }
                 groups.add(NativeSettingHelper.createGroup(cl, "核心功能 (" + funcItems.size() + " 个项)", "", funcItems));
 
-                // 2. 其它独立注册的模块化卡片组（全部动态来自 SettingMenuRegistry，拒绝写死）
+                // 2. 其它独立注册的模块化卡片组（来自 SettingMenuRegistry）
                 Map<String, List<Object>> dynamicGroups = SettingMenuRegistry.buildGroupViews(cl, activity, () -> {
                     if (!activity.isFinishing() && !activity.isDestroyed()) {
                         renderSettingsList(fragment, activity, cl, pageType);
