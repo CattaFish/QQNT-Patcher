@@ -42,7 +42,7 @@ public class SettingSearchInjector {
             ArrayList<c> children = new ArrayList<>();
             Context context = AppContext.get();
 
-            // 1. 全动态提取所有已注册的核心模块 (如喵喵助手、防撤回、闪照、平板模式等)
+            // 1. 全动态提取所有已注册的核心功能模块
             for (IPatchModule module : ModuleManager.getModules()) {
                 if (module.showInSettings()) {
                     children.add(new ZzzLeafSearchNode(module.getName(), false));
@@ -63,15 +63,12 @@ public class SettingSearchInjector {
                 } catch (Throwable ignored) {}
             }
 
-            // 4. 高级与调试
-            children.add(new ZzzLeafSearchNode("调试日志输出 (Logcat)", false));
-            children.add(new ZzzLeafSearchNode("实时运行日志", false));
-
-            // 5. 关于（补全：当前版本、检查更新、TG、GitHub 全部可搜）
-            children.add(new ZzzLeafSearchNode("当前版本", false));
-            children.add(new ZzzLeafSearchNode("检查更新", false));
-            children.add(new ZzzLeafSearchNode("Telegram 频道", false));
-            children.add(new ZzzLeafSearchNode("GitHub 仓库", false));
+            // 4. ★ 全动态提取 SettingMenuRegistry 注册的所有独立项（零硬编码，未来新增项自动进搜索！）
+            for (SettingItem item : SettingMenuRegistry.getItems()) {
+                if (item.isSearchable()) {
+                    children.add(new ZzzLeafSearchNode(item.getTitle(), item.isPluginPage()));
+                }
+            }
 
             return children;
         }
@@ -85,8 +82,14 @@ public class SettingSearchInjector {
         public void f(String title, Context context, String search) {
             PLog.i("Search", "用户在搜索结果中点击了: " + title);
 
-            // 智能分流并带上点击项标题触发原生滚动与闪烁高亮
-            if ("动态脚本".equals(title) || "重新扫描与重载全部脚本".equals(title) || isPluginItem(title)) {
+            // 动态检查该项是否属于插件页
+            SettingItem registeredItem = SettingMenuRegistry.findItemByTitle(title);
+            boolean isPluginTarget = (registeredItem != null && registeredItem.isPluginPage())
+                    || "动态脚本".equals(title)
+                    || "重新扫描与重载全部脚本".equals(title)
+                    || isPluginItem(title);
+
+            if (isPluginTarget) {
                 ZzzSettingFragment.startPlugins(context, title);
             } else {
                 ZzzSettingFragment.startCore(context, title);

@@ -3,7 +3,6 @@ package com.tencent.qqnt.patch;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -171,12 +170,13 @@ public class ZzzSettingFragment {
                 // =====================================================
                 // 页面 A: Zzz 核心设置页
                 // =====================================================
+
+                // 1. 核心功能模块卡片组（来自 ModuleManager）
                 List<Object> funcItems = new ArrayList<>();
                 for (IPatchModule module : ModuleManager.getModules()) {
                     if (!module.showInSettings()) continue;
                     final IPatchModule m = module;
 
-                    // 1. 挂载主开关
                     funcItems.add(NativeSettingHelper.createSwitch(
                             cl, m.getName(), m.getSubName(), m.isEnabled(),
                             (btn, checked) -> {
@@ -193,7 +193,6 @@ public class ZzzSettingFragment {
                             }
                     ));
 
-                    // 2. 仅在主开关开启时，展示二级配置项
                     if (m.hasConfig() && m.isEnabled()) {
                         List<Object> subItems = m.getSubSettingItems(cl, activity, () -> {
                             if (!activity.isFinishing() && !activity.isDestroyed()) {
@@ -207,57 +206,19 @@ public class ZzzSettingFragment {
                 }
                 groups.add(NativeSettingHelper.createGroup(cl, "核心功能 (" + funcItems.size() + " 个项)", "", funcItems));
 
-                // 2. 高级与调试
-                List<Object> advancedItems = new ArrayList<>();
-                advancedItems.add(NativeSettingHelper.createSwitch(
-                        cl, "调试日志输出 (Logcat)", ConfigManager.isDebugLogEnabled(),
-                        (btn, checked) -> {
-                            ConfigManager.setDebugLogEnabled(checked);
-                            ToastHelper.show(activity, "调试日志" + (checked ? " 已开启" : " 已关闭"));
-                        }
-                ));
-                advancedItems.add(NativeSettingHelper.createClickable(
-                        cl, "实时运行日志", "查看 (" + PLog.getBufferCount() + "条)", true, false,
-                        v -> PLog.showLogDialog(activity)
-                ));
-                groups.add(NativeSettingHelper.createGroup(cl, "高级与调试", "", advancedItems));
-
-                // 3. 关于
-                List<Object> aboutItems = new ArrayList<>();
-                aboutItems.add(NativeSettingHelper.createTextItem(cl, "当前版本", ConfigManager.VERSION));
-
-                boolean hasNew = ConfigManager.hasNewVersion();
-                String updateText = hasNew ? "有新版本可用" : "已是最新版本";
-
-                aboutItems.add(NativeSettingHelper.createClickable(
-                        cl, "检查更新", updateText, hasNew, hasNew,
-                        v -> UpdateHelper.checkUpdate(activity, () -> {
-                            if (!activity.isFinishing() && !activity.isDestroyed()) {
-                                renderSettingsList(fragment, activity, cl, pageType);
-                            }
-                        })
-                ));
-
-                aboutItems.add(NativeSettingHelper.createClickable(cl, "Telegram 频道", "加入", true, false, v -> {
-                    try {
-                        Intent tgIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(ConfigManager.TG_CHANNEL_URL));
-                        tgIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        activity.startActivity(tgIntent);
-                    } catch (Throwable t) {
-                        ToastHelper.show(activity, "打开链接失败: " + t.getMessage());
+                // 2. 其它独立注册的模块化卡片组（全部动态来自 SettingMenuRegistry，拒绝写死）
+                Map<String, List<Object>> dynamicGroups = SettingMenuRegistry.buildGroupViews(cl, activity, () -> {
+                    if (!activity.isFinishing() && !activity.isDestroyed()) {
+                        renderSettingsList(fragment, activity, cl, pageType);
                     }
-                }));
-                aboutItems.add(NativeSettingHelper.createClickable(cl, "GitHub 仓库", "前往", true, false, v -> {
-                    try {
-                        Intent ghIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(ConfigManager.GITHUB_REPO_URL));
-                        ghIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        activity.startActivity(ghIntent);
-                    } catch (Throwable t) {
-                        ToastHelper.show(activity, "打开链接失败: " + t.getMessage());
-                    }
-                }));
+                });
 
-                groups.add(NativeSettingHelper.createGroup(cl, "关于", centeredItalicFooter, aboutItems));
+                for (Map.Entry<String, List<Object>> entry : dynamicGroups.entrySet()) {
+                    String groupName = entry.getKey();
+                    List<Object> items = entry.getValue();
+                    CharSequence footer = "关于".equals(groupName) ? centeredItalicFooter : "";
+                    groups.add(NativeSettingHelper.createGroup(cl, groupName, footer, items));
+                }
             }
 
             NativeSettingHelper.applyGroupsToAdapter(adapter, groups, cl);
