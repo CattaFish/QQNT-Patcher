@@ -22,6 +22,12 @@ public class PatchBridge {
     public static boolean isDisableSplitScreenLimit() {
         return ConfigManager.isModuleEnabled("disable_split_screen_limit", false);
     }
+    
+    public static void handleWebSecurityCallback(Object bundleObj) {
+        if (bundleObj instanceof android.os.Bundle) {
+            com.tencent.qqnt.patch.modules.BrowserMitigationModule.handleWebSecurityCallback((android.os.Bundle) bundleObj);
+        }
+    }
 
     public static boolean isInMultiWindowMode(Object activityObj) {
         if (isDisableSplitScreenLimit()) {

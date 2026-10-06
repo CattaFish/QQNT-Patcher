@@ -27,6 +27,7 @@ public class ModuleManager {
         register(new com.tencent.qqnt.patch.modules.ModifyPicSummaryModule());
         register(new com.tencent.qqnt.patch.modules.DisableSplitScreenLimitModule());
         register(new com.tencent.qqnt.patch.modules.TgStickerModule());
+        register(new com.tencent.qqnt.patch.modules.BrowserMitigationModule());
     }
 
     public static void register(IPatchModule module) {
