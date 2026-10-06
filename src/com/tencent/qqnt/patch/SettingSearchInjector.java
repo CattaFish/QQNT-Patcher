@@ -63,7 +63,7 @@ public class SettingSearchInjector {
                 } catch (Throwable ignored) {}
             }
 
-            // 4. ★ 全动态提取 SettingMenuRegistry 注册的所有独立项（零硬编码，未来新增项自动进搜索！）
+            // 4. 全动态提取 SettingMenuRegistry 注册的所有独立项
             for (SettingItem item : SettingMenuRegistry.getItems()) {
                 if (item.isSearchable()) {
                     children.add(new ZzzLeafSearchNode(item.getTitle(), item.isPluginPage()));
@@ -82,7 +82,6 @@ public class SettingSearchInjector {
         public void f(String title, Context context, String search) {
             PLog.i("Search", "用户在搜索结果中点击了: " + title);
 
-            // 动态检查该项是否属于插件页
             SettingItem registeredItem = SettingMenuRegistry.findItemByTitle(title);
             boolean isPluginTarget = (registeredItem != null && registeredItem.isPluginPage())
                     || "动态脚本".equals(title)
@@ -90,7 +89,9 @@ public class SettingSearchInjector {
                     || isPluginItem(title);
 
             if (isPluginTarget) {
-                ZzzSettingFragment.startPlugins(context, title);
+                // 搜索“动态脚本”跳入时保持无高亮，其他具体项正常高亮
+                String highlightTarget = "动态脚本".equals(title) ? null : title;
+                ZzzSettingFragment.startPlugins(context, highlightTarget);
             } else {
                 ZzzSettingFragment.startCore(context, title);
             }
@@ -134,7 +135,8 @@ public class SettingSearchInjector {
         @Override
         public void f(String title, Context context, String search) {
             if (isPlugin) {
-                ZzzSettingFragment.startPlugins(context, title);
+                String highlightTarget = "动态脚本".equals(title) ? null : title;
+                ZzzSettingFragment.startPlugins(context, highlightTarget);
             } else {
                 ZzzSettingFragment.startCore(context, title);
             }
