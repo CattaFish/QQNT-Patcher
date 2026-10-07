@@ -7,13 +7,31 @@ import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ModuleManager {
     private static final String TAG = "ModuleManager";
     private static final List<IPatchModule> sModules = new CopyOnWriteArrayList<>();
     private static volatile boolean sInitialized = false;
+
+    private static final Map<String, String> MOD_TO_FEATURE = new HashMap<>();
+    static {
+        MOD_TO_FEATURE.put("anti_revoke", "anti_revoke");
+        MOD_TO_FEATURE.put("flash_pic", "flash_pic");
+        MOD_TO_FEATURE.put("meow_helper", "meow");
+        MOD_TO_FEATURE.put("floating_ball", "floating_ball");
+        MOD_TO_FEATURE.put("tablet_mode", "tablet");
+        MOD_TO_FEATURE.put("block_at_all_notify", "block_at_all");
+        MOD_TO_FEATURE.put("auto_remark_apk", "auto_remark_apk");
+        MOD_TO_FEATURE.put("show_file_download_count", "group_file");
+        MOD_TO_FEATURE.put("modify_pic_summary", "modify_pic_summary");
+        MOD_TO_FEATURE.put("disable_split_screen_limit", "multi_window");
+        MOD_TO_FEATURE.put("tg_stickers", "tg_stickers");
+        MOD_TO_FEATURE.put("browser_mitigation", "browser");
+    }
 
     static {
         register(new com.tencent.qqnt.patch.modules.AntiRevokeModule());
@@ -31,7 +49,13 @@ public class ModuleManager {
     }
 
     public static void register(IPatchModule module) {
-        if (module != null && !sModules.contains(module)) {
+        if (module == null) return;
+        String fId = MOD_TO_FEATURE.get(module.getId());
+        if (fId != null && !FeatureConfig.has(fId)) {
+            // 特性未激活，零注册、零常驻
+            return;
+        }
+        if (!sModules.contains(module)) {
             sModules.add(module);
             PLog.d(TAG, "注册模块 -> [" + module.getName() + "]");
         }

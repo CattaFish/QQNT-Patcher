@@ -34,6 +34,11 @@ public class SettingInjector {
             return;
         }
 
+        // 如果 setting 特性未激活，直接不挂载任何设置入口
+        if (!FeatureConfig.has("setting")) {
+            return;
+        }
+
         try {
             ClassLoader cl = context.getClassLoader();
             Class<?> itemClass = cl.loadClass(itemClassName);
@@ -42,7 +47,7 @@ public class SettingInjector {
             Object unitInstance = getKotlinUnitInstance(cl);
 
             // =========================================================
-            // 1. Zzz 项：放大到 28dp，饱满大气
+            // 1. Zzz 项
             // =========================================================
             CharSequence finalZzzTitle = createTitleWithIcon(context, "zzz_icon.png", TITLE_ZZZ, 28f);
             Object zzzItem = newInstanceSmart(itemClass, new Object[]{context, 10, finalZzzTitle, 0, null});
@@ -55,7 +60,6 @@ public class SettingInjector {
                 });
                 bindItemAction(itemClass, zzzItem, func0Class, clickProxy);
 
-                // 右侧显示版本号与更新红点
                 bindItemView(cl, itemClass, zzzItem, func1Class, unitInstance, view -> {
                     boolean hasNew = ConfigManager.hasNewVersion();
                     QUIBadgeHelper.attachNativeBadge(view, ConfigManager.VERSION, hasNew, true);
@@ -63,27 +67,29 @@ public class SettingInjector {
             }
 
             // =========================================================
-            // 2. 动态脚本项：微缩至 22dp，小巧精致不抢镜
+            // 2. 动态脚本项 (受 FeatureConfig.has("script") 保护)
             // =========================================================
-            CharSequence finalScriptTitle = createTitleWithIcon(context, "script_icon.png", TITLE_SCRIPTS, 22f);
-            Object scriptItem = newInstanceSmart(itemClass, new Object[]{context, 11, finalScriptTitle, 0, null});
-            if (scriptItem != null) {
-                Object clickProxy = Proxy.newProxyInstance(cl, new Class[]{func0Class}, (proxy, method, args) -> {
-                    if ("invoke".equals(method.getName())) {
-                        ZzzSettingFragment.startPlugins(context);
-                    }
-                    return unitInstance;
-                });
-                bindItemAction(itemClass, scriptItem, func0Class, clickProxy);
+            Object scriptItem = null;
+            if (FeatureConfig.has("script")) {
+                CharSequence finalScriptTitle = createTitleWithIcon(context, "script_icon.png", TITLE_SCRIPTS, 22f);
+                scriptItem = newInstanceSmart(itemClass, new Object[]{context, 11, finalScriptTitle, 0, null});
+                if (scriptItem != null) {
+                    Object clickProxy = Proxy.newProxyInstance(cl, new Class[]{func0Class}, (proxy, method, args) -> {
+                        if ("invoke".equals(method.getName())) {
+                            ZzzSettingFragment.startPlugins(context);
+                        }
+                        return unitInstance;
+                    });
+                    bindItemAction(itemClass, scriptItem, func0Class, clickProxy);
 
-                // 右侧箭头
-                bindItemView(cl, itemClass, scriptItem, func1Class, unitInstance, view -> {
-                    QUIBadgeHelper.attachNativeBadge(view, "", false, true);
-                });
+                    bindItemView(cl, itemClass, scriptItem, func1Class, unitInstance, view -> {
+                        QUIBadgeHelper.attachNativeBadge(view, "", false, true);
+                    });
+                }
             }
 
             // =========================================================
-            // 3. 组合连体卡片并注入主设置页
+            // 3. 组合卡片并注入主设置页 (脚本被排除时优雅单卡片显示)
             // =========================================================
             List<Object> combinedItems = new ArrayList<>();
             if (zzzItem != null) combinedItems.add(zzzItem);
@@ -116,10 +122,6 @@ public class SettingInjector {
         }
     }
 
-    /**
-     * 精准控制图标尺寸生成标题富文本
-     * @param iconDp 指定图标显示的 dp 尺寸
-     */
     private static CharSequence createTitleWithIcon(Context context, String assetName, String title, float iconDp) {
         try {
             Bitmap rawBitmap = PatchAssetHelper.getBitmap(context, assetName);

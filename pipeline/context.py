@@ -2,6 +2,7 @@
 import os
 import shutil
 import subprocess
+from .features import resolve_active_features, ALL_FEATURES
 
 class PipelineContext:
     def __init__(self, input_apk, output_apk, no_sign=False, skip_dex_patch=False, no_killer=False, skipped_keywords=None, only_keywords=None):
@@ -20,11 +21,21 @@ class PipelineContext:
         self.skipped_keywords = skipped_keywords or []
         self.only_keywords = only_keywords or []
         
-        # 自动定位 Killer 根目录
+        # 特性决议
+        self.active_features = resolve_active_features(self.only_keywords, self.skipped_keywords)
+        if self.no_killer:
+            self.active_features.discard("killer")
+        elif "killer" not in self.active_features:
+            self.no_killer = True
+
+        print(f"\033[1;36m[*] [Feature 决策] 当前已激活 {len(self.active_features)} / {len(ALL_FEATURES)} 个特性:\033[0m")
+        for fid, desc in ALL_FEATURES.items():
+            status = "\033[32m[ON]\033[0m" if fid in self.active_features else "\033[31m[SKIP]\033[0m"
+            print(f"    {status} {fid:<18} ({desc})")
+
         self.killer_dir = self._detect_killer_dir()
         self.work_killer = os.path.join(self.killer_dir, "work_killer") if self.killer_dir else None
         
-        # 依赖 Jar 路径
         self.baksmali_jar = os.path.join(self.tools_dir, "baksmali.jar")
         self.smali_jar = os.path.join(self.tools_dir, "smali.jar")
         self.dexlib2_jar = os.path.join(self.tools_dir, "dexlib2.jar")
@@ -35,7 +46,6 @@ class PipelineContext:
         self.android_jar = os.path.join(self.tools_dir, "android.jar")
         self.fixed_keystore = os.path.join(self.tools_dir, "debug.keystore")
         
-        # 运行期状态
         self.orig_apk_md5 = ""
         self.orig_sig_md5 = ""
         self.dex_data_dict = {}
@@ -51,6 +61,7 @@ class PipelineContext:
         self.bsh_standalone_dex = None
         self.preset_plugins_zip = None
         self.engine_bin = None
+        
         from .providers import get_provider
         p_name = "none" if self.no_sign else ("debug" if self.no_killer else "killer")
         self.provider = get_provider(self, p_name)
@@ -63,7 +74,6 @@ class PipelineContext:
         ]
         for c in candidates:
             target = os.path.join(c, "signature-killer") if os.path.isdir(os.path.join(c, "signature-killer")) else c
-            # 只要包含 killer 源码模块或 work_killer 目录即视为有效 Killer 仓库，杜绝依赖旧版 Python 脚本
             if os.path.isdir(target) and (
                 os.path.isdir(os.path.join(target, "killer")) or
                 os.path.isdir(os.path.join(target, "work_killer")) or

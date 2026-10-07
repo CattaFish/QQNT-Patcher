@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""核心扩展与分流规则"""
+"""核心扩展与分流规则 (已打上 Feature/Bus 标签)"""
 
 BASE_RULES = [
     {
         "name": "MSF 底层协议总线",
+        "bus": "bus_msf",
         "target_class": "Lcom/tencent/qqnt/kernel/nativeinterface/IQQNTWrapperSession$CppProxy;",
         "target_method": "onMsfPush(Ljava/lang/String;[BLcom/tencent/qqnt/kernel/nativeinterface/PushExtraInfo;)V",
         "type": "REPLACE",
@@ -27,6 +28,7 @@ BASE_RULES = [
     },
     {
         "name": "QQ 原生二级设置页面挂载",
+        "bus": "bus_setting",
         "target_class": "Lcom/tencent/mobileqq/setting/generalSetting/GeneralSettingFragment;",
         "target_method": "onViewCreated(Landroid/view/View;Landroid/os/Bundle;)V",
         "type": "INSERT_BEFORE",
@@ -43,6 +45,7 @@ BASE_RULES = [
     },
     {
         "name": "发送消息统一总线 (sendMsg)",
+        "bus": "bus_send_msg",
         "target_class": "Lcom/tencent/qqnt/kernel/nativeinterface/IKernelMsgService$CppProxy;",
         "target_method": "sendMsg(JLcom/tencent/qqnt/kernelpublic/nativeinterface/Contact;Ljava/util/ArrayList;Ljava/util/HashMap;Lcom/tencent/qqnt/kernel/nativeinterface/IOperateCallback;)V",
         "type": "INSERT_BEFORE",
@@ -53,6 +56,7 @@ BASE_RULES = [
     },
     {
         "name": "AIO 气泡数据统一总线 (AIOMsgItem)",
+        "bus": "bus_aio_msg",
         "target_class": "Lcom/tencent/mobileqq/aio/msg/AIOMsgItem;",
         "target_method": "<init>(Lcom/tencent/qqnt/kernel/nativeinterface/MsgRecord;)V",
         "type": "INSERT_BEFORE",
@@ -62,6 +66,7 @@ BASE_RULES = [
     },
     {
         "name": "拉取消息列表统一总线 (n.a)",
+        "bus": "bus_recv_msg",
         "target_class": "Lcom/tencent/qqnt/msg/n;",
         "target_method": "a(Ljava/util/ArrayList;)Ljava/util/ArrayList;",
         "type": "INSERT_BEFORE",
@@ -72,6 +77,7 @@ BASE_RULES = [
     },
     {
         "name": "闪照破解 (AIO 画廊大图放行 a.b)",
+        "feature": "flash_pic",
         "target_class": "Lcom/tencent/qqnt/aio/gallery/fetch/a;",
         "target_method": "b(Ljava/util/List;)Ljava/util/List;",
         "type": "REGEX_REPLACE",
@@ -80,6 +86,7 @@ BASE_RULES = [
     },
     {
         "name": "闪照破解 (AIO 画廊大图放行 b.b)",
+        "feature": "flash_pic",
         "target_class": "Lcom/tencent/qqnt/aio/gallery/fetch/b;",
         "target_method": "b(Ljava/util/List;)Ljava/util/List;",
         "type": "REGEX_REPLACE",
@@ -88,6 +95,7 @@ BASE_RULES = [
     },
     {
         "name": "推送监听统一代理 (addKernelMsgListener)",
+        "bus": "bus_recv_msg",
         "target_class": "Lcom/tencent/qqnt/kernel/nativeinterface/IKernelMsgService$CppProxy;",
         "target_method": "addKernelMsgListener(Lcom/tencent/qqnt/kernel/nativeinterface/IKernelMsgListener;)J",
         "type": "INSERT_BEFORE",
@@ -98,6 +106,7 @@ BASE_RULES = [
     },
     {
         "name": "AIO 会话开启总线 (AIODelegate.show)",
+        "bus": "bus_aio_lifecycle",
         "target_class": "Lcom/tencent/qqnt/aio/activity/AIODelegate;",
         "target_method": "show()Landroid/view/View;",
         "type": "INSERT_BEFORE",
@@ -108,6 +117,7 @@ BASE_RULES = [
     },
     {
         "name": "AIO 会话关闭总线 (AIODelegate.hide)",
+        "bus": "bus_aio_lifecycle",
         "target_class": "Lcom/tencent/qqnt/aio/activity/AIODelegate;",
         "target_method": "hide()V",
         "type": "INSERT_BEFORE",
@@ -117,6 +127,7 @@ BASE_RULES = [
     },
     {
         "name": "AIO 气泡长按菜单挂载",
+        "bus": "bus_aio_menu",
         "target_class": "Lcom/tencent/qqnt/aio/menu/ui/QQCustomMenuExpandableLayout;",
         "target_method": "setMenu(Lcom/tencent/qqnt/aio/menu/ui/c;Landroid/view/View;)V",
         "type": "INSERT_BEFORE",
@@ -129,6 +140,7 @@ BASE_RULES = [
     },
     {
         "name": "底层 MSF 响应消息统一分发总线 (dispatchRespMsg)",
+        "bus": "bus_msf",
         "target_class": "Lmqq/app/msghandle/MsgRespHandler;",
         "target_method": "dispatchRespMsg(Lmqq/app/MobileQQ;Lcom/tencent/mobileqq/msf/sdk/MsfMessagePair;Lcom/tencent/mobileqq/msf/sdk/MsfRespHandleUtil;Lcom/tencent/mobileqq/msf/sdk/MsfServiceSdk;)V",
         "type": "INSERT_BEFORE",
@@ -139,6 +151,7 @@ BASE_RULES = [
     },
     {
         "name": "群成员退群监听",
+        "bus": "bus_troop_member",
         "target_class": "Lcom/tencent/mobileqq/troop/api/impl/TroopMemberInfoServiceImpl;",
         "target_method": "deleteTroopMember(Ljava/lang/String;Ljava/lang/String;Z)Z",
         "type": "INSERT_BEFORE",
@@ -150,6 +163,7 @@ BASE_RULES = [
     },
     {
         "name": "群成员进群监听",
+        "bus": "bus_troop_member",
         "target_class": "Lcom/tencent/qqnt/push/processor/TroopMemberAddPushProcessor;",
         "target_method": "a(Ljava/util/ArrayList;)V",
         "type": "INSERT_BEFORE",
@@ -160,6 +174,7 @@ BASE_RULES = [
     },
     {
         "name": "静默 @全体成员 实时通知 (NotificationFacade.x)",
+        "feature": "block_at_all",
         "target_class": "Lcom/tencent/qqnt/notification/NotificationFacade;",
         "target_method": "x(Lcom/tencent/qqnt/notification/NotificationFacade;Lmqq/app/AppRuntime;Lcom/tencent/qqnt/kernel/nativeinterface/MsgNotifyItem;ZLcom/tencent/qqnt/notification/trace/INotifyTracker;Lcom/tencent/qqnt/global/settings/notification/a;)Lcom/tencent/qqnt/notification/NotificationFacade$a$a;",
         "type": "INSERT_BEFORE",
@@ -178,6 +193,7 @@ BASE_RULES = [
     },
     {
         "name": "静默 @全体成员 会话通知 (NotificationFacade.y)",
+        "feature": "block_at_all",
         "target_class": "Lcom/tencent/qqnt/notification/NotificationFacade;",
         "target_method": "y(Lcom/tencent/qqnt/notification/NotificationFacade;Lmqq/app/AppRuntime;Lcom/tencent/qqnt/kernel/nativeinterface/RecentContactInfo;Lcom/tencent/qqnt/kernel/nativeinterface/NotificationCommonInfo;ZLcom/tencent/qqnt/notification/trace/INotifyTracker;Lcom/tencent/qqnt/global/settings/notification/a;)Lcom/tencent/qqnt/notification/NotificationFacade$a$a;",
         "type": "INSERT_BEFORE",
@@ -196,6 +212,7 @@ BASE_RULES = [
     },
     {
         "name": "经典群文件列表显示下载次数 (TroopFileShowAdapter.getView)",
+        "feature": "group_file",
         "target_class": "Lcom/tencent/mobileqq/troop/file/data/TroopFileShowAdapter;",
         "target_method": "getView(ILandroid/view/View;Landroid/view/ViewGroup;)Landroid/view/View;",
         "type": "REGEX_REPLACE",
@@ -209,7 +226,6 @@ BASE_RULES = [
     }
 ]
 
-# === 规则插件契约 ===
 RULE_ID = "base"
 RULE_NAME = "核心基础总线规则"
 RULE_ENABLED = True

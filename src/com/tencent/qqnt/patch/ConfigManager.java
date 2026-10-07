@@ -71,10 +71,15 @@ public class ConfigManager {
             Context ctx = AppContext.get();
             if (ctx != null) {
                 AppContext.init(ctx);
+                FeatureConfig.ensureLoaded();
                 ModuleManager.initAll(ctx);
-                com.tencent.qqnt.patch.plugin.PluginManager.init(ctx);
+                
+                if (FeatureConfig.has("script")) {
+                    com.tencent.qqnt.patch.plugin.PluginManager.init(ctx);
+                } else {
+                    PLog.i("Core", "构建清单未包含 [script]，已跳过动态脚本引擎载入");
+                }
 
-                // ★ 自动异步清理以往残留的 signed.apk.tmp.* 孤儿垃圾文件，释放数 GB 存储
                 cleanLegacyTmpFilesAsync(ctx);
             }
         } catch (Throwable t) {
@@ -85,16 +90,20 @@ public class ConfigManager {
     private static void cleanLegacyTmpFilesAsync(Context context) {
         new Thread(() -> {
             try {
+                // 延迟 15 秒执行，等所有启动流程彻底就绪后再扫残留
+                Thread.sleep(15000);
                 File filesDir = context.getFilesDir();
                 File dataDir = filesDir != null ? filesDir.getParentFile() : null;
                 if (dataDir != null && dataDir.exists()) {
                     File[] files = dataDir.listFiles();
                     if (files != null) {
+                        long now = System.currentTimeMillis();
                         for (File f : files) {
-                            if (f.isFile() && f.getName().contains(".apk.tmp.")) {
+                            // 仅清理历史孤儿文件（修改时间早于 30 秒前），杜绝误删正在进行的合法写入
+                            if (f.isFile() && f.getName().contains(".apk.tmp.") && (now - f.lastModified() > 30000)) {
                                 long mb = f.length() / (1024 * 1024);
                                 if (f.delete()) {
-                                    PLog.i("Core", "已自动清理残留临时文件: " + f.getName() + " (" + mb + "MB)");
+                                    PLog.i("Core", "已自动清理历史残留临时文件: " + f.getName() + " (" + mb + "MB)");
                                 }
                             }
                         }

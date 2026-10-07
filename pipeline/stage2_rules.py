@@ -8,6 +8,7 @@ import zipfile
 import subprocess
 import shlex
 from rules.engine import discover_rule_plugins
+from .features import BUS_DEPENDENCIES
 
 def get_file_mtime_safe(file_path):
     try:
@@ -86,13 +87,31 @@ def get_defined_classes(dex_bytes):
     except Exception:
         return set()
 
+def is_rule_active(rule: dict, plugin_id: str, active_features: set) -> bool:
+    rule_feature = rule.get("feature")
+    if rule_feature:
+        return rule_feature in active_features
+
+    bus_name = rule.get("bus")
+    if bus_name:
+        dependents = BUS_DEPENDENCIES.get(bus_name, set())
+        return bool(dependents & active_features)
+
+    id_map = {
+        "killer": "killer",
+        "security": "security",
+        "tablet": "tablet",
+        "multi_window": "multi_window",
+        "group_file": "group_file",
+        "troop_todo": "troop_todo",
+        "setting": "setting",
+        "browser_mitigation": "browser",
+        "tg_stickers": "tg_stickers",
+    }
+    feature_id = id_map.get(plugin_id, plugin_id)
+    return feature_id in active_features
+
 def resolve_dynamic_rules_with_cache(ctx):
-    """
-    通用插件化规则调度引擎：
-    1. 自动扫描 rules/ 下的所有插件模块；
-    2. 严格隔离不同 provider（killer / debug / none）下的规则推导缓存；
-    3. 基于各插件源码 mtime 独立复用缓存。
-    """
     cache_path = os.path.join(ctx.work_dir, "rule_discovery_cache.json")
     provider_name = ctx.provider.name
     cache_data = {}
@@ -121,7 +140,7 @@ def resolve_dynamic_rules_with_cache(ctx):
         "provider": provider_name,
     }
 
-    all_rules = []
+    all_discovered = []
     new_cache = dict(cache_data)
 
     for p in plugins:
@@ -133,22 +152,19 @@ def resolve_dynamic_rules_with_cache(ctx):
         
         if cached_entry and cached_entry.get("mtime") == mtime and "rules" in cached_entry:
             mod_rules = cached_entry["rules"]
-            ctx.log("INFO", f"规则推导缓存命中: [{p.name}] ({len(mod_rules)} 项)")
         else:
             try:
                 mod_rules = p.resolve(ctx.dex_data_dict, meta)
             except Exception as e:
                 ctx.log("ERR", f"规则插件 [{p.name}] 执行异常: {e}")
                 mod_rules = []
-                
             new_cache[p.plugin_id] = {"mtime": mtime, "rules": mod_rules}
-            for r in mod_rules:
-                ctx.log("OK", f"-> {p.name}: [{r['name']}]")
-                
-        all_rules.extend(mod_rules)
+
+        for r in mod_rules:
+            r["_plugin_id"] = p.plugin_id
+        all_discovered.extend(mod_rules)
 
     full_providers_cache[provider_name] = new_cache
-
     try:
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump({
@@ -160,7 +176,17 @@ def resolve_dynamic_rules_with_cache(ctx):
     except Exception:
         pass
 
-    return all_rules
+    # 依照 Feature 决策树精准过滤
+    active_rules = []
+    for r in all_discovered:
+        p_id = r.get("_plugin_id", "")
+        if is_rule_active(r, p_id, ctx.active_features):
+            active_rules.append(r)
+            ctx.log("OK", f"-> 规则生效: [{r.get('name', '未命名')}]")
+        else:
+            ctx.log("WARN", f"-> [测试跳过] 未激活特性规则: [{r.get('name', '未命名')}]")
+
+    return active_rules
 
 def run_stage2(ctx):
     extract_apk_metadata(ctx)
@@ -180,21 +206,8 @@ def run_stage2(ctx):
     dex_list = sorted(ctx.dex_data_dict.keys(), key=dex_index)
     ctx.max_dex_idx = dex_index(dex_list[-1])
 
-    # 执行插件自发现与缓存解析 (已按 provider 维度隔离)
     ctx.all_rules = resolve_dynamic_rules_with_cache(ctx)
 
-    filtered = []
-    for r in ctx.all_rules:
-        r_name = r.get("name", "")
-        if ctx.only_keywords and not any(k in r_name for k in ctx.only_keywords):
-            continue
-        if ctx.skipped_keywords and any(k in r_name for k in ctx.skipped_keywords):
-            ctx.log("WARN", f"-> 调试跳过规则: [{r_name}]")
-            continue
-        filtered.append(r)
-    ctx.all_rules = filtered
-
-    # 类拓扑缓存
     dex_classes_cache_file = os.path.join(ctx.work_dir, "dex_classes_map.json")
     if os.path.exists(dex_classes_cache_file):
         try:
@@ -214,7 +227,6 @@ def run_stage2(ctx):
         except Exception:
             pass
 
-    # 规则与 DEX 分包映射
     ctx.dex_to_rules = {}
     matched = set()
     for dex_name in dex_list:
