@@ -26,6 +26,7 @@ ALL_FEATURES = {
     "browser": "禁用内置浏览器网页拦截",
     "meow": "喵喵助手",
     "floating_ball": "会话悬浮球快捷入口",
+    "chat_history": "查看本地聊天记录 (私聊/群聊)",
 }
 
 FEATURE_ALIASES = {
@@ -65,6 +66,9 @@ FEATURE_ALIASES = {
     "meow": "meow", "喵喵": "meow", "喵喵助手": "meow",
     # floating_ball
     "floating_ball": "floating_ball", "ball": "floating_ball", "悬浮球": "floating_ball",
+    # chat_history
+    "chat_history": "chat_history", "history": "chat_history", 
+    "聊天记录": "chat_history", "历史记录": "chat_history",
 }
 
 BUS_DEPENDENCIES = {

@@ -3,10 +3,10 @@ package com.tencent.qqnt.patch;
 import android.app.Activity;
 
 public interface SettingItem {
-    /** 分组名称，如 "高级与调试", "关于", 或者你未来新增的自定义分组名 */
+    /** 分组名称 */
     String getGroupName();
 
-    /** 按钮/项的标题，同时也作为原生搜索的匹配关键词与高亮锚点 */
+    /** 按钮/项的标题 */
     String getTitle();
 
     /** 构建 QQ 原生 QUI 列表项视图 */
@@ -15,6 +15,15 @@ public interface SettingItem {
     /** 是否加入原生搜索索引（默认 true） */
     default boolean isSearchable() { return true; }
 
-    /** 搜索点击后是否跳转到动态脚本页（默认 false 即跳到核心设置页） */
+    /** 搜索点击后是否跳转到动态脚本页（默认 false） */
     default boolean isPluginPage() { return false; }
+
+    /** 绑定的 Feature 标识符，为空则不受限，有值则联动 FeatureConfig */
+    default String getFeatureId() { return ""; }
+
+    /** 特性是否已在构建期激活 */
+    default boolean isFeatureEnabled() {
+        String fid = getFeatureId();
+        return fid == null || fid.isEmpty() || FeatureConfig.has(fid);
+    }
 }
