@@ -1,4 +1,4 @@
-package com.tencent.qqnt.patch.modules;
+package com.tencent.qqnt.patch.modules.chat;
 
 import android.content.Context;
 import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;

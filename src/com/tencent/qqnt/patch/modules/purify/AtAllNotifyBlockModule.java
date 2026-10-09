@@ -1,8 +1,8 @@
-package com.tencent.qqnt.patch.modules;
+package com.tencent.qqnt.patch.modules.purify;
 
-import com.tencent.qqnt.patch.ConfigManager;
 import com.tencent.qqnt.patch.IPatchModule;
-import com.tencent.qqnt.patch.PLog;
+import com.tencent.qqnt.patch.config.ConfigManager;
+import com.tencent.qqnt.patch.util.PLog;
 
 import java.lang.reflect.Method;
 
@@ -11,6 +11,7 @@ public class AtAllNotifyBlockModule implements IPatchModule {
 
     @Override public String getId() { return "block_at_all_notify"; }
     @Override public String getName() { return "静默 @全体 与群待办通知"; }
+    @Override public String getCategory() { return CATEGORY_PURIFY; }
     @Override public String getSubName() { return "拦截群内 @全体成员 弹窗与 群待办 提醒"; }
     @Override public boolean defaultEnabled() { return false; }
 

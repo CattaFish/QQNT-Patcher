@@ -1,4 +1,4 @@
-package com.tencent.qqnt.patch;
+package com.tencent.qqnt.patch.ui;
 
 import android.view.View;
 import android.view.ViewGroup;
@@ -17,7 +17,6 @@ public class QUIBadgeHelper {
         try {
             ViewGroup vg = (ViewGroup) root;
 
-            // 1. 设置右侧版本文字
             TextView rightTv = findRightTextView(vg);
             if (rightTv != null) {
                 if (rightText != null && !rightText.isEmpty()) {
@@ -29,17 +28,14 @@ public class QUIBadgeHelper {
                 }
             }
 
-            // 2. 控制右侧箭头
             ImageView arrowIv = findArrowImageView(vg);
             if (arrowIv != null) {
                 arrowIv.setVisibility(showArrow ? View.VISIBLE : View.GONE);
             }
 
-            // 3. 点亮 QQ 原厂 QUIBadge 红点
             View quiBadge = getOrCreateNativeQUIBadge(root);
             if (quiBadge != null) {
                 if (showRedDot) {
-                    // ★ 兼容无参 setRedDot() 和有参 setRedDot(boolean) 两种官方签名
                     boolean invoked = false;
                     try {
                         Method m1 = quiBadge.getClass().getMethod("setRedDot");

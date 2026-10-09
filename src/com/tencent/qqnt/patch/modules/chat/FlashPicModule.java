@@ -1,10 +1,10 @@
-package com.tencent.qqnt.patch.modules;
+package com.tencent.qqnt.patch.modules.chat;
 
 import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
 import com.tencent.qqnt.kernel.nativeinterface.PicElement;
 import com.tencent.qqnt.patch.IPatchModule;
-import com.tencent.qqnt.patch.PLog;
+import com.tencent.qqnt.patch.util.PLog;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -58,7 +58,6 @@ public class FlashPicModule implements IPatchModule {
                 }
             }
 
-            // ★ 使用 PLog.once：同一条消息绝不重复打印，优雅静默
             if (isFlash && record.msgId > 0) {
                 PLog.once(TAG, record.msgId, "闪照气泡已转换为普通图片 (msgId=" + record.msgId + ", sendType=" + record.sendType + ")");
             }

@@ -1,10 +1,10 @@
-package com.tencent.qqnt.patch.modules;
+package com.tencent.qqnt.patch.modules.chat;
 
 import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.kernel.nativeinterface.PicElement;
 import com.tencent.qqnt.kernel.nativeinterface.TextElement;
 import com.tencent.qqnt.patch.IPatchModule;
-import com.tencent.qqnt.patch.PLog;
+import com.tencent.qqnt.patch.util.PLog;
 
 import java.util.ArrayList;
 import java.util.regex.Matcher;

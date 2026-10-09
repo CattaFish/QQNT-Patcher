@@ -1,4 +1,4 @@
-package com.tencent.qqnt.patch.modules;
+package com.tencent.qqnt.patch.modules.chat;
 
 import android.app.Activity;
 import android.app.Dialog;
@@ -21,11 +21,11 @@ import com.tencent.mobileqq.emoticonview.EmotionPanelData;
 import com.tencent.mobileqq.emoticonview.EmotionPanelInfo;
 import com.tencent.mobileqq.emoticonview.FavoriteEmoticonInfo;
 import com.tencent.qqnt.patch.AppContext;
-import com.tencent.qqnt.patch.ConfigManager;
 import com.tencent.qqnt.patch.IPatchModule;
-import com.tencent.qqnt.patch.NativeSettingHelper;
-import com.tencent.qqnt.patch.PLog;
-import com.tencent.qqnt.patch.ToastHelper;
+import com.tencent.qqnt.patch.config.ConfigManager;
+import com.tencent.qqnt.patch.ui.NativeSettingHelper;
+import com.tencent.qqnt.patch.util.PLog;
+import com.tencent.qqnt.patch.util.ToastHelper;
 import me.yxp.qfun.utils.ui.ThemeHelper;
 
 import java.io.File;
@@ -49,28 +49,17 @@ public class TgStickerModule implements IPatchModule {
     public static final String KEY_REMOVE_QQ_MISC      = "zzz_tg_remove_qq_misc";
     public static final String KEY_PANEL_COLUMNS       = "zzz_tg_panel_columns";
 
-    // 严禁包含视频格式，仅放行 QQ 原生图片解码器支持的格式 (支持动态 WebP 与 GIF)
     private static final Set<String> ALLOWED_EXTS = new HashSet<>(
             Arrays.asList(".png", ".jpg", ".jpeg", ".gif", ".webp")
     );
 
-    // 面板缓存
     private static final Map<String, StickerPanel> sPanelMap = new ConcurrentHashMap<>();
     private static volatile long sLastScanTime = 0L;
     private static final long SCAN_INTERVAL_MS = 5000L;
 
-    @Override
-    public String getId() {
-        return "tg_stickers";
-    }
-
-    @Override
-    public String getName() {
-        return "Telegram 表情包集";
-    }
-
-    @Override
-    public String getSubName() {
+    @Override public String getId() { return "tg_stickers"; }
+    @Override public String getName() { return "Telegram 表情包集"; }
+    @Override public String getSubName() {
         if (!isEnabled()) {
             return "加载 /zzz/stickers/ 目录下的外部表情包";
         }
@@ -82,25 +71,14 @@ public class TgStickerModule implements IPatchModule {
         return summary;
     }
 
-    @Override
-    public boolean defaultEnabled() {
-        return false;
-    }
-
-    @Override
-    public boolean hasConfig() {
-        return true;
-    }
+    @Override public boolean defaultEnabled() { return false; }
+    @Override public boolean hasConfig() { return true; }
 
     @Override
     public List<Object> getSubSettingItems(ClassLoader cl, Activity activity, Runnable onRefresh) {
         List<Object> items = new ArrayList<>();
         items.add(NativeSettingHelper.createClickable(
-                cl,
-                "  ↳ 表情包配置",
-                "配置",
-                true,
-                false,
+                cl, "  ↳ 表情包配置", "配置", true, false,
                 v -> onConfigClick(activity, onRefresh)
         ));
         return items;
@@ -457,8 +435,7 @@ public class TgStickerModule implements IPatchModule {
             mediaDir = new File(Environment.getExternalStorageDirectory(), "Android/media/com.tencent.mobileqq");
         }
         File zzzDir = new File(mediaDir, "zzz");
-        File stickerDir = new File(zzzDir, "stickers");
-        return stickerDir;
+        return new File(zzzDir, "stickers");
     }
 
     private static void ensureStickerDir() {
@@ -513,16 +490,12 @@ public class TgStickerModule implements IPatchModule {
         return panels;
     }
 
-    // =========================================================================
-    // 静态插桩调用 1: 拦截并修改 Tab 列表 (带 Reaction 防御与零卡顿保护)
-    // =========================================================================
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static List modifyPanelDataList(List originalList) {
         if (!ConfigManager.isModuleEnabled("tg_stickers", false) || originalList == null || originalList.isEmpty()) {
             return originalList;
         }
 
-        // ★ 核心关键防御：如果只有一个元素且为 AIOEmoReply (type 16，消息长按快捷回应)，绝对不处理！
         if (originalList.size() == 1) {
             Object first = originalList.get(0);
             if (first instanceof EmotionPanelInfo && ((EmotionPanelInfo) first).type == 16) {
@@ -539,7 +512,6 @@ public class TgStickerModule implements IPatchModule {
                 baseWhiteList.addAll(Arrays.asList(13, 12, 17, 19, 21, 14));
             }
 
-            // 净化过滤
             Iterator iterator = originalList.iterator();
             while (iterator.hasNext()) {
                 Object itemObj = iterator.next();
@@ -567,7 +539,6 @@ public class TgStickerModule implements IPatchModule {
 
             int columnNum = getPanelColumns();
 
-            // 查找插入点
             int targetInsertIndex = -1;
             for (int i = 0; i < originalList.size(); i++) {
                 Object itemObj = originalList.get(i);
@@ -705,9 +676,6 @@ public class TgStickerModule implements IPatchModule {
         return (int) (dp * c.getResources().getDisplayMetrics().density + 0.5f);
     }
 
-    // =========================================================================
-    // 极速自然数字排序算法 (0 对象创建，纯字符流计算，杜绝卡顿)
-    // =========================================================================
     public static int compareNatural(String s1, String s2) {
         if (s1 == null || s2 == null) return 0;
         int i = 0, j = 0;
@@ -742,9 +710,6 @@ public class TgStickerModule implements IPatchModule {
         return len1 - len2;
     }
 
-    // =========================================================================
-    // 贴纸面板数据管理内部类 (纯图片秒级扫描，杜绝视频阻塞)
-    // =========================================================================
     public static class StickerPanel {
         private final File dir;
         private final String panelId;
@@ -798,7 +763,6 @@ public class TgStickerModule implements IPatchModule {
                     int dotIdx = name.lastIndexOf(".");
                     if (dotIdx == -1) continue;
                     String ext = name.substring(dotIdx).toLowerCase();
-                    // 仅收录合法图片文件，遇到 .webm 或其他非图片文件安全忽略，绝不卡死
                     if (!ALLOWED_EXTS.contains(ext)) continue;
 
                     if (name.startsWith("__cover__.")) {

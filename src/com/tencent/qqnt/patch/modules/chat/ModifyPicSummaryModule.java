@@ -1,4 +1,4 @@
-package com.tencent.qqnt.patch.modules;
+package com.tencent.qqnt.patch.modules.chat;
 
 import android.app.Activity;
 import android.app.Dialog;
@@ -19,11 +19,11 @@ import android.widget.TextView;
 
 import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.patch.AppContext;
-import com.tencent.qqnt.patch.ConfigManager;
 import com.tencent.qqnt.patch.IPatchModule;
-import com.tencent.qqnt.patch.NativeSettingHelper;
-import com.tencent.qqnt.patch.PLog;
-import com.tencent.qqnt.patch.ToastHelper;
+import com.tencent.qqnt.patch.config.ConfigManager;
+import com.tencent.qqnt.patch.ui.NativeSettingHelper;
+import com.tencent.qqnt.patch.util.PLog;
+import com.tencent.qqnt.patch.util.ToastHelper;
 import me.yxp.qfun.utils.ui.ThemeHelper;
 
 import org.json.JSONArray;
@@ -52,23 +52,13 @@ public class ModifyPicSummaryModule implements IPatchModule {
     private static volatile boolean sIsFetching = false;
     private static final Random sRandom = new Random();
 
-    // 本地词库缓存
     private static final List<String> sLocalLines = new ArrayList<>();
     private static volatile long sLocalFileLastModified = -1L;
     private static volatile String sCurrentSourceDesc = "";
 
-    @Override
-    public String getId() {
-        return "modify_pic_summary";
-    }
-
-    @Override
-    public String getName() {
-        return "修改图片外显";
-    }
-
-    @Override
-    public String getSubName() {
+    @Override public String getId() { return "modify_pic_summary"; }
+    @Override public String getName() { return "修改图片外显"; }
+    @Override public String getSubName() {
         if (!isEnabled()) {
             return "自定义发送图片与大表情的外显文本";
         }
@@ -78,15 +68,8 @@ public class ModifyPicSummaryModule implements IPatchModule {
         return ConfigManager.isPicSummaryUseLocal() ? "本地词库模式(待挑选)" : "指定外显模式(待获取)";
     }
 
-    @Override
-    public boolean defaultEnabled() {
-        return false;
-    }
-
-    @Override
-    public boolean hasConfig() {
-        return true;
-    }
+    @Override public boolean defaultEnabled() { return false; }
+    @Override public boolean hasConfig() { return true; }
 
     @Override
     public void onInit(Context context) {
@@ -101,26 +84,16 @@ public class ModifyPicSummaryModule implements IPatchModule {
         }
     }
 
-    // =========================================================================
-    // 设置界面：仅保留唯一的配置入口，彻底去除多余按钮
-    // =========================================================================
     @Override
     public List<Object> getSubSettingItems(ClassLoader cl, Activity activity, Runnable onRefresh) {
         List<Object> items = new ArrayList<>();
         items.add(NativeSettingHelper.createClickable(
-                cl,
-                "  ↳ 图片外显配置",
-                "配置",
-                true,
-                false,
+                cl, "  ↳ 图片外显配置", "配置", true, false,
                 v -> onConfigClick(activity, onRefresh)
         ));
         return items;
     }
 
-    // =========================================================================
-    // 拦截发包并注入 Summary
-    // =========================================================================
     @Override
     public void onSendMsg(ArrayList<MsgElement> elements) {
         if (!isEnabled() || elements == null || elements.isEmpty()) return;
@@ -132,13 +105,11 @@ public class ModifyPicSummaryModule implements IPatchModule {
         for (MsgElement element : elements) {
             if (element == null) continue;
 
-            // 普通图片
             if (element.picElement != null) {
                 element.picElement.summary = summary;
                 hasPic = true;
             }
 
-            // 商城大表情
             try {
                 if (element.marketFaceElement != null) {
                     element.marketFaceElement.faceName = summary;
@@ -153,14 +124,10 @@ public class ModifyPicSummaryModule implements IPatchModule {
         }
     }
 
-    // =========================================================================
-    // 调度引擎（按开关严格区分模式）
-    // =========================================================================
     public static void fetchNextSummary() {
         boolean useLocal = ConfigManager.isPicSummaryUseLocal();
 
         if (useLocal) {
-            // ===== 模式 A: 本地词库模式 =====
             final String customPath = ConfigManager.getPicSummaryUrl().trim();
             File localTxt = resolveLocalTxtFile(customPath);
             if (localTxt != null && localTxt.exists() && localTxt.isFile()) {
@@ -171,7 +138,6 @@ public class ModifyPicSummaryModule implements IPatchModule {
                 PLog.w(TAG, "本地词库模式已开启，但在 zzz/ 目录下未找到 .txt 文件");
             }
         } else {
-            // ===== 模式 B: 指定界面外显模式 (API 或 固定文本) =====
             final String configInput = ConfigManager.getPicSummaryUrl().trim();
             if (configInput.isEmpty()) {
                 sCurrentSourceDesc = "";
@@ -222,7 +188,6 @@ public class ModifyPicSummaryModule implements IPatchModule {
                 try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(txtFile), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = br.readLine()) != null) {
-                        // 清除 UTF-8 BOM 与空白字符
                         if (line.startsWith("\uFEFF")) {
                             line = line.substring(1);
                         }
@@ -330,9 +295,6 @@ public class ModifyPicSummaryModule implements IPatchModule {
         return null;
     }
 
-    // =========================================================================
-    // 弹窗配置（高清晰拟物化开关 + 纯文字状态无 Emoji）
-    // =========================================================================
     @Override
     public void onConfigClick(Activity activity, Runnable onSaved) {
         if (activity == null || activity.isFinishing()) return;
@@ -360,7 +322,6 @@ public class ModifyPicSummaryModule implements IPatchModule {
         bg.setCornerRadius(dp2px(activity, 18f));
         root.setBackground(bg);
 
-        // 标题
         TextView title = new TextView(activity);
         title.setText("设置图片外显");
         title.setTextSize(17);
@@ -370,7 +331,6 @@ public class ModifyPicSummaryModule implements IPatchModule {
         title.setPadding(0, 0, 0, dp2px(activity, 14f));
         root.addView(title);
 
-        // 模式切换行 (整行支持点击)
         LinearLayout modeRow = new LinearLayout(activity);
         modeRow.setOrientation(LinearLayout.HORIZONTAL);
         modeRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -394,7 +354,6 @@ public class ModifyPicSummaryModule implements IPatchModule {
         modeTextCol.addView(modeDesc);
         modeRow.addView(modeTextCol, mtLp);
 
-        // ★★★ 核心修复：纯原生自绘高清晰胶囊开关（彻底解决宿主无图元导致的微缩字体问题）★★★
         int trackW = dp2px(activity, 52f);
         int trackH = dp2px(activity, 30f);
         int thumbSize = dp2px(activity, 24f);
@@ -429,25 +388,21 @@ public class ModifyPicSummaryModule implements IPatchModule {
         modeRow.addView(switchContainer);
         root.addView(modeRow);
 
-        // 词库与接口状态文字（无 Emoji）
         TextView statusDesc = new TextView(activity);
         statusDesc.setTextSize(12);
         statusDesc.setPadding(0, 0, 0, dp2px(activity, 12f));
         root.addView(statusDesc);
 
-        // 输入框 1
         EditText etUrl = createStyledEditText(activity, inputBgColor, textColor, subTextColor, "", ConfigManager.getPicSummaryUrl());
         LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(activity, 44f));
         lp1.bottomMargin = dp2px(activity, 10f);
         root.addView(etUrl, lp1);
 
-        // 输入框 2 (JSON Key)
         EditText etKey = createStyledEditText(activity, inputBgColor, textColor, subTextColor, "JSON 提取 Key (仅 API 模式生效，支持深度查找)", ConfigManager.getPicSummaryKey());
         LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(activity, 44f));
         lp2.bottomMargin = dp2px(activity, 16f);
         root.addView(etKey, lp2);
 
-        // 状态变量与联动更新
         final boolean[] isLocalMode = new boolean[]{ ConfigManager.isPicSummaryUseLocal() };
 
         Runnable updateUIState = () -> {
@@ -490,7 +445,6 @@ public class ModifyPicSummaryModule implements IPatchModule {
         });
         updateUIState.run();
 
-        // 按钮行
         LinearLayout btnRow = new LinearLayout(activity);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
 

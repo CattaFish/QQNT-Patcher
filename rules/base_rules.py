@@ -36,7 +36,7 @@ BASE_RULES = [
     move-object/16 v0, p0
     move-object/16 v1, p1
     move-object/16 v2, p2
-    invoke-static {v0, v1, v2}, Lcom/tencent/qqnt/patch/ZzzSettingFragment;->onHijackViewCreated(Ljava/lang/Object;Landroid/view/View;Landroid/os/Bundle;)Z
+    invoke-static {v0, v1, v2}, Lcom/tencent/qqnt/patch/ui/ZzzSettingFragment;->onHijackViewCreated(Ljava/lang/Object;Landroid/view/View;Landroid/os/Bundle;)Z
     move-result v0
     if-eqz v0, :cond_orig_general
     return-void

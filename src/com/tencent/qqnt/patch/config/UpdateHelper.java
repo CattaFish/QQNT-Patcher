@@ -1,8 +1,9 @@
-package com.tencent.qqnt.patch;
+package com.tencent.qqnt.patch.config;
 
 import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
+import com.tencent.qqnt.patch.util.ToastHelper;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -13,9 +14,6 @@ import java.util.regex.Pattern;
 
 public class UpdateHelper {
 
-    /**
-     * QQ 启动时调用的静默检测（无任何 UI 干扰）
-     */
     public static void checkUpdateSilent() {
         new Thread(() -> {
             try {
@@ -50,9 +48,6 @@ public class UpdateHelper {
         checkUpdate(activity, null);
     }
 
-    /**
-     * 设置页面内用户手动点击检查更新（支持回调实时热更新 UI）
-     */
     public static void checkUpdate(Activity activity, Runnable onComplete) {
         if (activity == null) return;
         ToastHelper.show(activity, "正在检查更新...");
@@ -90,7 +85,6 @@ public class UpdateHelper {
                     activity.runOnUiThread(() -> {
                         if (tag != null && isNewerVersion(tag, ConfigManager.VERSION)) {
                             ConfigManager.setHasNewVersion(true);
-                            // ★ 检测到新版本，立即在 UI 线程触发页面重绘，红点与箭头秒出！
                             if (onComplete != null) onComplete.run();
 
                             ToastHelper.show(activity, "发现新版本: " + tag + "，即将前往下载");
@@ -103,7 +97,6 @@ public class UpdateHelper {
                             }
                         } else {
                             ConfigManager.setHasNewVersion(false);
-                            // ★ 即使已是最新版，也触发重绘保证状态一致
                             if (onComplete != null) onComplete.run();
 
                             ToastHelper.show(activity, "当前已是最新版本 (" + ConfigManager.VERSION + ")");

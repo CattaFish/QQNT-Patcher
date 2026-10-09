@@ -22,7 +22,7 @@ def build_tg_sticker_rules(dex_data_dict):
         "regex": r"return-object\s+([vp]\d+)(?=\s*(?:\.end\s+method|$))",
         "smali": r"""
     move-object/16 v0, \1
-    invoke-static {v0}, Lcom/tencent/qqnt/patch/modules/TgStickerModule;->modifyPanelDataList(Ljava/util/List;)Ljava/util/List;
+    invoke-static {v0}, Lcom/tencent/qqnt/patch/modules/chat/TgStickerModule;->modifyPanelDataList(Ljava/util/List;)Ljava/util/List;
     move-result-object v0
     return-object v0"""
     })
@@ -35,7 +35,7 @@ def build_tg_sticker_rules(dex_data_dict):
         "type": "INSERT_BEFORE",
         "smali": """
     move-object/16 v0, p3
-    invoke-static {v0}, Lcom/tencent/qqnt/patch/modules/TgStickerModule;->getEmoticonData(Ljava/lang/Object;)Ljava/util/List;
+    invoke-static {v0}, Lcom/tencent/qqnt/patch/modules/chat/TgStickerModule;->getEmoticonData(Ljava/lang/Object;)Ljava/util/List;
     move-result-object v0
     if-eqz v0, :cond_tg_panel_data_pass
     return-object v0
@@ -51,7 +51,7 @@ def build_tg_sticker_rules(dex_data_dict):
         "type": "INSERT_BEFORE",
         "smali": """
     move-object/16 v0, p1
-    invoke-static {v0}, Lcom/tencent/qqnt/patch/modules/TgStickerModule;->isTgEmoticonPackage(Ljava/lang/Object;)Z
+    invoke-static {v0}, Lcom/tencent/qqnt/patch/modules/chat/TgStickerModule;->isTgEmoticonPackage(Ljava/lang/Object;)Z
     move-result v0
     if-eqz v0, :cond_tg_ipsite_pass
     return-void
@@ -67,7 +67,7 @@ def build_tg_sticker_rules(dex_data_dict):
         "type": "INSERT_BEFORE",
         "smali": """
     move-object/16 v0, p0
-    invoke-static {v0}, Lcom/tencent/qqnt/patch/modules/TgStickerModule;->getTabUrl(Ljava/lang/String;)Ljava/net/URL;
+    invoke-static {v0}, Lcom/tencent/qqnt/patch/modules/chat/TgStickerModule;->getTabUrl(Ljava/lang/String;)Ljava/net/URL;
     move-result-object v0
     if-eqz v0, :cond_tg_tab_url_pass
     return-object v0
@@ -83,7 +83,7 @@ def build_tg_sticker_rules(dex_data_dict):
         "type": "INSERT_BEFORE",
         "smali": """
     move-object/16 v0, p0
-    invoke-static {v0}, Lcom/tencent/qqnt/patch/modules/TgStickerModule;->isTgFavoriteEmoticon(Ljava/lang/Object;)Z
+    invoke-static {v0}, Lcom/tencent/qqnt/patch/modules/chat/TgStickerModule;->isTgFavoriteEmoticon(Ljava/lang/Object;)Z
     move-result v0
     if-eqz v0, :cond_tg_fav_drawable_pass
     const/16 v0, 0x12c

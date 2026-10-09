@@ -1,9 +1,16 @@
-package com.tencent.qqnt.patch;
+package com.tencent.qqnt.patch.ui;
 
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import com.tencent.qqnt.patch.IPatchModule;
+import com.tencent.qqnt.patch.config.ConfigManager;
+import com.tencent.qqnt.patch.config.FeatureConfig;
+import com.tencent.qqnt.patch.config.UpdateHelper;
+import com.tencent.qqnt.patch.util.ChatHistoryHelper;
+import com.tencent.qqnt.patch.util.PLog;
+import com.tencent.qqnt.patch.util.ToastHelper;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -15,17 +22,14 @@ public class SettingMenuRegistry {
 
     private static final List<SettingItem> sItems = new ArrayList<>();
 
-    // 内部支持 Feature 绑定的抽象项，无需修改 SettingItem.java 即可完美兼容
     abstract static class FeatureSettingItem implements SettingItem {
         public abstract String getFeatureId();
     }
 
     static {
-        // =========================================================================
-        // 分组 1: 数据与记录 (联动 chat_history 特性)
-        // =========================================================================
         register(new FeatureSettingItem() {
-            @Override public String getGroupName() { return "数据与记录"; }
+            @Override public String getCategory() { return IPatchModule.CATEGORY_CHAT; }
+            @Override public String getGroupName() { return ""; }
             @Override public String getTitle() { return "打开好友聊天记录"; }
             @Override public String getFeatureId() { return "chat_history"; }
             @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
@@ -37,7 +41,8 @@ public class SettingMenuRegistry {
         });
 
         register(new FeatureSettingItem() {
-            @Override public String getGroupName() { return "数据与记录"; }
+            @Override public String getCategory() { return IPatchModule.CATEGORY_CHAT; }
+            @Override public String getGroupName() { return ""; }
             @Override public String getTitle() { return "打开群聊聊天记录"; }
             @Override public String getFeatureId() { return "chat_history"; }
             @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
@@ -48,11 +53,9 @@ public class SettingMenuRegistry {
             }
         });
 
-        // =========================================================================
-        // 分组 2: 高级与调试
-        // =========================================================================
         register(new SettingItem() {
-            @Override public String getGroupName() { return "高级与调试"; }
+            @Override public String getCategory() { return IPatchModule.CATEGORY_ADVANCED; }
+            @Override public String getGroupName() { return "调试与诊断"; }
             @Override public String getTitle() { return "调试日志输出 (Logcat)"; }
             @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
                 return NativeSettingHelper.createSwitch(
@@ -66,7 +69,8 @@ public class SettingMenuRegistry {
         });
 
         register(new SettingItem() {
-            @Override public String getGroupName() { return "高级与调试"; }
+            @Override public String getCategory() { return IPatchModule.CATEGORY_ADVANCED; }
+            @Override public String getGroupName() { return "调试与诊断"; }
             @Override public String getTitle() { return "实时运行日志"; }
             @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
                 return NativeSettingHelper.createClickable(
@@ -76,10 +80,8 @@ public class SettingMenuRegistry {
             }
         });
 
-        // =========================================================================
-        // 分组 3: 关于
-        // =========================================================================
         register(new SettingItem() {
+            @Override public String getCategory() { return IPatchModule.CATEGORY_ADVANCED; }
             @Override public String getGroupName() { return "关于"; }
             @Override public String getTitle() { return "当前版本"; }
             @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
@@ -88,6 +90,7 @@ public class SettingMenuRegistry {
         });
 
         register(new SettingItem() {
+            @Override public String getCategory() { return IPatchModule.CATEGORY_ADVANCED; }
             @Override public String getGroupName() { return "关于"; }
             @Override public String getTitle() { return "检查更新"; }
             @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
@@ -101,6 +104,7 @@ public class SettingMenuRegistry {
         });
 
         register(new SettingItem() {
+            @Override public String getCategory() { return IPatchModule.CATEGORY_ADVANCED; }
             @Override public String getGroupName() { return "关于"; }
             @Override public String getTitle() { return "Telegram 频道"; }
             @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
@@ -117,6 +121,7 @@ public class SettingMenuRegistry {
         });
 
         register(new SettingItem() {
+            @Override public String getCategory() { return IPatchModule.CATEGORY_ADVANCED; }
             @Override public String getGroupName() { return "关于"; }
             @Override public String getTitle() { return "GitHub 仓库"; }
             @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
@@ -147,9 +152,6 @@ public class SettingMenuRegistry {
         return true;
     }
 
-    /**
-     * 仅返回在当前构建包中已激活特性的项（供 QQ 原生搜索动态建索引）
-     */
     public static List<SettingItem> getItems() {
         List<SettingItem> activeItems = new ArrayList<>();
         for (SettingItem item : sItems) {
@@ -160,23 +162,15 @@ public class SettingMenuRegistry {
         return Collections.unmodifiableList(activeItems);
     }
 
-    public static SettingItem findItemByTitle(String title) {
-        if (title == null) return null;
-        for (SettingItem item : sItems) {
-            if (title.equals(item.getTitle()) && isItemActive(item)) {
-                return item;
-            }
-        }
-        return null;
+    public static Map<String, List<Object>> buildGroupViews(ClassLoader cl, Activity activity, Runnable onRefresh) {
+        return buildGroupViews(cl, activity, null, onRefresh);
     }
 
-    /**
-     * 按注册的分组名聚合视图（自动过滤掉未被激活的特性）
-     */
-    public static Map<String, List<Object>> buildGroupViews(ClassLoader cl, Activity activity, Runnable onRefresh) {
+    public static Map<String, List<Object>> buildGroupViews(ClassLoader cl, Activity activity, String targetCategory, Runnable onRefresh) {
         Map<String, List<Object>> groupMap = new LinkedHashMap<>();
         for (SettingItem item : sItems) {
             if (!isItemActive(item)) continue;
+            if (targetCategory != null && !targetCategory.equals(item.getCategory())) continue;
 
             String group = item.getGroupName();
             Object view = item.createView(cl, activity, onRefresh);

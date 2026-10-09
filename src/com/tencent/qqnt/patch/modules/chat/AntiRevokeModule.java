@@ -1,17 +1,16 @@
-package com.tencent.qqnt.patch.modules;
+package com.tencent.qqnt.patch.modules.chat;
 
 import com.tencent.mobileqq.qroute.QRoute;
 import com.tencent.qqnt.kernel.nativeinterface.IKernelMsgService;
 import com.tencent.qqnt.kernel.nativeinterface.IQQNTWrapperSession;
-import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
 import com.tencent.qqnt.kernelpublic.nativeinterface.Contact;
 import com.tencent.qqnt.kernelpublic.nativeinterface.JsonGrayElement;
 import com.tencent.qqnt.ntrelation.friendsinfo.api.IFriendsInfoService;
 import com.tencent.qqnt.patch.IPatchModule;
-import com.tencent.qqnt.patch.PLog;
 import com.tencent.qqnt.patch.plugin.MsgSender;
 import com.tencent.qqnt.patch.plugin.PluginManager;
+import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.relation.common.api.IRelationNTUinAndUidApi;
 
 import java.io.ByteArrayOutputStream;
@@ -342,14 +341,11 @@ public class AntiRevokeModule implements IPatchModule {
         if (revokeType == 1) {
             String groupCode = "";
 
-            // 1. 【核心解析群号】从 headerBytes 提取
-            // 方式 A: headerBytes Tag 2 直接是 UTF-8 群号字符串 (如 "655947600")
             String gCodeStr = Proto.getString(headerBytes, 2);
             if (gCodeStr != null && !gCodeStr.isEmpty() && gCodeStr.matches("\\d+")) {
                 groupCode = gCodeStr;
             }
 
-            // 方式 B: headerBytes Tag 1 是 Varint 群号数值 (如 655947600)
             if (groupCode.isEmpty()) {
                 long gCodeVal = Proto.getVarint(headerBytes, 1);
                 if (gCodeVal > 10000L) {
@@ -357,10 +353,8 @@ public class AntiRevokeModule implements IPatchModule {
                 }
             }
 
-            // 2. 【核心解析操作体】自适应处理 7 字节前缀
             byte[] opBytesSkip7 = (opBytes.length > 7) ? Proto.subArray(opBytes, 7) : opBytes;
 
-            // 方式 C 备用群号: opBytesSkip7 Tag 4 是 Varint 群号
             if (groupCode.isEmpty()) {
                 long g4 = Proto.getVarint(opBytesSkip7, 4);
                 if (g4 > 10000L) groupCode = String.valueOf(g4);
@@ -370,18 +364,16 @@ public class AntiRevokeModule implements IPatchModule {
             String senderUid = "";
             long msgSeq = 0L;
 
-            // ★ 结构 1 (真实抓包核心结构): opBytesSkip7 -> Tag 11 包含详情
             byte[] tag11 = Proto.getBytes(opBytesSkip7, 11);
             if (tag11 != null) {
                 operatorUid = Proto.getString(tag11, 1);
                 byte[] tag3 = Proto.getBytes(tag11, 3);
                 if (tag3 != null) {
-                    msgSeq = Proto.getVarint(tag3, 1);    // 真实 msgSeq
-                    senderUid = Proto.getString(tag3, 6); // 原发送者 UID
+                    msgSeq = Proto.getVarint(tag3, 1);
+                    senderUid = Proto.getString(tag3, 6);
                 }
             }
 
-            // ★ 结构 2 (QFun 结构): opBytesSkip7 -> Tag 1 包含详情
             if (msgSeq == 0) {
                 byte[] tag1 = Proto.getBytes(opBytesSkip7, 1);
                 if (tag1 != null) {
@@ -394,7 +386,6 @@ public class AntiRevokeModule implements IPatchModule {
                 }
             }
 
-            // ★ 结构 3 (未带 7 字节前缀的新通道直接解析)
             if (msgSeq == 0) {
                 byte[] tag11Direct = Proto.getBytes(opBytes, 11);
                 if (tag11Direct != null) {
@@ -407,11 +398,9 @@ public class AntiRevokeModule implements IPatchModule {
                 }
             }
 
-            // 兜底 UID
             if (operatorUid.isEmpty()) operatorUid = findFirstUidSafe(opBytes);
             if (senderUid.isEmpty()) senderUid = operatorUid;
 
-            // 3. 【本人主动撤回判定】只要是本人执行的撤回操作（无论是撤回自己的还是管理代撤回），直接放行生效
             if (selfUid != null && !selfUid.isEmpty() && selfUid.equals(operatorUid)) {
                 PLog.d(TAG, "本人主动执行撤回操作，放行生效");
                 return true;
@@ -461,7 +450,6 @@ public class AntiRevokeModule implements IPatchModule {
             }
             if (operatorUid.isEmpty()) operatorUid = Proto.getString(headerBytes, 2);
 
-            // 私聊本人主动撤回直接放行
             if (selfUid != null && !selfUid.isEmpty() && selfUid.equals(operatorUid)) {
                 return true;
             }
@@ -562,12 +550,10 @@ public class AntiRevokeModule implements IPatchModule {
         StringBuilder sb = new StringBuilder();
         sb.append("{\"align\":\"center\",\"items\":[");
 
-        // 1. 操作人 (管理员/群主) -> 高亮且可点击
         sb.append("{\"col\":\"3\",\"jp\":\"").append(opUid).append("\",\"nm\":\"").append(escapeJson(opNick))
           .append("\",\"tp\":\"0\",\"type\":\"qq\",\"uid\":\"").append(opUid).append("\",\"uin\":\"").append(opUin != null ? opUin : "").append("\"},");
         sb.append("{\"txt\":\" 尝试撤回 \",\"type\":\"nor\"},");
 
-        // 2. 原发送者 -> 若是自己，直接作为普通文本“我”；若是他人，保留高亮点击
         if (isSenderSelf) {
             sb.append("{\"txt\":\"我\",\"type\":\"nor\"},");
         } else {
@@ -576,7 +562,6 @@ public class AntiRevokeModule implements IPatchModule {
         }
         sb.append("{\"txt\":\" 的 \",\"type\":\"nor\"},");
 
-        // 3. 一条消息 -> 瞬移跳转定位高亮
         sb.append("{\"col\":\"3\",\"local_jp\":58,");
         if (msgSeq > 0) sb.append("\"param\":{\"seq\":\"").append(msgSeq).append("\"},");
         else sb.append("\"param\":{},");

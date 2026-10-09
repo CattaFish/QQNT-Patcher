@@ -1,4 +1,4 @@
-package com.tencent.qqnt.patch;
+package com.tencent.qqnt.patch.util;
 
 import android.app.Activity;
 import android.app.Dialog;
@@ -24,13 +24,6 @@ public class ChatHistoryHelper {
 
     private static final String TARGET_ACTIVITY = "com.tencent.mobileqq.activity.history.NTChatHistoryActivity";
 
-    // =========================================================================
-    // 1. 底层 Activity 启动调度
-    // =========================================================================
-
-    /**
-     * 打开私聊聊天记录 (chatType = 1)
-     */
     public static void openFriendChatHistory(Context context, String input) {
         if (context == null || input == null) return;
         String text = input.trim();
@@ -43,10 +36,8 @@ public class ChatHistoryHelper {
         String sessionName = text;
 
         if (text.startsWith("u_")) {
-            // 输入的是 UID
             peerId = text;
         } else {
-            // 输入的是纯数字 QQ 号
             try {
                 long uin = Long.parseLong(text);
                 if (uin < 10000L) {
@@ -69,9 +60,6 @@ public class ChatHistoryHelper {
         launchChatHistory(context, peerId, 1, sessionName);
     }
 
-    /**
-     * 打开群聊聊天记录 (chatType = 2, peerId 直接为群号)
-     */
     public static void openGroupChatHistory(Context context, String input) {
         if (context == null || input == null) return;
         String text = input.trim();
@@ -112,10 +100,6 @@ public class ChatHistoryHelper {
             ToastHelper.show(context, "打开聊天记录失败: " + t.getMessage());
         }
     }
-
-    // =========================================================================
-    // 2. 原生 UI 弹窗 (自适应暗黑模式，零混淆依赖)
-    // =========================================================================
 
     public static void showFriendHistoryDialog(Activity activity) {
         showCustomInputDialog(
@@ -169,7 +153,6 @@ public class ChatHistoryHelper {
         bg.setCornerRadius(dp2px(activity, 18f));
         root.setBackground(bg);
 
-        // 标题
         TextView title = new TextView(activity);
         title.setText(titleText);
         title.setTextSize(17);
@@ -179,7 +162,6 @@ public class ChatHistoryHelper {
         title.setPadding(0, 0, 0, dp2px(activity, 10f));
         root.addView(title);
 
-        // 提示说明
         TextView tip = new TextView(activity);
         tip.setText(tipText);
         tip.setTextSize(12);
@@ -188,7 +170,6 @@ public class ChatHistoryHelper {
         tip.setPadding(dp2px(activity, 4f), 0, dp2px(activity, 4f), dp2px(activity, 12f));
         root.addView(tip);
 
-        // 输入框
         EditText et = new EditText(activity);
         et.setHint(hintText);
         et.setHintTextColor(subTextColor);
@@ -209,7 +190,6 @@ public class ChatHistoryHelper {
         lpInput.bottomMargin = dp2px(activity, 16f);
         root.addView(et, lpInput);
 
-        // 按钮行
         LinearLayout btnRow = new LinearLayout(activity);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
 

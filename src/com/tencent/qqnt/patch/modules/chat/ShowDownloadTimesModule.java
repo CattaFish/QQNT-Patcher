@@ -1,16 +1,15 @@
-package com.tencent.qqnt.patch.modules;
+package com.tencent.qqnt.patch.modules.chat;
 
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
-import com.tencent.qqnt.patch.ConfigManager;
 import com.tencent.qqnt.patch.IPatchModule;
-import com.tencent.qqnt.patch.PLog;
+import com.tencent.qqnt.patch.config.ConfigManager;
+import com.tencent.qqnt.patch.util.PLog;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -122,8 +121,7 @@ public class ShowDownloadTimesModule implements IPatchModule {
 
             if (originalStatus != null && originalStatus.endsWith("次")) return originalStatus;
 
-            String newStatus = originalStatus + " · " + count + " 次";
-            return newStatus;
+            return originalStatus + " · " + count + " 次";
         } catch (Throwable t) {
             PLog.e(TAG, "追加群文件下载次数异常", t);
         }
@@ -231,6 +229,4 @@ public class ShowDownloadTimesModule implements IPatchModule {
             }
         }
     }
-
-    public static void handleTroopFileInfo(Object qObj) {}
 }

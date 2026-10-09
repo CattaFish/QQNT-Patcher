@@ -94,7 +94,7 @@ def build_setting_rules(dex_data_dict):
     move-object/16 v0, \\1
     move-object/16 v1, p1
     const-string v2, "{item_class}"
-    invoke-static {{v1, v0, v2}}, Lcom/tencent/qqnt/patch/SettingInjector;->inject(Landroid/content/Context;Ljava/util/List;Ljava/lang/String;)V
+    invoke-static {{v1, v0, v2}}, Lcom/tencent/qqnt/patch/ui/SettingInjector;->inject(Landroid/content/Context;Ljava/util/List;Ljava/lang/String;)V
     return-object v0"""
         })
 
@@ -115,7 +115,7 @@ def build_setting_rules(dex_data_dict):
                             "type": "REGEX_REPLACE",
                             "regex": r"(invoke-direct\s+\{([vp]\d+)\},\s+Lcom/tencent/mobileqq/setting/search/node/b;-><init>\(\)V)",
                             "smali": r"""\1
-    invoke-static {\2}, Lcom/tencent/qqnt/patch/SettingSearchInjector;->inject(Ljava/lang/Object;)V"""
+    invoke-static {\2}, Lcom/tencent/qqnt/patch/ui/SettingSearchInjector;->inject(Ljava/lang/Object;)V"""
                         })
                         break
 
@@ -130,7 +130,7 @@ def build_setting_rules(dex_data_dict):
                 "type": "REGEX_REPLACE",
                 "regex": r"(invoke-direct\s+\{([vp]\d+)\},\s+Lcom/tencent/mobileqq/setting/search/node/b;-><init>\(\)V)",
                 "smali": r"""\1
-    invoke-static {\2}, Lcom/tencent/qqnt/patch/SettingSearchInjector;->inject(Ljava/lang/Object;)V"""
+    invoke-static {\2}, Lcom/tencent/qqnt/patch/ui/SettingSearchInjector;->inject(Ljava/lang/Object;)V"""
             })
             break
 

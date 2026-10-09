@@ -1,23 +1,17 @@
-package com.tencent.qqnt.patch;
+package com.tencent.qqnt.patch.ui;
 
-import android.content.Context;
-import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.widget.CompoundButton;
+import com.tencent.qqnt.patch.util.PLog;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
-import java.util.ArrayList;
 import java.util.List;
 
 public class NativeSettingHelper {
 
-    // =========================================================================
-    // 1. 分组构建与提交
-    // =========================================================================
     public static Object createGroup(ClassLoader cl, CharSequence topTitle, CharSequence bottomFooter, List<Object> items) {
         try {
             Class<?> itemBaseClass = cl.loadClass("com.tencent.mobileqq.widget.listitem.a");
@@ -63,9 +57,6 @@ public class NativeSettingHelper {
         } catch (Throwable ignored) {}
     }
 
-    // =========================================================================
-    // 2. 纯文本项 (Title + RightText)
-    // =========================================================================
     public static Object createTextItem(ClassLoader cl, CharSequence title, CharSequence rightText) {
         try {
             Class<?> xbdClass = cl.loadClass("com.tencent.mobileqq.widget.listitem.x$b$d");
@@ -81,29 +72,21 @@ public class NativeSettingHelper {
         }
     }
 
-    // =========================================================================
-    // 3. 开关类型 (Switch Item，完美支持单行 x 与双行 c)
-    // =========================================================================
     public static Object createSwitch(ClassLoader cl, CharSequence title, boolean isChecked, CompoundButton.OnCheckedChangeListener listener) {
         return createSwitch(cl, title, null, isChecked, listener);
     }
 
     public static Object createSwitch(ClassLoader cl, CharSequence title, CharSequence subTitle, boolean isChecked, CompoundButton.OnCheckedChangeListener listener) {
         try {
-            // ★★★ 当指定了副标题时，采用 QQ 原生真正的双行组件 c (c$a$f + c$b$c) ★★★
             if (subTitle != null && subTitle.length() > 0) {
                 try {
                     Class<?> cClass = cl.loadClass("com.tencent.mobileqq.widget.listitem.c");
                     Class<?> cafClass = cl.loadClass("com.tencent.mobileqq.widget.listitem.c$a$f");
                     Class<?> cbcClass = cl.loadClass("com.tencent.mobileqq.widget.listitem.c$b$c");
 
-                    // 实例化左侧双行标题组件 c$a$f(title, subTitle)
                     Object left = newInstanceSmart(cafClass, new Object[]{title, subTitle});
-
-                    // 实例化右侧双行开关组件 c$b$c(isChecked, listener, isEnabled)
                     Object right = newInstanceSmart(cbcClass, new Object[]{isChecked, listener, true});
 
-                    // 对齐设置事件监听器
                     if (right != null && listener != null) {
                         try {
                             Method gMethod = cbcClass.getMethod("g", CompoundButton.OnCheckedChangeListener.class);
@@ -111,7 +94,6 @@ public class NativeSettingHelper {
                         } catch (Throwable ignored) {}
                     }
 
-                    // 组装整行并返回
                     Object doubleLineRow = newInstanceSmart(cClass, new Object[]{left, right});
                     if (doubleLineRow != null) {
                         return doubleLineRow;
@@ -121,7 +103,6 @@ public class NativeSettingHelper {
                 }
             }
 
-            // 单行默认走 x
             Class<?> xbdClass = cl.loadClass("com.tencent.mobileqq.widget.listitem.x$b$d");
             Object left = newInstanceSmart(xbdClass, new Object[]{title});
 
@@ -135,9 +116,6 @@ public class NativeSettingHelper {
         }
     }
 
-    // =========================================================================
-    // 4. 点击跳转类型 (带右侧文字、箭头、QUIBadge红点)
-    // =========================================================================
     public static Object createClickable(ClassLoader cl, CharSequence title, String rightText, boolean showArrow, boolean showRedDot, View.OnClickListener clickListener) {
         try {
             Class<?> xbdClass = cl.loadClass("com.tencent.mobileqq.widget.listitem.x$b$d");

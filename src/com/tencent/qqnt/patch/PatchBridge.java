@@ -7,6 +7,11 @@ import com.tencent.qqnt.kernel.nativeinterface.IKernelMsgListener;
 import com.tencent.qqnt.kernel.nativeinterface.IQQNTWrapperSession;
 import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
+import com.tencent.qqnt.patch.config.ConfigManager;
+import com.tencent.qqnt.patch.modules.chat.AutoRemarkApkModule;
+import com.tencent.qqnt.patch.modules.chat.ShowDownloadTimesModule;
+import com.tencent.qqnt.patch.modules.purify.AtAllNotifyBlockModule;
+import com.tencent.qqnt.patch.modules.purify.BrowserMitigationModule;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
@@ -25,7 +30,7 @@ public class PatchBridge {
     
     public static void handleWebSecurityCallback(Object bundleObj) {
         if (bundleObj instanceof android.os.Bundle) {
-            com.tencent.qqnt.patch.modules.BrowserMitigationModule.handleWebSecurityCallback((android.os.Bundle) bundleObj);
+            BrowserMitigationModule.handleWebSecurityCallback((android.os.Bundle) bundleObj);
         }
     }
 
@@ -36,7 +41,6 @@ public class PatchBridge {
         if (activityObj instanceof Activity && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             return ((Activity) activityObj).isInMultiWindowMode();
         }
-        // 针对代理包装类的反射兜底
         if (activityObj != null) {
             try {
                 java.lang.reflect.Method m = activityObj.getClass().getMethod("isInMultiWindowMode");
@@ -47,37 +51,37 @@ public class PatchBridge {
     }
 
     public static boolean shouldDropTroopToDo() {
-        return com.tencent.qqnt.patch.modules.AtAllNotifyBlockModule.shouldDropTroopToDo();
+        return AtAllNotifyBlockModule.shouldDropTroopToDo();
     }
 
     public static boolean shouldDropMsgNotify(Object msgNotifyItemObj) {
-        return com.tencent.qqnt.patch.modules.AtAllNotifyBlockModule.shouldDropMsgNotify(msgNotifyItemObj);
+        return AtAllNotifyBlockModule.shouldDropMsgNotify(msgNotifyItemObj);
     }
 
     public static boolean shouldDropRecentContact(Object recentContactInfoObj) {
-        return com.tencent.qqnt.patch.modules.AtAllNotifyBlockModule.shouldDropRecentContact(recentContactInfoObj);
+        return AtAllNotifyBlockModule.shouldDropRecentContact(recentContactInfoObj);
     }
 
     public static void handleDispatchRespMsg(Object msfMessagePair) {
         if (msfMessagePair == null) return;
         com.tencent.qqnt.patch.plugin.RKeyManager.onDispatchRespMsg(msfMessagePair);
-        com.tencent.qqnt.patch.modules.AutoRemarkApkModule.onDispatchRespMsg(msfMessagePair);
+        AutoRemarkApkModule.onDispatchRespMsg(msfMessagePair);
     }
 
     public static void handleGroupFileListResponse(Object responseObj) {
-        com.tencent.qqnt.patch.modules.ShowDownloadTimesModule.handleGroupFileListResponse(responseObj);
+        ShowDownloadTimesModule.handleGroupFileListResponse(responseObj);
     }
 
     public static void handleGroupFileList(Object fileListObj, Object responseObj) {
-        com.tencent.qqnt.patch.modules.ShowDownloadTimesModule.handleGroupFileList(fileListObj, responseObj);
+        ShowDownloadTimesModule.handleGroupFileList(fileListObj, responseObj);
     }
 
     public static void handleTroopFileGetView(View view, Object adapter, int position) {
-        com.tencent.qqnt.patch.modules.ShowDownloadTimesModule.handleTroopFileGetView(view, adapter, position);
+        ShowDownloadTimesModule.handleTroopFileGetView(view, adapter, position);
     }
 
     public static String appendDownloadCountToStatusText(String originalStatus, Object fileItemObj) {
-        return com.tencent.qqnt.patch.modules.ShowDownloadTimesModule.appendDownloadCountToStatusText(originalStatus, fileItemObj);
+        return ShowDownloadTimesModule.appendDownloadCountToStatusText(originalStatus, fileItemObj);
     }
 
     public static byte[] handleMsfPush(IQQNTWrapperSession session, String cmd, byte[] buf) {

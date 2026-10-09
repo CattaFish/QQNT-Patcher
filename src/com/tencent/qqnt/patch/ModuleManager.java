@@ -4,6 +4,10 @@ import android.content.Context;
 import com.tencent.qqnt.kernel.nativeinterface.IQQNTWrapperSession;
 import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
+import com.tencent.qqnt.patch.config.FeatureConfig;
+import com.tencent.qqnt.patch.util.PLog;
+import com.tencent.qqnt.patch.modules.chat.*;
+import com.tencent.qqnt.patch.modules.purify.*;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -34,25 +38,24 @@ public class ModuleManager {
     }
 
     static {
-        register(new com.tencent.qqnt.patch.modules.AntiRevokeModule());
-        register(new com.tencent.qqnt.patch.modules.FlashPicModule());
-        register(new com.tencent.qqnt.patch.modules.MeowModule());
-        register(new com.tencent.qqnt.patch.modules.FloatingBallModule());
-        register(new com.tencent.qqnt.patch.modules.TabletModeModule());
-        register(new com.tencent.qqnt.patch.modules.AtAllNotifyBlockModule());
-        register(new com.tencent.qqnt.patch.modules.AutoRemarkApkModule());
-        register(new com.tencent.qqnt.patch.modules.ShowDownloadTimesModule());
-        register(new com.tencent.qqnt.patch.modules.ModifyPicSummaryModule());
-        register(new com.tencent.qqnt.patch.modules.DisableSplitScreenLimitModule());
-        register(new com.tencent.qqnt.patch.modules.TgStickerModule());
-        register(new com.tencent.qqnt.patch.modules.BrowserMitigationModule());
+        register(new AntiRevokeModule());
+        register(new FlashPicModule());
+        register(new MeowModule());
+        register(new FloatingBallModule());
+        register(new TabletModeModule());
+        register(new AtAllNotifyBlockModule());
+        register(new AutoRemarkApkModule());
+        register(new ShowDownloadTimesModule());
+        register(new ModifyPicSummaryModule());
+        register(new DisableSplitScreenLimitModule());
+        register(new TgStickerModule());
+        register(new BrowserMitigationModule());
     }
 
     public static void register(IPatchModule module) {
         if (module == null) return;
         String fId = MOD_TO_FEATURE.get(module.getId());
         if (fId != null && !FeatureConfig.has(fId)) {
-            // 特性未激活，零注册、零常驻
             return;
         }
         if (!sModules.contains(module)) {
