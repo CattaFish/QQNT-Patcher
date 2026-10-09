@@ -36,7 +36,7 @@ def run_pipeline(ctx: PipelineContext):
     keep_list = {
         "patcher_bin", "dex_out", "bin", "bsh.dex", "bsh_dex",
         "libs_cached.dex", "preset_plugins.zip", "apk_meta_cache.json",
-        "dex_cache", "so_cache", "rule_discovery_cache.json", "dex_classes_map.json"
+        "dex_cache", "rule_discovery_cache.json", "dex_classes_map.json"
     }
     for f in os.listdir(ctx.work_dir):
         if f not in keep_list:

@@ -54,7 +54,6 @@ class PipelineContext:
         self.all_rules = []
         self.dex_to_rules = {}
         self.modified_dex_files = []
-        self.patched_so_files = []
         
         self.libs_dex_path = None
         self.patch_dex_path = None

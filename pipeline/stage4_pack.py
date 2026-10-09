@@ -18,14 +18,7 @@ def run_stage4(ctx):
         if os.path.isfile(local_path):
             shutil.copyfile(local_path, os.path.join(inject_dir, in_zip_name))
 
-    # 4.2 收集 Native 补丁库
-    for local_so, in_zip_so in ctx.patched_so_files:
-        if os.path.isfile(local_so):
-            target_so_dir = os.path.join(inject_dir, os.path.dirname(in_zip_so))
-            os.makedirs(target_so_dir, exist_ok=True)
-            shutil.copyfile(local_so, os.path.join(inject_dir, in_zip_so))
-
-    # 4.3 收集扩展库 Dex
+    # 4.2 收集扩展库 Dex
     libs_dex_name = f"classes{ctx.max_dex_idx + 1}.dex"
     patch_dex_name = f"classes{ctx.max_dex_idx + 2}.dex"
     if ctx.libs_dex_path and os.path.isfile(ctx.libs_dex_path):
@@ -34,13 +27,13 @@ def run_stage4(ctx):
     if ctx.patch_dex_path and os.path.isfile(ctx.patch_dex_path):
         shutil.copyfile(ctx.patch_dex_path, os.path.join(inject_dir, patch_dex_name))
 
-    # 4.4 从 Provider 索取额外的 Dex 载荷 (killer 特性开启时注入)
+    # 4.3 从 Provider 索取额外的 Dex 载荷 (killer 特性开启时注入)
     if "killer" in ctx.active_features:
         for dex_name, src_path in ctx.provider.get_extra_dexes(ctx):
             shutil.copyfile(src_path, os.path.join(inject_dir, dex_name))
             ctx.log("OK", f"-> [Provider:{ctx.provider.name}] 注入 Dex: {dex_name}")
 
-    # 4.5 从 Provider 索取额外的 SO 载荷 (killer 特性开启时注入)
+    # 4.4 从 Provider 索取额外的 SO 载荷 (killer 特性开启时注入)
     if "killer" in ctx.active_features:
         apk_abis = set()
         with zipfile.ZipFile(ctx.input_apk, 'r') as zf:
@@ -54,7 +47,7 @@ def run_stage4(ctx):
             shutil.copyfile(src_path, os.path.join(dst_so_dir, os.path.basename(rel_so_path)))
             ctx.log("OK", f"-> [Provider:{ctx.provider.name}] 注入 Native 库: {rel_so_path}")
 
-    # 4.6 挂载静态资产与扩展插件 (按需注入)
+    # 4.5 挂载静态资产与扩展插件 (按需注入)
     assets_dir = os.path.join(inject_dir, "assets")
     os.makedirs(assets_dir, exist_ok=True)
 

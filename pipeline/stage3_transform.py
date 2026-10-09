@@ -4,7 +4,6 @@ import shlex
 import shutil
 import hashlib
 import json
-import native_patcher
 
 def compute_dex_patch_key(raw_dex_bytes, rules_list):
     h = hashlib.sha256()
@@ -32,9 +31,7 @@ def dump_batch_tasks(dex_tasks, batch_file):
 def run_stage3(ctx):
     ctx.log("INFO", f"3. 正在执行 Dex 字节码内存 AST 重构 ({len(ctx.dex_to_rules)} 个分包)...")
     dex_cache_dir = os.path.join(ctx.work_dir, "dex_cache")
-    so_cache_dir = os.path.join(ctx.work_dir, "so_cache")
     os.makedirs(dex_cache_dir, exist_ok=True)
-    os.makedirs(so_cache_dir, exist_ok=True)
 
     dex_tasks = []
     ctx.modified_dex_files = []
@@ -77,20 +74,3 @@ def run_stage3(ctx):
                     shutil.copyfile(target_out_dex, cached_dex_file)
         else:
             ctx.log("OK", "全部分包均命中缓存，跳过 Dex 编译流程")
-
-    # Native SO 修补 (按 so_patch 特性精确控制)
-    ctx.patched_so_files = []
-    if "so_patch" not in ctx.active_features:
-        ctx.log("WARN", "已跳过 [so_patch] 特性: 不对底层 libcodecwrapperV2.so 进行跳转修补")
-    else:
-        cached_so_file = os.path.join(so_cache_dir, f"libcodecwrapperV2_{ctx.orig_apk_md5}.so")
-        if os.path.exists(cached_so_file) and os.path.getsize(cached_so_file) > 0:
-            ctx.patched_so_files.append((cached_so_file, "lib/arm64-v8a/libcodecwrapperV2.so"))
-            ctx.log("OK", "-> Native SO 命中缓存，秒级复用")
-        else:
-            ctx.log("INFO", "3.1 正在扫描底层 Native SO 安全探针...")
-            new_so_files = native_patcher.patch_native_so(ctx.input_apk, ctx.work_dir, log_func=ctx.log)
-            for local_so, in_zip_so in new_so_files:
-                if "libcodecwrapperV2.so" in in_zip_so:
-                    shutil.copyfile(local_so, cached_so_file)
-                ctx.patched_so_files.append((local_so, in_zip_so))

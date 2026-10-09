@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 Feature 调度与依赖决议中心
-支持细粒度控制任意功能（包含保命底座 killer/security 与 Native SO）的开启与跳过
+支持细粒度控制任意功能的开启与跳过
 """
 
 ALL_FEATURES = {
     # 基础设施与安全底座 (支持自由 skip/only 测试)
     "killer": "去签核心入口注入",
     "security": "安全风控与查签致盲",
-    "so_patch": "Native SO 查签拦截 (libcodecwrapperV2)",
 
     # 业务扩展功能
     "anti_revoke": "消息防撤回",
@@ -34,8 +33,6 @@ FEATURE_ALIASES = {
     "killer": "killer", "去签": "killer", "签名": "killer", "sign_killer": "killer",
     # security
     "security": "security", "sec": "security", "安全": "security", "查签": "security", "风控": "security",
-    # so_patch
-    "so": "so_patch", "native": "so_patch", "so_patch": "so_patch", "libcodecwrapper": "so_patch",
     # anti_revoke
     "anti_revoke": "anti_revoke", "revoke": "anti_revoke", "防撤回": "anti_revoke", "撤回": "anti_revoke",
     # flash_pic
