@@ -12,12 +12,25 @@ import java.nio.file.Files;
 import java.security.KeyFactory;
 import java.security.KeyStore;
 import java.security.PrivateKey;
+import java.security.SecureRandom;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.*;
 
 public class NeoPacker {
+
+    private static String generateRandomHostPath() {
+        String alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+        SecureRandom rnd = new SecureRandom();
+        int dirLen = 6 + rnd.nextInt(3);   // 6 ~ 8 位随机目录
+        int fileLen = 8 + rnd.nextInt(4);  // 8 ~ 11 位随机文件名
+        StringBuilder dir = new StringBuilder();
+        StringBuilder file = new StringBuilder();
+        for (int i = 0; i < dirLen; i++) dir.append(alphabet.charAt(rnd.nextInt(alphabet.length())));
+        for (int i = 0; i < fileLen; i++) file.append(alphabet.charAt(rnd.nextInt(alphabet.length())));
+        return "assets/" + dir + "/" + file + ".apk";
+    }
 
     public static void main(String[] args) {
         if (args.length < 3) {
@@ -43,7 +56,6 @@ public class NeoPacker {
         System.out.println("[NeoPacker] 启动装配引擎 (Killer模式: " + enableKiller + ", 签名: " + enableSign + ")...");
 
         try {
-            // 1. 扫描 inject_dir 收集补丁与扩展文件 (防御过滤任何 input.apk 遗留)
             Map<String, File> injectedMap = new LinkedHashMap<>();
             if (injectDir.isDirectory()) {
                 scanDirRecursive(injectDir, injectDir, injectedMap);
@@ -57,7 +69,6 @@ public class NeoPacker {
 
                 maker.setLevel(ZipMaker.LEVEL_FASTER);
 
-                // 2. 写入补丁文件 (DEX 极速压缩，SO 保持对齐)
                 for (Map.Entry<String, File> e : injectedMap.entrySet()) {
                     String name = e.getKey();
                     File f = e.getValue();
@@ -84,11 +95,11 @@ public class NeoPacker {
                     maker.closeEntry();
                 }
 
-                // 3. 原包内容处理
                 if (enableKiller) {
-                    // Killer 模式: 挂载原包 assets/Zcraft/input.apk 并建立零拷贝虚拟条目映射 (~380MB)
-                    System.out.println("[NeoPacker] [Killer模式] 挂载 assets/Zcraft/input.apk 并建立数据复用映射...");
-                    ZipMaker.HostEntryHolder host = maker.putNextHostEntry("assets/Zcraft/input.apk", origZip);
+                    // 全随机路径挂载 HostEntry
+                    String hostEntryPath = generateRandomHostPath();
+                    System.out.println("[NeoPacker] [Killer模式] 挂载 " + hostEntryPath + " 并建立数据复用映射 (全随机路径)...");
+                    ZipMaker.HostEntryHolder host = maker.putNextHostEntry(hostEntryPath, origZip);
 
                     int virtualCount = 0;
                     for (ZipEntry entry : origZip.getEntries()) {
@@ -101,7 +112,6 @@ public class NeoPacker {
                     }
                     System.out.println("[NeoPacker] 数据复用完成: " + virtualCount + " 个文件直接映射，零体积膨胀");
 
-                    // 注入原版 V1 证书三件套壳
                     byte[] rsaBytes = null;
                     boolean hasCertRsa = false;
                     for (ZipEntry entry : origZip.getEntries()) {
@@ -129,12 +139,10 @@ public class NeoPacker {
                         maker.closeEntry();
                     }
                 } else {
-                    // 纯净非 Killer 模式: 原样流式复用原包条目，绝不创建 input.apk 宿主条目 (~390MB)
-                    System.out.println("[NeoPacker] [纯净模式] 直接合并原包条目，绝不内嵌 input.apk...");
+                    System.out.println("[NeoPacker] [纯净模式] 直接合并原包条目，绝不内嵌原包...");
                     int copyCount = 0;
                     for (ZipEntry entry : origZip.getEntries()) {
                         String name = entry.getName();
-                        // 覆盖项或已修改条目不重复拷贝
                         if (!injectedMap.containsKey(name) && !name.startsWith("META-INF/")) {
                             maker.copyZipEntry(entry, origZip);
                             copyCount++;
@@ -142,9 +150,8 @@ public class NeoPacker {
                     }
                     System.out.println("[NeoPacker] 纯净合并完成: 复用原包 " + copyCount + " 个未修改条目");
                 }
-            } // maker.close() 写入 Central Directory 与 EOCD
+            }
 
-            // 4. 签名阶段
             if (enableSign && keyOrStoreFile != null && keyOrStoreFile.isFile()) {
                 System.out.println("[NeoPacker] 正在执行 V2 签名...");
                 GenericSignatureKey sigKey = null;
@@ -183,8 +190,7 @@ public class NeoPacker {
                 scanDirRecursive(root, f, result);
             } else if (f.isFile() && !f.getName().startsWith(".")) {
                 String relPath = root.toPath().relativize(f.toPath()).toString().replace(File.separator, "/");
-                // 严密防御：彻底防止将 input.apk 误当作新资源再次写入
-                if (!relPath.endsWith("input.apk")) {
+                if (!relPath.endsWith(".tmp") && !relPath.contains("tmp.")) {
                     result.put(relPath, f);
                 }
             }
