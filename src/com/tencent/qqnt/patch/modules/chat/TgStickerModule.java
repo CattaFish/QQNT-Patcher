@@ -2,6 +2,8 @@ package com.tencent.qqnt.patch.modules.chat;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
@@ -121,12 +123,17 @@ public class TgStickerModule implements IPatchModule {
         root.addView(title);
 
         List<StickerPanel> currentPanels = getPanels();
+        final String stickerPath = getStickerBaseDir().getAbsolutePath();
         TextView statusDesc = new TextView(activity);
         statusDesc.setTextSize(12);
-        statusDesc.setText("[路径] /Android/media/.../zzz/stickers/\n[状态] 当前识别 " + currentPanels.size() + " 个表情包 (支持 PNG/JPG/WebP/GIF)");
+        statusDesc.setText("[路径] " + stickerPath + " (点击复制)\n[状态] 当前识别 " + currentPanels.size() + " 个表情包 (支持 PNG/JPG/WebP/GIF)");
         statusDesc.setTextColor(Color.parseColor("#34C759"));
         statusDesc.setLineSpacing(dp2px(activity, 2f), 1f);
         statusDesc.setPadding(dp2px(activity, 4f), 0, dp2px(activity, 4f), dp2px(activity, 12f));
+        statusDesc.setOnClickListener(v -> {
+            copyToClipboard(activity, stickerPath);
+            ToastHelper.show(activity, "已复制表情包路径");
+        });
         root.addView(statusDesc);
 
         final int[] tempColumns = new int[]{ getPanelColumns() };
@@ -206,6 +213,15 @@ public class TgStickerModule implements IPatchModule {
             int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.88);
             dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
+    }
+
+    private static void copyToClipboard(Context context, String text) {
+        try {
+            ClipboardManager cm = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(ClipData.newPlainText("sticker_path", text));
+            }
+        } catch (Throwable ignored) {}
     }
 
     private static View createColumnStepperRow(Activity activity, boolean isNight, int textColor, int subTextColor,
