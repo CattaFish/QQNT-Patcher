@@ -51,10 +51,10 @@ public class QQVersionModule implements IPatchModule {
     @Override
     public String getSubName() {
         if (!isEnabled()) {
-            return "在好友设置与群成员设置顶部展示对方客户端版本";
+            return "在好友设置与群成员设置展示对方客户端版本";
         }
         int count = sLastSubidByUin.size();
-        return "在好友设置与群成员设置顶部展示对方客户端版本 (已捕获 " + count + " 人)";
+        return "在好友设置与群成员设置展示对方客户端版本 (已捕获 " + count + " 人)";
     }
 
     @Override

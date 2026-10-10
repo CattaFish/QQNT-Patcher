@@ -300,7 +300,7 @@ public class ProfileSettingInjector {
     private static void handleCardClick(Activity activity, String uin, String versionText) {
         if (activity == null || activity.isFinishing()) return;
         if (QQVersionModule.UNKNOWN_STATUS.equals(versionText)) {
-            ToastHelper.show(activity, "提示：对方尚未产生实时消息推送，待对方在群内或私聊发言一次后即可自动识别");
+            ToastHelper.show(activity, "对方尚未产生消息推送，待对方在群聊发言后即可识别");
         } else {
             copyText(activity, "QQ号: " + uin + "  版本: " + versionText);
             ToastHelper.show(activity, "已复制版本信息: " + versionText);
