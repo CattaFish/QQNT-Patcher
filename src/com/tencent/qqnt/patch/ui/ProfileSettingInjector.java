@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.modules.chat.QQVersionModule;
 import com.tencent.qqnt.patch.util.PLog;
@@ -26,14 +27,14 @@ public class ProfileSettingInjector {
     private static final String TAG_VERSION_CARD = "zzz_qq_version_card_item";
 
     /**
-     * 场景 1: ProfileCardMoreActivity 全动态挂载 (0 混淆字段依赖)
+     * 场景 1: ProfileCardMoreActivity 全动态挂载 (左右/上下标准 16dp 独立分离卡片)
      */
     public static void injectProfileCardMore(Object activityObj) {
         if (!(activityObj instanceof Activity)) return;
 
         Activity activity = (Activity) activityObj;
         try {
-            // 1. 全动态定位卡片容器: 在 View 树中按类型动态寻找列表项父级，绝不反射 o0 混淆字段！
+            // 1. 全动态定位卡片容器
             View sampleItem = findViewByClassName(activity.getWindow().getDecorView(), "QUISingleLineListItem");
             if (sampleItem == null) {
                 sampleItem = findViewByClassName(activity.getWindow().getDecorView(), "FormSimpleItem");
@@ -51,16 +52,22 @@ public class ProfileSettingInjector {
                 return;
             }
 
-            // 2. 全动态获取目标 UIN: 优先从 Intent 的 AllInOne Parcelable 读取，绝不反射 a0 混淆字段！
+            // 2. 全动态获取目标 UIN
             String targetUin = extractTargetUinFromActivity(activity);
             if (targetUin == null || targetUin.isEmpty()) return;
 
             // 3. 反查版本号
             String versionText = QQVersionModule.getVersionByUin(targetUin);
 
-            // 4. 防重检查: 如果已存在则直接更新文字
+            // 标准独立卡片边距: 左右各 16dp, 顶部 16dp (与设置标题栏分离), 底部 12dp
+            int hMargin = dp2px(activity, 16f);
+            int topMargin = dp2px(activity, 16f);
+            int bottomMargin = dp2px(activity, 12f);
+
+            // 4. 防重检查: 如果已存在则直接更新文字与边距
             if (existingCard != null) {
                 updateCardConfig(activity, existingCard, versionText, targetUin);
+                applyCardMargins(existingCard, parent, hMargin, topMargin, bottomMargin);
                 return;
             }
 
@@ -74,7 +81,7 @@ public class ProfileSettingInjector {
             View cardItem = (View) ctor.newInstance(activity);
             cardItem.setTag(TAG_VERSION_CARD);
 
-            // AllRound + Card 设置独立全圆角
+            // 设置四周全圆角与卡片样式
             Object allRound = Enum.valueOf((Class<Enum>) bgTypeClz, "AllRound");
             Method setBgMethod = itemClz.getMethod("setBackgroundType", bgTypeClz);
             setBgMethod.invoke(cardItem, allRound);
@@ -85,18 +92,12 @@ public class ProfileSettingInjector {
 
             updateCardConfig(activity, cardItem, versionText, targetUin);
 
-            // 12dp 边距
-            int margin = dp2px(activity, 12f);
-            if (parent instanceof LinearLayout) {
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                lp.bottomMargin = margin;
-                cardItem.setLayoutParams(lp);
-            }
+            // 赋予真正的卡片四向外边距 (彻底告别贴顶栏和撑满屏幕)
+            applyCardMargins(cardItem, parent, hMargin, topMargin, bottomMargin);
 
             // 插入最上方 (第 0 位)
             parent.addView(cardItem, 0);
-            PLog.i(TAG, "动态挂载 ProfileCardMoreActivity 顶置版本卡片成功: " + versionText);
+            PLog.i(TAG, "已在 ProfileCardMoreActivity 挂载独立悬浮版本卡片: " + versionText);
 
         } catch (Throwable t) {
             PLog.e(TAG, "injectProfileCardMore 异常", t);
@@ -104,7 +105,7 @@ public class ProfileSettingInjector {
     }
 
     /**
-     * 场景 2: MemberSettingFragment 全动态挂载 (0 混淆方法/字段依赖)
+     * 场景 2: MemberSettingFragment 全动态挂载
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static void injectMemberSettingGroups(Object fragment, Object groupsListObj) {
@@ -113,7 +114,6 @@ public class ProfileSettingInjector {
 
         ArrayList groupsList = (ArrayList) groupsListObj;
         try {
-            // 1. 全动态提取 memberUin: 优先从 Fragment Arguments 提取，其次按类型扫描 ViewModel，绝不写死 C, M1, n！
             String memberUin = extractMemberUinFromFragment(fragment);
             if (memberUin == null || memberUin.isEmpty()) return;
 
@@ -137,7 +137,7 @@ public class ProfileSettingInjector {
                 );
                 if (versionGroup != null) {
                     groupsList.add(0, versionGroup);
-                    PLog.i(TAG, "动态挂载 MemberSettingFragment 顶置 Group 成功: " + versionText);
+                    PLog.i(TAG, "已在 MemberSettingFragment 挂载独立 Group: " + versionText);
                 }
             }
         } catch (Throwable t) {
@@ -145,10 +145,25 @@ public class ProfileSettingInjector {
         }
     }
 
-    // ========================== 稳健语义抽取工具 (完全抗混淆) ==========================
+    // ========================== 边距与样式工具 ==========================
+
+    private static void applyCardMargins(View cardView, ViewGroup parent, int hMargin, int topMargin, int bottomMargin) {
+        ViewGroup.MarginLayoutParams lp;
+        if (parent instanceof LinearLayout) {
+            lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        } else if (parent instanceof RelativeLayout) {
+            lp = new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        } else {
+            lp = new ViewGroup.MarginLayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+        lp.leftMargin = hMargin;
+        lp.rightMargin = hMargin;
+        lp.topMargin = topMargin;
+        lp.bottomMargin = bottomMargin;
+        cardView.setLayoutParams(lp);
+    }
 
     private static String extractTargetUinFromActivity(Activity activity) {
-        // A. 优先从 Intent Extra 读取 AllInOne (非混淆类)
         try {
             Intent intent = activity.getIntent();
             if (intent != null && intent.hasExtra("AllInOne")) {
@@ -165,7 +180,6 @@ public class ProfileSettingInjector {
             }
         } catch (Throwable ignored) {}
 
-        // B. 动态扫描 Activity 内部类型包含 AllInOne 的字段
         try {
             for (Field f : activity.getClass().getDeclaredFields()) {
                 if (f.getType().getName().contains("AllInOne")) {
@@ -183,7 +197,6 @@ public class ProfileSettingInjector {
     }
 
     private static String extractMemberUinFromFragment(Object fragment) {
-        // A. 优先从 Fragment getArguments() 动态扫描纯数字 UIN
         try {
             Method getArgsM = fragment.getClass().getMethod("getArguments");
             Bundle args = (Bundle) getArgsM.invoke(fragment);
@@ -204,7 +217,6 @@ public class ProfileSettingInjector {
             }
         } catch (Throwable ignored) {}
 
-        // B. 动态查找包含 TroopMemberCard 的 ViewModel 或模型对象，读取其 memberUin
         try {
             for (Field f : fragment.getClass().getDeclaredFields()) {
                 if (f.getType().getName().contains("ViewModel")) {
