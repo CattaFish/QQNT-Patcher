@@ -100,6 +100,7 @@ def is_rule_active(rule: dict, plugin_id: str, active_features: set) -> bool:
     id_map = {
         "killer": "killer",
         "security": "security",
+        "tinker": "tinker",
         "tablet": "tablet",
         "multi_window": "multi_window",
         "group_file": "group_file",

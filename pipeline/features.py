@@ -8,6 +8,7 @@ ALL_FEATURES = {
     # 基础设施与安全底座 (支持自由 skip/only 测试)
     "killer": "去签核心入口注入",
     "security": "安全风控与查签致盲",
+    "tinker": "禁用 Tinker 热修复载入",
 
     # 业务扩展功能
     "anti_revoke": "消息防撤回",
@@ -34,6 +35,8 @@ FEATURE_ALIASES = {
     "killer": "killer", "去签": "killer", "签名": "killer", "sign_killer": "killer",
     # security
     "security": "security", "sec": "security", "安全": "security", "查签": "security", "风控": "security",
+    # tinker
+    "tinker": "tinker", "热修": "tinker", "热修复": "tinker", "tinker_disable": "tinker",
     # anti_revoke
     "anti_revoke": "anti_revoke", "revoke": "anti_revoke", "防撤回": "anti_revoke", "撤回": "anti_revoke",
     # flash_pic
