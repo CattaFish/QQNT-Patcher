@@ -25,7 +25,7 @@ public class QQVersionModule implements IPatchModule {
 
     // 内存缓存: uin -> subid
     private static final Map<String, Long> sLastSubidByUin = new ConcurrentHashMap<>();
-    // 内存缓存: uin:seq:rnd -> subid
+    // 内存缓存: uin:seq:rnd -> subid (LRU 淘汰)
     private static final Map<String, Long> sSubidByMsgKey = Collections.synchronizedMap(
             new LinkedHashMap<String, Long>(200, 0.75f, true) {
                 @Override
@@ -35,8 +35,9 @@ public class QQVersionModule implements IPatchModule {
             }
     );
 
-    // 字典映射表 (纯净文本，无 Emoji)
+    // 精确匹配表: subid -> 带平台的完整名称 (例如: "QQ(Watch) 9.0.7")
     private static final Map<String, String> sExactTable = new ConcurrentHashMap<>();
+    // 模糊匹配表: subid[2:6] -> 带平台的完整名称
     private static final Map<String, String> sFuzzyTable = new ConcurrentHashMap<>();
     private static final AtomicBoolean sDictLoaded = new AtomicBoolean(false);
 
@@ -46,7 +47,7 @@ public class QQVersionModule implements IPatchModule {
 
     @Override public String getId() { return "qq_version"; }
     @Override public String getName() { return "发送者 QQ 版本识别"; }
-    @Override public boolean defaultEnabled() { return false; } // 默认关闭，需用户在 GUI 手动开启
+    @Override public boolean defaultEnabled() { return false; }
 
     @Override
     public String getSubName() {
@@ -90,7 +91,7 @@ public class QQVersionModule implements IPatchModule {
                 sLastSubidByUin.put(uinStr, subId);
                 sSubidByMsgKey.put(uinStr + ":" + seq + ":" + rnd, subId);
 
-                // 3 秒防抖落盘：平稳安全，绝不丢失数据
+                // 3 秒防抖异步落盘
                 scheduleDebounceSave();
             }
         } catch (Throwable t) {
@@ -113,11 +114,14 @@ public class QQVersionModule implements IPatchModule {
 
     public static String lookupVersion(long subId) {
         String sv = String.valueOf(subId);
+        
+        // 1. 精准全词匹配
         String hit = sExactTable.get(sv);
         if (hit != null && !hit.isEmpty()) {
             return hit;
         }
 
+        // 2. 特征段模糊匹配 (包含平台前缀)
         if (sv.length() >= 6) {
             String mid = sv.substring(2, 6);
             String fuzzyHit = sFuzzyTable.get(mid);
@@ -134,22 +138,27 @@ public class QQVersionModule implements IPatchModule {
     private static synchronized void ensureDictionaryLoaded(Context context) {
         if (sDictLoaded.getAndSet(true)) return;
 
+        // 1. 装载写死的基础保底（保证即使没有任何 json 也能识别常见平台与手表端）
         loadBuiltinFallback();
 
-        // 1. 读取内置 assets 资源字典
-        String[] dictNames = new String[]{"subid.json", "builtin_subid.json", "tim_subid.json", "win_subid.json"};
+        // 2. 读取内置 assets 字典文件
+        // 优先级：先加载三个旧字典，最后加载全量新字典 subid.json 进行覆盖提升，保证没有任何遗漏
+        String[] dictNames = new String[]{
+                "builtin_subid.json",
+                "tim_subid.json",
+                "win_subid.json",
+                "subid.json"
+        };
         for (String name : dictNames) {
             try (InputStream is = PatchAssetHelper.openStream(context, name)) {
                 if (is != null) {
                     parseJsonDictionary(is, name);
                     PLog.i(TAG, "已成功装载内置字典: " + name);
                 }
-            } catch (Throwable t) {
-                PLog.w(TAG, "读取内置字典 " + name + " 异常: " + t.getMessage());
-            }
+            } catch (Throwable ignored) {}
         }
 
-        // 2. 免重编外部字典热加载 (检查手机存储 /zzz/subid_dict.json)
+        // 3. 免重编外部扩展字典热加载 (检查手机本地 /zzz/subid_dict.json)
         File extDictFile = getExternalDictionaryFile(context);
         if (extDictFile != null && extDictFile.exists() && extDictFile.isFile()) {
             try (InputStream fis = new FileInputStream(extDictFile)) {
@@ -170,26 +179,36 @@ public class QQVersionModule implements IPatchModule {
         while ((line = reader.readLine()) != null) sb.append(line);
         JSONObject root = new JSONObject(sb.toString());
 
-        // 决定前缀
-        String prefix = "QQ ";
-        if (sourceName.contains("tim")) prefix = "TIM ";
-        else if (sourceName.contains("win") || sourceName.contains("pc")) prefix = "QQ(PC) ";
+        // 根据字典文件名推断默认回退前缀
+        String defaultPrefix = "QQ ";
+        if (sourceName.contains("tim")) {
+            defaultPrefix = "TIM ";
+        } else if (sourceName.contains("win") || sourceName.contains("pc")) {
+            defaultPrefix = "QQ(Win) ";
+        } else if (sourceName.contains("watch")) {
+            defaultPrefix = "QQ(Watch) ";
+        }
 
-        // 仅把 JSON 当作【subid -> 版本名】的翻译词典使用！
-        // 彻底绝收外来的 last_subid 伪造用户数据，保证本机捕获数据的纯净与真实
         Iterator<String> keys = root.keys();
         while (keys.hasNext()) {
             String key = keys.next();
-            // 过滤掉原作者导出的历史记录 key
+            // 过滤历史残留数据 key
             if ("subid_map".equals(key) || "last_subid".equals(key)) continue;
 
-            String verStr = root.optString(key, "");
+            String verStr = root.optString(key, "").trim();
             if (!verStr.isEmpty()) {
-                String fullVer = prefix + verStr;
+                String fullVer;
+                // 如果值本身已标记平台（如 QQ(Watch) / QQ(Linux) / QQ(Win) / QQ(Pad) / TIM 等），直接采纳
+                if (verStr.startsWith("QQ") || verStr.startsWith("TIM")) {
+                    fullVer = verStr;
+                } else {
+                    fullVer = defaultPrefix + verStr;
+                }
+
                 sExactTable.put(key, fullVer);
                 if (key.length() >= 6) {
                     String mid = key.substring(2, 6);
-                    if (!sFuzzyTable.containsKey(mid)) {
+                    if (!sFuzzyTable.containsKey(mid) || fullVer.contains("(")) {
                         sFuzzyTable.put(mid, fullVer);
                     }
                 }
@@ -198,6 +217,13 @@ public class QQVersionModule implements IPatchModule {
     }
 
     private static void loadBuiltinFallback() {
+        // 内置关键保底数据：覆盖 Watch、Linux、Mac、Win、Android
+        sExactTable.put("537282233", "QQ(Watch) 9.0.7");
+        sExactTable.put("537065138", "QQ(Watch) 2.0.8");
+        sExactTable.put("537140974", "QQ(Watch) 2.1.7");
+        sExactTable.put("537246140", "QQ(Linux) 3.2.12");
+        sExactTable.put("537246115", "QQ(Mac) 6.9.55");
+        sExactTable.put("537246092", "QQ(Win) 9.9.15");
         sExactTable.put("537395444", "QQ 9.3.70");
         sExactTable.put("537395443", "QQ 9.3.65");
         sExactTable.put("537395440", "QQ 9.3.55");
