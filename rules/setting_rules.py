@@ -37,17 +37,14 @@ def _find_method_strictly_referencing_string(p, class_idx, target_string):
 
 def _find_search_method_dynamically(p, class_idx):
     """动态多重防线嗅探 FunctionSearchFragment 中的真正搜索执行函数"""
-    # 防线 1: 查找引用了 "webNodes" 的方法
     m = _find_method_strictly_referencing_string(p, class_idx, "webNodes")
     if m:
         return m
 
-    # 防线 2: 查找引用了统一配置 ID "105693" 的方法
     m = _find_method_strictly_referencing_string(p, class_idx, "105693")
     if m:
         return m
 
-    # 防线 3: 查找 new-instance Lcom/tencent/mobileqq/setting/search/node/b; 的方法
     t_id = p.find_type_id("Lcom/tencent/mobileqq/setting/search/node/b;")
     if t_id != -1:
         t_pat = struct.pack('<H', t_id)
@@ -98,7 +95,7 @@ def build_setting_rules(dex_data_dict):
     return-object v0"""
         })
 
-    # 2. 前台搜索 UI 树动态嗅探与挂载 (自适应任意混淆方法名与字段名)
+    # 2. 前台搜索 UI 树挂载与结果置顶重排
     search_frag_cls = "Lcom/tencent/mobileqq/setting/search/FunctionSearchFragment;"
     for _, dex_bytes in dex_data_dict.items():
         if b"FunctionSearchFragment" in dex_bytes:
@@ -106,6 +103,7 @@ def build_setting_rules(dex_data_dict):
             if p.valid:
                 c_idx = p.find_class_index(search_frag_cls)
                 if c_idx != -1:
+                    # A. 搜索树节点挂载
                     target_m = _find_search_method_dynamically(p, c_idx)
                     if target_m:
                         rules.append({
@@ -116,6 +114,19 @@ def build_setting_rules(dex_data_dict):
                             "regex": r"(invoke-direct\s+\{([vp]\d+)\},\s+Lcom/tencent/mobileqq/setting/search/node/b;-><init>\(\)V)",
                             "smali": r"""\1
     invoke-static {\2}, Lcom/tencent/qqnt/patch/ui/SettingSearchInjector;->inject(Ljava/lang/Object;)V"""
+                        })
+
+                    # B. ★ 搜索结果渲染前置顶重排（嗅探包含 "have no search result content: " 的方法）
+                    render_m = _find_method_strictly_referencing_string(p, c_idx, "have no search result content: ")
+                    if render_m:
+                        rules.append({
+                            "name": f"搜索结果渲染置顶 (FunctionSearchFragment->{render_m})",
+                            "target_class": search_frag_cls,
+                            "target_method": render_m,
+                            "type": "INSERT_BEFORE",
+                            "smali": """
+    invoke-static/range {p1 .. p1}, Lcom/tencent/qqnt/patch/ui/SettingSearchInjector;->prioritizeSearchResults(Ljava/lang/Object;)V
+"""
                         })
                         break
 
