@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
+import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -24,25 +26,24 @@ public class ProfileSettingInjector {
     private static final String TAG_VERSION_CARD = "zzz_qq_version_card_item";
 
     /**
-     * 场景 1: ProfileCardMoreActivity (单聊好友设置 + 群成员右上角更多) 顶部独立卡片注入
+     * 场景 1: ProfileCardMoreActivity 全动态挂载 (0 混淆字段依赖)
      */
     public static void injectProfileCardMore(Object activityObj) {
         if (!(activityObj instanceof Activity)) return;
 
         Activity activity = (Activity) activityObj;
         try {
-            // 1. 定位卡片容器 (通过 o0 备注项获取其直接父 LinearLayout)
-            Field o0Field = activity.getClass().getDeclaredField("o0");
-            o0Field.setAccessible(true);
-            View o0View = (View) o0Field.get(activity);
-            if (o0View == null) return;
+            // 1. 全动态定位卡片容器: 在 View 树中按类型动态寻找列表项父级，绝不反射 o0 混淆字段！
+            View sampleItem = findViewByClassName(activity.getWindow().getDecorView(), "QUISingleLineListItem");
+            if (sampleItem == null) {
+                sampleItem = findViewByClassName(activity.getWindow().getDecorView(), "FormSimpleItem");
+            }
+            if (sampleItem == null || !(sampleItem.getParent() instanceof ViewGroup)) return;
 
-            ViewGroup parent = (ViewGroup) o0View.getParent();
-            if (parent == null) return;
-
+            ViewGroup parent = (ViewGroup) sampleItem.getParent();
             View existingCard = parent.findViewWithTag(TAG_VERSION_CARD);
 
-            // 如果模块已关闭：若界面上已有卡片则立即移除，并直接返回
+            // 模块关闭检查：若已关闭且界面上有卡片则立刻移除
             if (!ConfigManager.isModuleEnabled("qq_version", false)) {
                 if (existingCard != null) {
                     parent.removeView(existingCard);
@@ -50,26 +51,20 @@ public class ProfileSettingInjector {
                 return;
             }
 
-            // 2. 获取 AllInOne a0 中的目标 UIN
-            Field a0Field = activity.getClass().getDeclaredField("a0");
-            a0Field.setAccessible(true);
-            Object allInOne = a0Field.get(activity);
-            if (allInOne == null) return;
-
-            Field uinField = allInOne.getClass().getField("uin");
-            String targetUin = (String) uinField.get(allInOne);
+            // 2. 全动态获取目标 UIN: 优先从 Intent 的 AllInOne Parcelable 读取，绝不反射 a0 混淆字段！
+            String targetUin = extractTargetUinFromActivity(activity);
             if (targetUin == null || targetUin.isEmpty()) return;
 
             // 3. 反查版本号
             String versionText = QQVersionModule.getVersionByUin(targetUin);
 
-            // 4. 防重检查: 如果已注入则直接更新文字，不重复建卡
+            // 4. 防重检查: 如果已存在则直接更新文字
             if (existingCard != null) {
                 updateCardConfig(activity, existingCard, versionText, targetUin);
                 return;
             }
 
-            // 5. 动态构建原生 QUISingleLineListItem 独立卡片
+            // 5. 构建原生独立卡片
             ClassLoader cl = activity.getClassLoader();
             Class<?> itemClz = cl.loadClass("com.tencent.mobileqq.widget.listitem.QUISingleLineListItem");
             Class<?> bgTypeClz = cl.loadClass("com.tencent.mobileqq.widget.listitem.QUIListItemBackgroundType");
@@ -79,7 +74,7 @@ public class ProfileSettingInjector {
             View cardItem = (View) ctor.newInstance(activity);
             cardItem.setTag(TAG_VERSION_CARD);
 
-            // AllRound + Card 组合，天然形成最顶部分离的独立卡片
+            // AllRound + Card 设置独立全圆角
             Object allRound = Enum.valueOf((Class<Enum>) bgTypeClz, "AllRound");
             Method setBgMethod = itemClz.getMethod("setBackgroundType", bgTypeClz);
             setBgMethod.invoke(cardItem, allRound);
@@ -88,10 +83,9 @@ public class ProfileSettingInjector {
             Method setStyleMethod = itemClz.getMethod("setStyle", styleClz);
             setStyleMethod.invoke(cardItem, cardStyle);
 
-            // 无右侧箭头，纯文本展现
             updateCardConfig(activity, cardItem, versionText, targetUin);
 
-            // 12dp 底部外间距，与下方备注项形成呼吸感分离
+            // 12dp 边距
             int margin = dp2px(activity, 12f);
             if (parent instanceof LinearLayout) {
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -100,9 +94,9 @@ public class ProfileSettingInjector {
                 cardItem.setLayoutParams(lp);
             }
 
-            // 插入到最顶部 (第 0 位)
+            // 插入最上方 (第 0 位)
             parent.addView(cardItem, 0);
-            PLog.i(TAG, "已在 ProfileCardMoreActivity 最顶部挂载独立版本卡片: " + versionText);
+            PLog.i(TAG, "动态挂载 ProfileCardMoreActivity 顶置版本卡片成功: " + versionText);
 
         } catch (Throwable t) {
             PLog.e(TAG, "injectProfileCardMore 异常", t);
@@ -110,27 +104,17 @@ public class ProfileSettingInjector {
     }
 
     /**
-     * 场景 2: MemberSettingFragment (群成员高级管理页) 顶部独立 Group 注入
+     * 场景 2: MemberSettingFragment 全动态挂载 (0 混淆方法/字段依赖)
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static void injectMemberSettingGroups(Object fragment, Object groupsListObj) {
         if (fragment == null || !(groupsListObj instanceof ArrayList)) return;
-        // 严格遵循默认关闭，仅当用户在 GUI 中开启后才注入
         if (!ConfigManager.isModuleEnabled("qq_version", false)) return;
 
         ArrayList groupsList = (ArrayList) groupsListObj;
         try {
-            Field vmField = fragment.getClass().getDeclaredField("C");
-            vmField.setAccessible(true);
-            Object vm = vmField.get(fragment);
-            if (vm == null) return;
-
-            Method getUiModelMethod = vm.getClass().getMethod("M1");
-            Object uiModel = getUiModelMethod.invoke(vm);
-            if (uiModel == null) return;
-
-            Method getUinMethod = uiModel.getClass().getMethod("n");
-            String memberUin = (String) getUinMethod.invoke(uiModel);
+            // 1. 全动态提取 memberUin: 优先从 Fragment Arguments 提取，其次按类型扫描 ViewModel，绝不写死 C, M1, n！
+            String memberUin = extractMemberUinFromFragment(fragment);
             if (memberUin == null || memberUin.isEmpty()) return;
 
             String versionText = QQVersionModule.getVersionByUin(memberUin);
@@ -142,25 +126,138 @@ public class ProfileSettingInjector {
             } catch (Throwable ignored) {}
 
             final Activity finalAct = activity;
-            // 构造无箭头单行卡片项
             Object textItem = NativeSettingHelper.createClickable(
                     cl, "QQ 版本", versionText, false, false,
                     v -> handleCardClick(finalAct, memberUin, versionText)
             );
 
             if (textItem != null) {
-                // 封装为独立 Group 并插在第 0 位 (最上方)
                 Object versionGroup = NativeSettingHelper.createGroup(
                         cl, "", "", Collections.singletonList(textItem)
                 );
                 if (versionGroup != null) {
                     groupsList.add(0, versionGroup);
-                    PLog.i(TAG, "已在 MemberSettingFragment 最顶部挂载独立 Group: " + versionText);
+                    PLog.i(TAG, "动态挂载 MemberSettingFragment 顶置 Group 成功: " + versionText);
                 }
             }
         } catch (Throwable t) {
             PLog.e(TAG, "injectMemberSettingGroups 异常", t);
         }
+    }
+
+    // ========================== 稳健语义抽取工具 (完全抗混淆) ==========================
+
+    private static String extractTargetUinFromActivity(Activity activity) {
+        // A. 优先从 Intent Extra 读取 AllInOne (非混淆类)
+        try {
+            Intent intent = activity.getIntent();
+            if (intent != null && intent.hasExtra("AllInOne")) {
+                Object aio = intent.getParcelableExtra("AllInOne");
+                if (aio != null) {
+                    Field fUin = aio.getClass().getField("uin");
+                    String uin = (String) fUin.get(aio);
+                    if (uin != null && !uin.isEmpty()) return uin;
+                }
+            }
+            if (intent != null && intent.hasExtra("uin")) {
+                String uin = intent.getStringExtra("uin");
+                if (uin != null && !uin.isEmpty()) return uin;
+            }
+        } catch (Throwable ignored) {}
+
+        // B. 动态扫描 Activity 内部类型包含 AllInOne 的字段
+        try {
+            for (Field f : activity.getClass().getDeclaredFields()) {
+                if (f.getType().getName().contains("AllInOne")) {
+                    f.setAccessible(true);
+                    Object aio = f.get(activity);
+                    if (aio != null) {
+                        Field fUin = aio.getClass().getField("uin");
+                        String uin = (String) fUin.get(aio);
+                        if (uin != null && !uin.isEmpty()) return uin;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static String extractMemberUinFromFragment(Object fragment) {
+        // A. 优先从 Fragment getArguments() 动态扫描纯数字 UIN
+        try {
+            Method getArgsM = fragment.getClass().getMethod("getArguments");
+            Bundle args = (Bundle) getArgsM.invoke(fragment);
+            if (args != null) {
+                String[] candidateKeys = new String[]{"memberUin", "member_uin", "troop_member_uin", "uin"};
+                for (String k : candidateKeys) {
+                    if (args.containsKey(k)) {
+                        String v = args.getString(k);
+                        if (v != null && v.matches("[1-9]\\d{4,12}")) return v;
+                    }
+                }
+                for (String k : args.keySet()) {
+                    Object val = args.get(k);
+                    if (val instanceof String && ((String) val).matches("[1-9]\\d{4,12}")) {
+                        return (String) val;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        // B. 动态查找包含 TroopMemberCard 的 ViewModel 或模型对象，读取其 memberUin
+        try {
+            for (Field f : fragment.getClass().getDeclaredFields()) {
+                if (f.getType().getName().contains("ViewModel")) {
+                    f.setAccessible(true);
+                    Object vm = f.get(fragment);
+                    if (vm != null) {
+                        String uin = scanObjectForTroopMemberCard(vm);
+                        if (uin != null) return uin;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static String scanObjectForTroopMemberCard(Object obj) {
+        if (obj == null) return null;
+        try {
+            for (Field f : obj.getClass().getDeclaredFields()) {
+                f.setAccessible(true);
+                Object val = f.get(obj);
+                if (val == null) continue;
+                if (val.getClass().getName().contains("TroopMemberCard")) {
+                    Field fUin = val.getClass().getField("memberUin");
+                    return (String) fUin.get(val);
+                }
+            }
+            for (Method m : obj.getClass().getDeclaredMethods()) {
+                if (m.getParameterTypes().length == 0) {
+                    m.setAccessible(true);
+                    Object val = m.invoke(obj);
+                    if (val != null && val.getClass().getName().contains("model")) {
+                        String res = scanObjectForTroopMemberCard(val);
+                        if (res != null) return res;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static View findViewByClassName(View root, String simpleName) {
+        if (root == null) return null;
+        if (root.getClass().getName().contains(simpleName)) return root;
+        if (root instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) root;
+            int count = vg.getChildCount();
+            for (int i = 0; i < count; i++) {
+                View hit = findViewByClassName(vg.getChildAt(i), simpleName);
+                if (hit != null) return hit;
+            }
+        }
+        return null;
     }
 
     private static void updateCardConfig(Activity activity, View cardItem, String versionText, String uin) {
@@ -172,7 +269,6 @@ public class ProfileSettingInjector {
             Class<?> xcgClz = cl.loadClass("com.tencent.mobileqq.widget.listitem.x$c$g");
 
             Object left = xbdClz.getConstructor(CharSequence.class).newInstance("QQ 版本");
-            // showArrow = false (无右箭头)
             Object right = xcgClz.getConstructor(CharSequence.class, boolean.class, boolean.class)
                     .newInstance(versionText, false, false);
 
@@ -185,7 +281,6 @@ public class ProfileSettingInjector {
             Method setConfigM = itemClz.getMethod("setConfig", xClz);
             setConfigM.invoke(cardItem, config);
 
-            // 点击事件：未捕获时友好提示，已捕获时一键复制
             cardItem.setOnClickListener(v -> handleCardClick(activity, uin, versionText));
         } catch (Throwable ignored) {}
     }
