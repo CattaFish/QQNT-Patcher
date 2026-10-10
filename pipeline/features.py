@@ -26,6 +26,7 @@ ALL_FEATURES = {
     "meow": "喵喵助手",
     "floating_ball": "会话悬浮球快捷入口",
     "chat_history": "查看本地聊天记录 (私聊/群聊)",
+    "qq_version": "发送者 QQ 版本识别",
 }
 
 FEATURE_ALIASES = {
@@ -66,10 +67,12 @@ FEATURE_ALIASES = {
     # chat_history
     "chat_history": "chat_history", "history": "chat_history", 
     "聊天记录": "chat_history", "历史记录": "chat_history",
+    # qq_version
+    "qq_version": "qq_version", "version": "qq_version", "版本": "qq_version", "qq版本": "qq_version",
 }
 
 BUS_DEPENDENCIES = {
-    "bus_msf": {"anti_revoke", "auto_remark_apk", "script"},
+    "bus_msf": {"anti_revoke", "auto_remark_apk", "script", "qq_version"},
     "bus_send_msg": {"meow", "auto_remark_apk", "modify_pic_summary", "script"},
     "bus_recv_msg": {"flash_pic", "anti_revoke", "script"},
     "bus_aio_msg": {"flash_pic", "floating_ball"},

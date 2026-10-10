@@ -91,6 +91,14 @@ public class PatchBridge {
         }
         return ModuleManager.dispatchMsfPush(session, cmd, buf);
     }
+    
+    public static void onProfileCardMoreResume(Object activity) {
+        com.tencent.qqnt.patch.ui.ProfileSettingInjector.injectProfileCardMore(activity);
+    }
+
+    public static void onMemberSettingGroups(Object fragment, Object groupsList) {
+        com.tencent.qqnt.patch.ui.ProfileSettingInjector.injectMemberSettingGroups(fragment, groupsList);
+    }
 
     @SuppressWarnings("unchecked")
     public static void handleSendMsg(ArrayList elements) {

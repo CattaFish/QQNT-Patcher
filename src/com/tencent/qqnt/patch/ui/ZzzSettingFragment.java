@@ -244,13 +244,11 @@ public class ZzzSettingFragment {
                                 m.setEnabled(checked);
                                 ToastHelper.show(activity, m.getName() + (checked ? " 已开启" : " 已关闭"));
 
-                                if (m.hasConfig()) {
-                                    new Handler(Looper.getMainLooper()).post(() -> {
-                                        if (!activity.isFinishing() && !activity.isDestroyed()) {
-                                            renderSettingsList(fragment, activity, cl, pageType, category);
-                                        }
-                                    });
-                                }
+                                new Handler(Looper.getMainLooper()).post(() -> {
+                                    if (!activity.isFinishing() && !activity.isDestroyed()) {
+                                        renderSettingsList(fragment, activity, cl, pageType, category);
+                                    }
+                                });
                             }
                     ));
 
