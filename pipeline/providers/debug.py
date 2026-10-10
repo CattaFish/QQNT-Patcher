@@ -7,7 +7,7 @@ class DebugSignerProvider(BaseProvider):
     name = "debug"
 
     def sign(self, ctx, in_apk, out_apk):
-        ctx.log("INFO", "5. 正在执行 NeoPacker 纯净模式打包与签名 (绝无 input.apk，绝不膨胀)...")
+        ctx.log("INFO", "5. 正在执行 NeoPacker 纯净模式打包与签名...")
         if not os.path.exists(ctx.fixed_keystore):
             ctx.run_cmd(f"keytool -genkeypair -v -keystore {shlex.quote(ctx.fixed_keystore)} -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname 'CN=Android Debug,O=Android,C=US'")
         

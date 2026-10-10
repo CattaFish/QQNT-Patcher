@@ -81,4 +81,4 @@ def run_stage4(ctx):
                     shutil.copyfile(src_fp, dst_fp)
                     ctx.log("OK", f"-> 注入静态图标资源: assets/{rel_fp}")
 
-    ctx.log("OK", "-> 注入目录整理就绪 (绝无 input.apk 冗余磁盘拷贝)")
+    ctx.log("OK", "-> 注入目录整理就绪")

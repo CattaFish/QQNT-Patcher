@@ -98,7 +98,7 @@ public class NeoPacker {
                 if (enableKiller) {
                     // 全随机路径挂载 HostEntry
                     String hostEntryPath = generateRandomHostPath();
-                    System.out.println("[NeoPacker] [Killer模式] 挂载 " + hostEntryPath + " 并建立数据复用映射 (全随机路径)...");
+                    System.out.println("[NeoPacker] [Killer模式] 挂载 " + hostEntryPath + " 并建立数据复用映射...");
                     ZipMaker.HostEntryHolder host = maker.putNextHostEntry(hostEntryPath, origZip);
 
                     int virtualCount = 0;
@@ -110,7 +110,7 @@ public class NeoPacker {
                         host.putNextVirtualEntry(name);
                         virtualCount++;
                     }
-                    System.out.println("[NeoPacker] 数据复用完成: " + virtualCount + " 个文件直接映射，零体积膨胀");
+                    System.out.println("[NeoPacker] 数据复用完成: " + virtualCount + " 个文件直接映射");
 
                     byte[] rsaBytes = null;
                     boolean hasCertRsa = false;
@@ -139,7 +139,7 @@ public class NeoPacker {
                         maker.closeEntry();
                     }
                 } else {
-                    System.out.println("[NeoPacker] [纯净模式] 直接合并原包条目，绝不内嵌原包...");
+                    System.out.println("[NeoPacker] [纯净模式] 直接合并原包条目，不内嵌原包...");
                     int copyCount = 0;
                     for (ZipEntry entry : origZip.getEntries()) {
                         String name = entry.getName();

@@ -7,7 +7,7 @@ class NoneSignerProvider(BaseProvider):
     name = "none"
 
     def sign(self, ctx, in_apk, out_apk):
-        ctx.log("INFO", "5. 正在执行 NeoPacker 免签打包 (绝无 input.apk，绝不膨胀)...")
+        ctx.log("INFO", "5. 正在执行 NeoPacker 免签打包...")
         neoapk_jar = os.path.join(ctx.tools_dir, "neoapk.jar")
         inject_dir = os.path.join(ctx.work_dir, "inject")
         cp = f"{shlex.quote(neoapk_jar)}:{shlex.quote(ctx.engine_bin)}"
