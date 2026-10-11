@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 去签核心注入规则
-严格限定【仅真·主进程】且【进程名严格匹配】才允许初始化，杜绝多进程并发与 signed.apk.tmp 残留
+严格限定【仅真·主进程】且【进程名严格匹配】才允许初始化，杜绝多进程并发与 idtz.tmp 残留
 """
 
 RULE_ID = "killer"
@@ -26,7 +26,7 @@ def build_killer_rules(dex_data_dict):
     invoke-virtual {v0, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
     move-result v0
     if-eqz v0, :cond_killer_skip
-    invoke-static {p1}, Lr/s/sign/KillerApplication;->onLoaded(Landroid/content/Context;)V
+    invoke-static {p1}, Lxkl/yfl/a;->onLoaded(Landroid/content/Context;)V
     :cond_killer_skip
 """
 
@@ -47,7 +47,7 @@ def build_killer_rules(dex_data_dict):
         "target_class": splash_cls,
         "target_method": "<clinit>()V",
         "type": "INSERT_BEFORE",
-        "smali": "    invoke-static {}, Lr/s/sign/KillerApplication;->onLoaded()V\n"
+        "smali": "    invoke-static {}, Lxkl/yfl/a;->onLoaded()V\n"
     }]
 
 def resolve_rules(dex_data_dict, meta=None):
