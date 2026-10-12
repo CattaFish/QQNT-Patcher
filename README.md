@@ -24,7 +24,7 @@ QQNT-Patcher 是一款针对 Android QQNT 架构的工业级自动化静态字�
 
 ### 2. 双重去签防护体系 (Zcraft Provider)
 * **V1 原版证书壳欺骗**：原样保留腾讯官方原版 `META-INF/`（`MANIFEST.MF` + `*.SF` + `*.RSA`）三件套壳，系统层 V1 校验失败但被 V2 忽略，使底层 Native（如 `com.sina.syscall` 或 QQ 自身 Native 查签）读取 maps/整包证书时拿到的永远是原版官方证书。
-* **动态系统调用拦截**：注入 `libcst.so`，利用 xhook 实施 GOT Hook，对底层 open/stat/maps 进行动态脱敏；Java 层动态代理 `IPackageManager` 与 `PackageInfo.CREATOR`，深度伪造签名信息。
+* **动态系统调用拦截**：注入 `libzcraft.so`，利用 xhook 实施 GOT Hook，对底层 open/stat/maps 进行动态脱敏；Java 层动态代理 `IPackageManager` 与 `PackageInfo.CREATOR`，深度伪造签名信息。
 * **VFS 路径规范化资产穿透 (`PatchAssetHelper`)**：针对 Killer 运行时对安装包的重定向机制，通过 VFS 路径规范化穿透拦截，在保持内嵌原包 100% 纯净的前提下，允许 App 原生无限制加载 `assets/` 下的任意新增图片、音效与扩展包。
 
 ### 3. 五阶段解耦流水线 (Pipeline Pattern)

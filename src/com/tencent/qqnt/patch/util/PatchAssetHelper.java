@@ -75,7 +75,7 @@ public class PatchAssetHelper {
     private static String getRealApkPath(Context context) {
         if (sCachedRealApkPath != null) return sCachedRealApkPath;
         try {
-            Class<?> killerClz = Class.forName("xkl.yfl.a");
+            Class<?> killerClz = Class.forName("r.s.sign.KillerApplication");
             Field f = killerClz.getDeclaredField("sBaseApkPath");
             f.setAccessible(true);
             Object p = f.get(null);

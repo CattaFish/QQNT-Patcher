@@ -164,10 +164,10 @@ def unpack_aar():
             for f in os.listdir(src_abi):
                 shutil.copy2(os.path.join(src_abi, f), os.path.join(dst_abi, f))
             # 兼容性别名
-            if f == "libcst.so":
-                shutil.copy2(os.path.join(src_abi, f), os.path.join(dst_abi, "libcst.so"))
-            elif f == "libcst.so":
-                shutil.copy2(os.path.join(src_abi, f), os.path.join(dst_abi, "libcst.so"))
+            if f == "libSignedByRS.so":
+                shutil.copy2(os.path.join(src_abi, f), os.path.join(dst_abi, "libzcraft.so"))
+            elif f == "libzcraft.so":
+                shutil.copy2(os.path.join(src_abi, f), os.path.join(dst_abi, "libSignedByRS.so"))
         shutil.rmtree(jni_dir, ignore_errors=True)
 
     # 转译 classes.jar 为 classes.dex
