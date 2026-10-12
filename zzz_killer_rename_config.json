@@ -1,0 +1,21 @@
+{
+  "r.s.sign.KillerApplication": "xkl.yfl.KillerApplication",
+  "r.s.sign.KillerProvider": "xkl.yfl.KillerProvider",
+  "r.s.sign": "xkl.yfl",
+  "r/s/sign/KillerApplication": "xkl/yfl/KillerApplication",
+  "r/s/sign/KillerProvider": "xkl/yfl/KillerProvider",
+  "r/s/sign": "xkl/yfl",
+  "libZcraft.so": "libcst.so",
+  "libSignedByRS.so": "libcst.so",
+  "libzcraft.so": "libcst.so",
+  "\"zcraft\"": "\"cst\"",
+  "\"SignedByRS\"": "\"cst\"",
+  "\"signed.apk\"": "\"idtz\"",
+  "\"assets/Zcraft/input.apk\"": "\"assets/bkxk/xlpcn.apk\"",
+  "\"Zcraft/input.apk\"": "\"assets/bkxk/xlpcn.apk\"",
+  "\"assets/input.apk\"": "\"assets/bkxk/xlpcn.apk\"",
+  "\"input.apk\"": "\"assets/bkxk/xlpcn.apk\"",
+  "SIGB_PATH_REWRITE_20261001_829B367": "KZ_rruc_6265_obp",
+  "npatch_proc_view": "vvdf",
+  "\"xhook\"": "\"kq\""
+}
