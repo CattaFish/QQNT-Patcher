@@ -296,10 +296,6 @@
     "summary": "QQ 9.3.35",
     "version": "QQ 9.3.35"
   },
-  "537379915": {
-    "summary": "QQ 9.2.60.33425",
-    "version": "QQ 9.2.60.33425"
-  },
   "537379450": {
     "summary": "QQ(Linux-Mips) 3.2.32.52194",
     "platform": "Linux",
@@ -672,10 +668,6 @@
     "summary": "QQ 9.3.25",
     "version": "QQ 9.3.25"
   },
-  "537373375": {
-    "summary": "QQ 9.2.50",
-    "version": "QQ 9.2.50"
-  },
   "537372176": {
     "summary": "QQ(Pad) 9.3.20.38525",
     "platform": "Android",
@@ -771,10 +763,6 @@
   "537364694": {
     "summary": "QQ 9.3.55",
     "version": "QQ 9.3.55"
-  },
-  "537363319": {
-    "summary": "QQ 9.2.36",
-    "version": "QQ 9.2.36"
   },
   "537360617": {
     "summary": "QQ 9.3.1",
@@ -3293,17 +3281,14 @@
     "version": "TIM 4.1.0"
   },
   "537298411": {
-    "summary": "QQ(Pad) 4.1.0",
-    "platform": "Android",
-    "version": "4.1.0",
-    "arch": "Pad",
-    "date": "2025-05-27"
+    "platform": "TIM",
+    "summary": "TIM 4.1.0",
+    "version": "4.1.0"
   },
   "537298353": {
-    "summary": "QQ 4.1.0",
-    "platform": "Android",
-    "version": "4.1.0",
-    "date": "2025-05-27"
+    "platform": "TIM",
+    "summary": "TIM 4.1.0",
+    "version": "4.1.0"
   },
   "537297389": {
     "summary": "QQ(Pad) 9.1.95",
@@ -3982,17 +3967,14 @@
     "platform": "Watch"
   },
   "537282194": {
-    "summary": "QQ(Pad) 4.0.99",
-    "platform": "Android",
-    "version": "4.0.99",
-    "arch": "Pad",
-    "date": "2025-04-08"
+    "platform": "TIM",
+    "summary": "TIM 4.0.99",
+    "version": "4.0.99"
   },
   "537282136": {
-    "summary": "QQ 4.0.99",
-    "platform": "Android",
-    "version": "4.0.99",
-    "date": "2025-04-08"
+    "platform": "TIM",
+    "summary": "TIM 4.0.99",
+    "version": "4.0.99"
   },
   "537279299": {
     "summary": "QQ(Linux-Mips) 3.2.17.34362",
@@ -4611,8 +4593,9 @@
     "version": "QQ(Pad) 4.0.98.4012"
   },
   "537264175": {
-    "summary": "QQ 4.0.98.4012",
-    "version": "QQ 4.0.98.4012"
+    "platform": "TIM",
+    "summary": "TIM 4.0.98.4012",
+    "version": "4.0.98.4012"
   },
   "537263831": {
     "summary": "QQ(Linux) 3.2.15-30899",
@@ -4631,8 +4614,9 @@
     "version": "QQ(Pad) 4.0.97.4011"
   },
   "537263469": {
-    "summary": "QQ 4.0.97.4011",
-    "version": "QQ 4.0.97.4011"
+    "platform": "TIM",
+    "summary": "TIM 4.0.97.4011",
+    "version": "4.0.97.4011"
   },
   "537262765": {
     "summary": "QQ 9.1.31",
@@ -4663,8 +4647,9 @@
     "version": "QQ(Pad) 4.0.96.4010"
   },
   "537261131": {
-    "summary": "QQ 4.0.96.4010",
-    "version": "QQ 4.0.96.4010"
+    "platform": "TIM",
+    "summary": "TIM 4.0.96.4010",
+    "version": "4.0.96.4010"
   },
   "537261121": {
     "summary": "TIM 4.0.96",
@@ -4709,10 +4694,6 @@
   "537258389": {
     "summary": "QQ(Win) 9.9.17-30366",
     "version": "QQ(Win) 9.9.17-30366"
-  },
-  "537258298": {
-    "summary": "QQ 9.0.5.2533",
-    "version": "QQ 9.0.5.2533"
   },
   "537257464": {
     "summary": "QQ 9.1.20",
@@ -4847,8 +4828,9 @@
     "version": "TIM 4.0.95"
   },
   "537249218": {
-    "summary": "QQ 4.0.95.4008",
-    "version": "QQ 4.0.95.4008"
+    "platform": "TIM",
+    "summary": "TIM 4.0.95.4008",
+    "version": "4.0.95.4008"
   },
   "537249147": {
     "summary": "QQ(Pad) 4.0.95.4008",
@@ -4935,8 +4917,9 @@
     "version": "QQ 9.0.90.18945"
   },
   "537237656": {
-    "summary": "QQ 3.5.8.3228",
-    "version": "QQ 3.5.8.3228"
+    "platform": "TIM",
+    "summary": "TIM 3.5.8.3228",
+    "version": "3.5.8.3228"
   },
   "537236366": {
     "summary": "QQ 9.0.85",
@@ -5047,8 +5030,9 @@
     "version": "QQ 9.0.65.17370"
   },
   "537223825": {
-    "summary": "QQ 3.5.7.3218",
-    "version": "QQ 3.5.7.3218"
+    "platform": "TIM",
+    "summary": "TIM 3.5.7.3218",
+    "version": "3.5.7.3218"
   },
   "537222847": {
     "summary": "QQ 9.0.60",
@@ -5311,8 +5295,9 @@
     "version": "QQ 8.9.88.13035"
   },
   "537181169": {
-    "summary": "QQ 3.5.6.3208",
-    "version": "QQ 3.5.6.3208"
+    "platform": "TIM",
+    "summary": "TIM 3.5.6.3208",
+    "version": "3.5.6.3208"
   },
   "537180618": {
     "summary": "QQ 8.9.85",
@@ -5347,8 +5332,9 @@
     "version": "QQ 8.9.83.12605"
   },
   "537177451": {
-    "summary": "QQ 3.5.5.3198",
-    "version": "QQ 3.5.5.3198"
+    "platform": "TIM",
+    "summary": "TIM 3.5.5.3198",
+    "version": "3.5.5.3198"
   },
   "537176913": {
     "summary": "QQ 8.9.80",
@@ -5487,8 +5473,9 @@
     "version": "QQ 8.9.58"
   },
   "537162286": {
-    "summary": "QQ 3.5.2.3178",
-    "version": "QQ 3.5.2.3178"
+    "platform": "TIM",
+    "summary": "TIM 3.5.2.3178",
+    "version": "3.5.2.3178"
   },
   "537160199": {
     "summary": "QQ 8.9.55",
@@ -5547,8 +5534,9 @@
     "version": "QQ 8.9.30"
   },
   "537150355": {
-    "summary": "QQ 3.5.1.3168",
-    "version": "QQ 3.5.1.3168"
+    "platform": "TIM",
+    "summary": "TIM 3.5.1.3168",
+    "version": "3.5.1.3168"
   },
   "537147796": {
     "summary": "QQ 8.9.28",
@@ -5634,8 +5622,9 @@
     "version": "TIM 3.4.8"
   },
   "537128930": {
-    "summary": "QQ 6.8.2.21241",
-    "version": "QQ 6.8.2.21241"
+    "platform": "macOS",
+    "summary": "QQ(Mac) 6.8.2.21241",
+    "version": "6.8.2.21241"
   },
   "537128100": {
     "summary": "QQ 8.9.3",
@@ -5677,9 +5666,5 @@
     "summary": "QQ(Watch) 2.0.8",
     "version": "QQ 2.0.8",
     "platform": "Watch"
-  },
-  "537064117": {
-    "summary": "QQ 8.9.60",
-    "version": "QQ 8.9.60"
   }
 }
