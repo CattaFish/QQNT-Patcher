@@ -1,4 +1,19 @@
 {
+  "537397815": {
+    "summary": "QQ(Pad) 9.3.75.42350",
+    "platform": "Android",
+    "version": "9.3.75.42350",
+    "arch": "Pad",
+    "date": "2026-10-13",
+    "channel": "官方"
+  },
+  "537397776": {
+    "summary": "QQ 9.3.75.42350",
+    "platform": "Android",
+    "version": "9.3.75.42350",
+    "date": "2026-10-13",
+    "channel": "官方"
+  },
   "537397325": {
     "summary": "QQ(Pad) 9.3.75.42245-Beta",
     "platform": "Android",
@@ -10,12 +25,27 @@
     "platform": "Android",
     "version": "QQ 9.3.75.42245-Beta"
   },
+  "537395488": {
+    "summary": "QQ(Pad) 9.3.70.41925",
+    "platform": "Android",
+    "version": "9.3.70.41925",
+    "arch": "Pad",
+    "date": "2026-09-29",
+    "channel": "豌豆荚"
+  },
   "537395477": {
     "summary": "QQ(Pad) 9.3.70.41925",
     "platform": "Android",
     "version": "9.3.70.41925",
     "arch": "Pad",
     "date": "2026-09-24"
+  },
+  "537395449": {
+    "summary": "QQ 9.3.70.41925",
+    "platform": "Android",
+    "version": "9.3.70.41925",
+    "date": "2026-09-29",
+    "channel": "豌豆荚"
   },
   "537395438": {
     "summary": "QQ 9.3.70.41925",
@@ -3284,14 +3314,17 @@
     "version": "TIM 4.1.0"
   },
   "537298411": {
-    "platform": "TIM",
-    "summary": "TIM 4.1.0",
-    "version": "4.1.0"
+    "summary": "QQ(Pad) 4.1.0",
+    "platform": "Android",
+    "version": "4.1.0",
+    "arch": "Pad",
+    "date": "2025-05-27"
   },
   "537298353": {
-    "platform": "TIM",
-    "summary": "TIM 4.1.0",
-    "version": "4.1.0"
+    "summary": "QQ 4.1.0",
+    "platform": "Android",
+    "version": "4.1.0",
+    "date": "2025-05-27"
   },
   "537297389": {
     "summary": "QQ(Pad) 9.1.95",
@@ -3970,14 +4003,17 @@
     "platform": "Watch"
   },
   "537282194": {
-    "platform": "TIM",
-    "summary": "TIM 4.0.99",
-    "version": "4.0.99"
+    "summary": "QQ(Pad) 4.0.99",
+    "platform": "Android",
+    "version": "4.0.99",
+    "arch": "Pad",
+    "date": "2025-04-08"
   },
   "537282136": {
-    "platform": "TIM",
-    "summary": "TIM 4.0.99",
-    "version": "4.0.99"
+    "summary": "QQ 4.0.99",
+    "platform": "Android",
+    "version": "4.0.99",
+    "date": "2025-04-08"
   },
   "537279299": {
     "summary": "QQ(Linux-Mips) 3.2.17.34362",

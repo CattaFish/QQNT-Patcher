@@ -28,6 +28,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Map;
 
 public class ProfileSettingInjector {
 
@@ -207,7 +208,6 @@ public class ProfileSettingInjector {
         copySb.append("QQ号: ").append(uin).append("\n");
         copySb.append("协议 SubID: ").append(subId);
 
-        // 如果不是精确匹配，挂载高亮警告条
         if (infer != null && !infer.isExact) {
             TextView warningBox = new TextView(activity);
             warningBox.setTextSize(12);
@@ -244,6 +244,7 @@ public class ProfileSettingInjector {
 
         if (infer != null && infer.isExact && infer.exactDetail != null) {
             QQVersionModule.SubidDetail detail = infer.exactDetail;
+
             if (detail.platform != null && !detail.platform.isEmpty()) {
                 addInfoRow(activity, infoBox, "操作系统平台", detail.platform, textColor, subTextColor);
                 copySb.append("平台: ").append(detail.platform).append("\n");
@@ -251,6 +252,11 @@ public class ProfileSettingInjector {
             if (detail.arch != null && !detail.arch.isEmpty()) {
                 addInfoRow(activity, infoBox, "系统运行架构", detail.arch, textColor, subTextColor);
                 copySb.append("架构: ").append(detail.arch).append("\n");
+            }
+            // ★ 显示新渠道字段：有值才显示，没有绝不占位
+            if (detail.channel != null && !detail.channel.isEmpty()) {
+                addInfoRow(activity, infoBox, "发布渠道", detail.channel, textColor, subTextColor);
+                copySb.append("渠道: ").append(detail.channel).append("\n");
             }
             if (detail.packages != null && !detail.packages.isEmpty()) {
                 String pkgs = String.join(" / ", detail.packages);
@@ -264,6 +270,18 @@ public class ProfileSettingInjector {
             if (detail.date != null && !detail.date.isEmpty()) {
                 addInfoRow(activity, infoBox, "发布构建日期", detail.date, textColor, subTextColor);
                 copySb.append("日期: ").append(detail.date).append("\n");
+            }
+            // ★ 通用动态扩展字段：如果没有就不显示
+            if (detail.extraFields != null && !detail.extraFields.isEmpty()) {
+                for (Map.Entry<String, String> entry : detail.extraFields.entrySet()) {
+                    String k = entry.getKey();
+                    String v = entry.getValue();
+                    if (v != null && !v.trim().isEmpty()) {
+                        String label = formatCustomLabel(k);
+                        addInfoRow(activity, infoBox, label, v, textColor, subTextColor);
+                        copySb.append(label).append(": ").append(v).append("\n");
+                    }
+                }
             }
         } else if (infer != null && !infer.isExact) {
             if (!infer.suspectedPlatform.isEmpty()) {
@@ -332,6 +350,15 @@ public class ProfileSettingInjector {
             int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.88);
             dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
+    }
+
+    private static String formatCustomLabel(String key) {
+        if (key == null || key.isEmpty()) return "其他属性";
+        String lower = key.toLowerCase();
+        if (lower.equals("channel") || lower.equals("channels")) return "发布渠道";
+        if (lower.contains("build")) return "内部构建号";
+        if (lower.contains("source")) return "来源途径";
+        return Character.toUpperCase(key.charAt(0)) + (key.length() > 1 ? key.substring(1) : "");
     }
 
     private static void addInfoRow(Context context, LinearLayout parent, String label, String value, int labelColor, int valColor) {

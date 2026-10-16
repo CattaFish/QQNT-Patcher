@@ -27,10 +27,18 @@ public class QQVersionModule implements IPatchModule {
     private static final String CMD_MSG_PUSH = "trpc.msg.olpush.OlPushService.MsgPush";
     public static final String UNKNOWN_STATUS = "未捕获到客户端版本";
 
-    private static final String[] REMOTE_SUBID_URLS = new String[]{
-            "https://ghfast.top/https://raw.githubusercontent.com/Cattafish/qqDecoder/main/data/subid.json",
-            "https://cdn.jsdelivr.net/gh/Cattafish/qqDecoder@main/data/subid.json",
-            "https://raw.githubusercontent.com/Cattafish/qqDecoder/main/data/subid.json"
+    // 双源独立镜像组：同时吸收主仓 900+ 历史记录与 decoder 最新渠道增量
+    private static final String[][] REMOTE_SOURCE_GROUPS = new String[][]{
+            {
+                    "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
+                    "https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
+                    "https://cdn.jsdelivr.net/gh/CattaFish/QQNT-Patcher@main/assets/subid.json"
+            },
+            {
+                    "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/qqDecoder/main/data/subid.json",
+                    "https://raw.githubusercontent.com/CattaFish/qqDecoder/main/data/subid.json",
+                    "https://cdn.jsdelivr.net/gh/CattaFish/qqDecoder@main/data/subid.json"
+            }
     };
 
     public static class SubidDetail {
@@ -40,11 +48,12 @@ public class QQVersionModule implements IPatchModule {
         public String arch;
         public String version;
         public String date;
+        public String channel;
         public List<String> packages = new ArrayList<>();
         public List<String> versions = new ArrayList<>();
+        public Map<String, String> extraFields = new LinkedHashMap<>();
     }
 
-    // 推测诊断结果实体
     public static class InferResult {
         public boolean isExact = false;
         public String displaySummary;
@@ -62,7 +71,6 @@ public class QQVersionModule implements IPatchModule {
     private static final Map<String, Long> sLastSubidByUin = new ConcurrentHashMap<>();
     private static final Map<String, String> sExactTable = new ConcurrentHashMap<>();
     private static final Map<String, SubidDetail> sDetailTable = new ConcurrentHashMap<>();
-    // 有序跳表：专用于对未知 SubID 进行高精度 O(log N) 临近区间推测
     private static final ConcurrentSkipListMap<Long, SubidDetail> sNavMap = new ConcurrentSkipListMap<>();
 
     private static final AtomicBoolean sDictLoaded = new AtomicBoolean(false);
@@ -130,14 +138,10 @@ public class QQVersionModule implements IPatchModule {
         return inferSubid(subId).displaySummary;
     }
 
-    /**
-     * 智能推测与诊断核心引擎
-     */
     public static InferResult inferSubid(long subId) {
         InferResult res = new InferResult();
         String sv = String.valueOf(subId);
 
-        // 1. 精确命中
         SubidDetail exact = sDetailTable.get(sv);
         if (exact != null) {
             res.isExact = true;
@@ -146,7 +150,6 @@ public class QQVersionModule implements IPatchModule {
             return res;
         }
 
-        // 2. 未精确匹配，执行临近区间二分推断
         Map.Entry<Long, SubidDetail> floor = sNavMap.floorEntry(subId);
         Map.Entry<Long, SubidDetail> ceil = sNavMap.ceilingEntry(subId);
 
@@ -159,7 +162,6 @@ public class QQVersionModule implements IPatchModule {
             res.ceilDetail = ceil.getValue();
         }
 
-        // A. 高于当前收录的最大 SubID (官方最新发包)
         if (ceil == null && floor != null) {
             long diff = subId - floor.getKey();
             res.suspectedPlatform = floor.getValue().platform;
@@ -174,7 +176,6 @@ public class QQVersionModule implements IPatchModule {
             return res;
         }
 
-        // B. 夹在两个已知版本之间 (最普遍情况)
         if (floor != null && ceil != null) {
             SubidDetail fDet = floor.getValue();
             SubidDetail cDet = ceil.getValue();
@@ -185,7 +186,6 @@ public class QQVersionModule implements IPatchModule {
             res.suspectedPlatform = ref.platform;
             res.suspectedArch = ref.arch;
 
-            // 提取共同大版本前缀
             String vRef = ref.version != null ? ref.version : "";
             String[] parts = vRef.split("\\.");
             String guessVer = (parts.length >= 3) ? (parts[0] + "." + parts[1] + "." + parts[2]) : vRef;
@@ -199,7 +199,6 @@ public class QQVersionModule implements IPatchModule {
             return res;
         }
 
-        // C. 低于当前收录的最小 SubID 或无临近数据
         if (ceil != null) {
             res.suspectedPlatform = ceil.getValue().platform;
             res.suspectedArch = ceil.getValue().arch;
@@ -213,8 +212,6 @@ public class QQVersionModule implements IPatchModule {
         res.warningNote = "完全未知号段，无法进行有效区间推测。";
         return res;
     }
-
-    // ========================== 字典加载与 OTA 增量同步 ==========================
 
     private static synchronized void ensureDictionaryLoaded(Context context) {
         if (sDictLoaded.getAndSet(true)) return;
@@ -247,31 +244,6 @@ public class QQVersionModule implements IPatchModule {
             try {
                 Thread.sleep(6000);
 
-                String remoteJsonStr = null;
-                for (String urlStr : REMOTE_SUBID_URLS) {
-                    try {
-                        URL url = new URL(urlStr);
-                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                        conn.setRequestMethod("GET");
-                        conn.setConnectTimeout(4000);
-                        conn.setReadTimeout(4000);
-                        conn.setRequestProperty("User-Agent", "QQNT-Patcher-Client");
-
-                        if (conn.getResponseCode() == 200) {
-                            try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
-                                StringBuilder sb = new StringBuilder();
-                                String line;
-                                while ((line = reader.readLine()) != null) sb.append(line);
-                                remoteJsonStr = sb.toString();
-                                break;
-                            }
-                        }
-                    } catch (Throwable ignored) {}
-                }
-
-                if (remoteJsonStr == null || remoteJsonStr.trim().isEmpty()) return;
-
-                JSONObject remoteJson = new JSONObject(remoteJsonStr);
                 File extFile = getExternalDictionaryFile(context);
                 if (extFile == null) return;
 
@@ -285,25 +257,71 @@ public class QQVersionModule implements IPatchModule {
                     } catch (Throwable ignored) {}
                 }
 
-                int newCount = 0;
-                Iterator<String> it = remoteJson.keys();
-                while (it.hasNext()) {
-                    String subid = it.next();
-                    Object rVal = remoteJson.opt(subid);
+                int totalNewCount = 0;
 
-                    if (!localJson.has(subid) || !sExactTable.containsKey(subid)) {
-                        localJson.put(subid, rVal);
-                        newCount++;
-                    } else {
-                        Object lVal = localJson.opt(subid);
-                        if (lVal instanceof String && rVal instanceof JSONObject) {
-                            localJson.put(subid, rVal);
-                            newCount++;
-                        }
+                // 遍历两个数据源组：先拉主仓保证 900+ 条不缺，再拉 decoder 增量吸纳豌豆荚等渠道
+                for (String[] mirrors : REMOTE_SOURCE_GROUPS) {
+                    for (String urlStr : mirrors) {
+                        try {
+                            long ts = System.currentTimeMillis();
+                            String sep = urlStr.contains("?") ? "&" : "?";
+                            URL url = new URL(urlStr + sep + "_nocache=" + ts);
+                            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                            conn.setRequestMethod("GET");
+                            conn.setConnectTimeout(4500);
+                            conn.setReadTimeout(4500);
+                            conn.setRequestProperty("User-Agent", "QQNT-Patcher-Client");
+                            conn.setRequestProperty("Cache-Control", "no-cache");
+                            conn.setRequestProperty("Pragma", "no-cache");
+
+                            if (conn.getResponseCode() == 200) {
+                                StringBuilder sb = new StringBuilder();
+                                try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                                    String line;
+                                    while ((line = reader.readLine()) != null) sb.append(line);
+                                }
+                                JSONObject remoteJson = new JSONObject(sb.toString());
+
+                                Iterator<String> it = remoteJson.keys();
+                                while (it.hasNext()) {
+                                    String subid = it.next();
+                                    Object rVal = remoteJson.opt(subid);
+                                    if (rVal == null) continue;
+
+                                    if (!localJson.has(subid) || !sExactTable.containsKey(subid)) {
+                                        localJson.put(subid, rVal);
+                                        totalNewCount++;
+                                    } else {
+                                        Object lVal = localJson.opt(subid);
+                                        if (lVal instanceof String && rVal instanceof JSONObject) {
+                                            localJson.put(subid, rVal);
+                                            totalNewCount++;
+                                        } else if (lVal instanceof JSONObject && rVal instanceof JSONObject) {
+                                            JSONObject lObj = (JSONObject) lVal;
+                                            JSONObject rObj = (JSONObject) rVal;
+                                            Iterator<String> rkIt = rObj.keys();
+                                            boolean objModified = false;
+                                            while (rkIt.hasNext()) {
+                                                String rk = rkIt.next();
+                                                String rStr = rObj.optString(rk, "");
+                                                String lStr = lObj.optString(rk, "");
+                                                // ★ 优化 3 核心：若本地无此属性，或远程带有更详细具体的渠道（如“豌豆荚”），直接无缝覆盖补全
+                                                if (!lObj.has(rk) || ("channel".equals(rk) && !rStr.isEmpty() && !rStr.equals(lStr))) {
+                                                    lObj.put(rk, rObj.opt(rk));
+                                                    objModified = true;
+                                                }
+                                            }
+                                            if (objModified) totalNewCount++;
+                                        }
+                                    }
+                                }
+                                break; // 当前镜像源拉取成功，继续下一个源组
+                            }
+                        } catch (Throwable ignored) {}
                     }
                 }
 
-                if (newCount > 0) {
+                if (totalNewCount > 0) {
                     try (FileOutputStream fos = new FileOutputStream(extFile);
                          OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
                         osw.write(localJson.toString(2));
@@ -312,7 +330,7 @@ public class QQVersionModule implements IPatchModule {
                     try (InputStream is = new FileInputStream(extFile)) {
                         parseJsonDictionary(is);
                     }
-                    PLog.i(TAG, "已成功完成 SubID 字典静默增量更新，吸收新版本: " + newCount + " 个，当前总数: " + sExactTable.size());
+                    PLog.i(TAG, "已成功完成 SubID 字典静默增量更新，吸收新版本/更新渠道: " + totalNewCount + " 处，当前总数: " + sExactTable.size());
                 }
             } catch (Throwable t) {
                 PLog.d(TAG, "静默 OTA 增量同步跳过: " + t.getMessage());
@@ -326,6 +344,10 @@ public class QQVersionModule implements IPatchModule {
         String line;
         while ((line = reader.readLine()) != null) sb.append(line);
         JSONObject root = new JSONObject(sb.toString());
+
+        Set<String> standardKeys = new HashSet<>(Arrays.asList(
+                "summary", "platform", "arch", "version", "date", "channel", "packages", "versions"
+        ));
 
         Iterator<String> keys = root.keys();
         while (keys.hasNext()) {
@@ -345,6 +367,7 @@ public class QQVersionModule implements IPatchModule {
                 detail.arch = obj.optString("arch", "");
                 detail.version = obj.optString("version", "");
                 detail.date = obj.optString("date", "");
+                detail.channel = obj.optString("channel", "");
 
                 JSONArray pkgArr = obj.optJSONArray("packages");
                 if (pkgArr != null) {
@@ -353,6 +376,20 @@ public class QQVersionModule implements IPatchModule {
                 JSONArray verArr = obj.optJSONArray("versions");
                 if (verArr != null) {
                     for (int i = 0; i < verArr.length(); i++) detail.versions.add(verArr.getString(i));
+                }
+
+                Iterator<String> objKeys = obj.keys();
+                while (objKeys.hasNext()) {
+                    String ok = objKeys.next();
+                    if (!standardKeys.contains(ok)) {
+                        Object extraVal = obj.opt(ok);
+                        if (extraVal != null) {
+                            String extraStr = extraVal.toString().trim();
+                            if (!extraStr.isEmpty() && !extraStr.equals("null") && !extraStr.equals("[]") && !extraStr.equals("{}")) {
+                                detail.extraFields.put(ok, extraStr);
+                            }
+                        }
+                    }
                 }
 
                 if (detail.summary.isEmpty()) detail.summary = detail.version;
