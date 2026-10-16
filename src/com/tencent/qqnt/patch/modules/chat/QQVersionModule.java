@@ -415,7 +415,8 @@ public class QQVersionModule implements IPatchModule {
         return 0L;
     }
 
-    private static long readVarint(byte[] data, int pos, int limit) {
+    // 核心修复点: 确保返回值类型为 long[]
+    private static long[] readVarint(byte[] data, int pos, int limit) {
         long result = 0;
         for (int shift = 0; shift < 64 && pos < limit; shift += 7) {
             byte b = data[pos++];
