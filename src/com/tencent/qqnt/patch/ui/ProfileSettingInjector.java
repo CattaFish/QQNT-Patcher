@@ -56,8 +56,9 @@ public class ProfileSettingInjector {
             String targetUin = extractTargetUinFromActivity(activity);
             if (targetUin == null || targetUin.isEmpty()) return;
 
-            String versionText = QQVersionModule.getVersionByUin(targetUin);
             long subId = QQVersionModule.getSubidByUin(targetUin);
+            QQVersionModule.InferResult infer = (subId > 0) ? QQVersionModule.inferSubid(subId) : null;
+            String versionText = (infer != null) ? infer.displaySummary : QQVersionModule.UNKNOWN_STATUS;
 
             int hMargin = dp2px(activity, 16f);
             int topMargin = dp2px(activity, 16f);
@@ -105,8 +106,9 @@ public class ProfileSettingInjector {
             String memberUin = extractMemberUinFromFragment(fragment);
             if (memberUin == null || memberUin.isEmpty()) return;
 
-            String versionText = QQVersionModule.getVersionByUin(memberUin);
             long subId = QQVersionModule.getSubidByUin(memberUin);
+            QQVersionModule.InferResult infer = (subId > 0) ? QQVersionModule.inferSubid(subId) : null;
+            String versionText = (infer != null) ? infer.displaySummary : QQVersionModule.UNKNOWN_STATUS;
 
             ClassLoader cl = fragment.getClass().getClassLoader();
             Activity activity = null;
@@ -164,11 +166,11 @@ public class ProfileSettingInjector {
             return;
         }
 
-        QQVersionModule.SubidDetail detail = QQVersionModule.lookupDetail(subId);
-        showDetailDialog(activity, uin, subId, versionText, detail);
+        QQVersionModule.InferResult infer = QQVersionModule.inferSubid(subId);
+        showDetailDialog(activity, uin, subId, infer);
     }
 
-    private static void showDetailDialog(Activity activity, String uin, long subId, String versionText, QQVersionModule.SubidDetail detail) {
+    private static void showDetailDialog(Activity activity, String uin, long subId, QQVersionModule.InferResult infer) {
         boolean isNight = ThemeHelper.INSTANCE.isNightMode();
 
         int bgColor = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
@@ -193,13 +195,41 @@ public class ProfileSettingInjector {
         root.setBackground(bg);
 
         TextView title = new TextView(activity);
-        title.setText("客户端版本详细信息");
+        title.setText(infer != null && infer.isExact ? "客户端版本详细信息" : "客户端版本识别 (推测)");
         title.setTextSize(17);
         title.getPaint().setFakeBoldText(true);
         title.setTextColor(textColor);
         title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 0, 0, dp2px(activity, 14f));
+        title.setPadding(0, 0, 0, dp2px(activity, 12f));
         root.addView(title);
+
+        StringBuilder copySb = new StringBuilder();
+        copySb.append("QQ号: ").append(uin).append("\n");
+        copySb.append("协议 SubID: ").append(subId);
+
+        // 如果不是精确匹配，挂载高亮警告条
+        if (infer != null && !infer.isExact) {
+            TextView warningBox = new TextView(activity);
+            warningBox.setTextSize(12);
+            warningBox.setTextColor(isNight ? Color.parseColor("#FFD60A") : Color.parseColor("#B25E00"));
+            warningBox.setLineSpacing(dp2px(activity, 2f), 1f);
+            warningBox.setText("⚠️ 未精确匹配警告：\n" + infer.warningNote);
+            warningBox.setPadding(dp2px(activity, 10f), dp2px(activity, 8f), dp2px(activity, 10f), dp2px(activity, 8f));
+
+            GradientDrawable warnBg = new GradientDrawable();
+            warnBg.setColor(isNight ? Color.parseColor("#332B00") : Color.parseColor("#FFF9E6"));
+            warnBg.setCornerRadius(dp2px(activity, 8f));
+            warnBg.setStroke(dp2px(activity, 1f), isNight ? Color.parseColor("#665700") : Color.parseColor("#FFE58F"));
+            warningBox.setBackground(warnBg);
+
+            LinearLayout.LayoutParams wLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            wLp.bottomMargin = dp2px(activity, 12f);
+            root.addView(warningBox, wLp);
+
+            copySb.append(" (未精确收录)\n");
+        } else {
+            copySb.append("\n");
+        }
 
         LinearLayout infoBox = new LinearLayout(activity);
         infoBox.setOrientation(LinearLayout.VERTICAL);
@@ -209,14 +239,11 @@ public class ProfileSettingInjector {
         boxBg.setCornerRadius(dp2px(activity, 12f));
         infoBox.setBackground(boxBg);
 
-        StringBuilder copySb = new StringBuilder();
-        copySb.append("QQ号: ").append(uin).append("\n");
-        copySb.append("协议 SubID: ").append(subId).append("\n");
-
         addInfoRow(activity, infoBox, "目标 QQ 号", uin, textColor, subTextColor);
         addInfoRow(activity, infoBox, "协议 SubID", String.valueOf(subId), textColor, subTextColor);
 
-        if (detail != null) {
+        if (infer != null && infer.isExact && infer.exactDetail != null) {
+            QQVersionModule.SubidDetail detail = infer.exactDetail;
             if (detail.platform != null && !detail.platform.isEmpty()) {
                 addInfoRow(activity, infoBox, "操作系统平台", detail.platform, textColor, subTextColor);
                 copySb.append("平台: ").append(detail.platform).append("\n");
@@ -238,9 +265,25 @@ public class ProfileSettingInjector {
                 addInfoRow(activity, infoBox, "发布构建日期", detail.date, textColor, subTextColor);
                 copySb.append("日期: ").append(detail.date).append("\n");
             }
-        } else {
-            addInfoRow(activity, infoBox, "识别版本", versionText, textColor, subTextColor);
-            copySb.append("版本: ").append(versionText).append("\n");
+        } else if (infer != null && !infer.isExact) {
+            if (!infer.suspectedPlatform.isEmpty()) {
+                addInfoRow(activity, infoBox, "推测平台", infer.suspectedPlatform + " (可能不准)", textColor, subTextColor);
+                copySb.append("推测平台: ").append(infer.suspectedPlatform).append("\n");
+            }
+            if (!infer.suspectedArch.isEmpty()) {
+                addInfoRow(activity, infoBox, "推测架构", infer.suspectedArch + " (可能不准)", textColor, subTextColor);
+                copySb.append("推测架构: ").append(infer.suspectedArch).append("\n");
+            }
+            if (!infer.suspectedVersion.isEmpty()) {
+                addInfoRow(activity, infoBox, "可疑版本", infer.suspectedVersion + " (可疑，供参考)", textColor, subTextColor);
+                copySb.append("可疑版本: ").append(infer.suspectedVersion).append(" (可疑)\n");
+            }
+            if (infer.floorDetail != null) {
+                addInfoRow(activity, infoBox, "前一已知版本", infer.floorSubid + " (" + infer.floorDetail.summary + ")", textColor, subTextColor);
+            }
+            if (infer.ceilDetail != null) {
+                addInfoRow(activity, infoBox, "后一已知版本", infer.ceilSubid + " (" + infer.ceilDetail.summary + ")", textColor, subTextColor);
+            }
         }
 
         root.addView(infoBox);
@@ -262,7 +305,7 @@ public class ProfileSettingInjector {
         copyLp.rightMargin = dp2px(activity, 8f);
         copyBtn.setOnClickListener(v -> {
             copyText(activity, copySb.toString().trim());
-            ToastHelper.show(activity, "已复制全部详细信息");
+            ToastHelper.show(activity, "已复制全部信息");
             dialog.dismiss();
         });
         btnRow.addView(copyBtn, copyLp);

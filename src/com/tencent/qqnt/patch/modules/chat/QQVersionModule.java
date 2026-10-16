@@ -18,6 +18,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class QQVersionModule implements IPatchModule {
@@ -43,10 +44,26 @@ public class QQVersionModule implements IPatchModule {
         public List<String> versions = new ArrayList<>();
     }
 
+    // 推测诊断结果实体
+    public static class InferResult {
+        public boolean isExact = false;
+        public String displaySummary;
+        public SubidDetail exactDetail;
+        public SubidDetail floorDetail;
+        public SubidDetail ceilDetail;
+        public long floorSubid = 0;
+        public long ceilSubid = 0;
+        public String suspectedPlatform = "";
+        public String suspectedArch = "";
+        public String suspectedVersion = "";
+        public String warningNote = "";
+    }
+
     private static final Map<String, Long> sLastSubidByUin = new ConcurrentHashMap<>();
     private static final Map<String, String> sExactTable = new ConcurrentHashMap<>();
     private static final Map<String, SubidDetail> sDetailTable = new ConcurrentHashMap<>();
-    private static final Map<String, String> sFuzzyTable = new ConcurrentHashMap<>();
+    // 有序跳表：专用于对未知 SubID 进行高精度 O(log N) 临近区间推测
+    private static final ConcurrentSkipListMap<Long, SubidDetail> sNavMap = new ConcurrentSkipListMap<>();
 
     private static final AtomicBoolean sDictLoaded = new AtomicBoolean(false);
     private static final AtomicBoolean sOtaChecked = new AtomicBoolean(false);
@@ -110,25 +127,94 @@ public class QQVersionModule implements IPatchModule {
         if (uin == null || uin.isEmpty()) return "未知用户";
         long subId = getSubidByUin(uin);
         if (subId <= 0) return UNKNOWN_STATUS;
-        return lookupVersion(subId);
+        return inferSubid(subId).displaySummary;
     }
 
-    public static String lookupVersion(long subId) {
+    /**
+     * 智能推测与诊断核心引擎
+     */
+    public static InferResult inferSubid(long subId) {
+        InferResult res = new InferResult();
         String sv = String.valueOf(subId);
-        String hit = sExactTable.get(sv);
-        if (hit != null && !hit.isEmpty()) return hit;
 
-        if (sv.length() >= 6) {
-            String mid = sv.substring(2, 6);
-            String fuzzyHit = sFuzzyTable.get(mid);
-            if (fuzzyHit != null && !fuzzyHit.isEmpty()) return fuzzyHit + "~";
+        // 1. 精确命中
+        SubidDetail exact = sDetailTable.get(sv);
+        if (exact != null) {
+            res.isExact = true;
+            res.exactDetail = exact;
+            res.displaySummary = (exact.summary != null && !exact.summary.isEmpty()) ? exact.summary : exact.version;
+            return res;
         }
-        return "未知版本 (" + subId + ")";
+
+        // 2. 未精确匹配，执行临近区间二分推断
+        Map.Entry<Long, SubidDetail> floor = sNavMap.floorEntry(subId);
+        Map.Entry<Long, SubidDetail> ceil = sNavMap.ceilingEntry(subId);
+
+        if (floor != null) {
+            res.floorSubid = floor.getKey();
+            res.floorDetail = floor.getValue();
+        }
+        if (ceil != null) {
+            res.ceilSubid = ceil.getKey();
+            res.ceilDetail = ceil.getValue();
+        }
+
+        // A. 高于当前收录的最大 SubID (官方最新发包)
+        if (ceil == null && floor != null) {
+            long diff = subId - floor.getKey();
+            res.suspectedPlatform = floor.getValue().platform;
+            res.suspectedArch = floor.getValue().arch;
+            res.suspectedVersion = floor.getValue().version;
+            res.warningNote = "此 SubID (" + subId + ") 高于本地收录最高版本，推测为近期发布的更新版本，可能不准确！";
+            if (diff < 10000) {
+                res.displaySummary = "未精确匹配 (推测为近期新版?)";
+            } else {
+                res.displaySummary = "未收录版本 (" + subId + ")";
+            }
+            return res;
+        }
+
+        // B. 夹在两个已知版本之间 (最普遍情况)
+        if (floor != null && ceil != null) {
+            SubidDetail fDet = floor.getValue();
+            SubidDetail cDet = ceil.getValue();
+            long dFloor = subId - floor.getKey();
+            long dCeil = ceil.getKey() - subId;
+
+            SubidDetail ref = (dFloor <= dCeil) ? fDet : cDet;
+            res.suspectedPlatform = ref.platform;
+            res.suspectedArch = ref.arch;
+
+            // 提取共同大版本前缀
+            String vRef = ref.version != null ? ref.version : "";
+            String[] parts = vRef.split("\\.");
+            String guessVer = (parts.length >= 3) ? (parts[0] + "." + parts[1] + "." + parts[2]) : vRef;
+            res.suspectedVersion = guessVer;
+
+            String platArch = ref.platform != null ? ref.platform : "";
+            if (ref.arch != null && !ref.arch.isEmpty()) platArch += "-" + ref.arch;
+
+            res.warningNote = "未精确收录此 SubID，根据临近发版区间推测可能为 " + platArch + " " + guessVer + "，推测仅供参考！";
+            res.displaySummary = "未匹配 (推测: " + platArch + " " + guessVer + "?)";
+            return res;
+        }
+
+        // C. 低于当前收录的最小 SubID 或无临近数据
+        if (ceil != null) {
+            res.suspectedPlatform = ceil.getValue().platform;
+            res.suspectedArch = ceil.getValue().arch;
+            res.suspectedVersion = ceil.getValue().version;
+            res.warningNote = "此 SubID 较低，推测为历史未收录老版本，可能不准确！";
+            res.displaySummary = "未匹配 (推测为历史老版?)";
+            return res;
+        }
+
+        res.displaySummary = "未匹配版本 (" + subId + ")";
+        res.warningNote = "完全未知号段，无法进行有效区间推测。";
+        return res;
     }
 
-    public static SubidDetail lookupDetail(long subId) {
-        return sDetailTable.get(String.valueOf(subId));
-    }
+    // ========================== 字典加载与 OTA 增量同步 ==========================
 
     private static synchronized void ensureDictionaryLoaded(Context context) {
         if (sDictLoaded.getAndSet(true)) return;
@@ -279,11 +365,10 @@ public class QQVersionModule implements IPatchModule {
             sExactTable.put(key, detail.summary);
             sDetailTable.put(key, detail);
 
-            if (key.length() >= 6) {
-                String mid = key.substring(2, 6);
-                if (!sFuzzyTable.containsKey(mid) || detail.summary.contains("(")) {
-                    sFuzzyTable.put(mid, detail.summary);
-                }
+            if (key.matches("\\d+")) {
+                try {
+                    sNavMap.put(Long.parseLong(key), detail);
+                } catch (Throwable ignored) {}
             }
         }
     }
@@ -415,7 +500,6 @@ public class QQVersionModule implements IPatchModule {
         return 0L;
     }
 
-    // 核心修复点: 确保返回值类型为 long[]
     private static long[] readVarint(byte[] data, int pos, int limit) {
         long result = 0;
         for (int shift = 0; shift < 64 && pos < limit; shift += 7) {
