@@ -4,10 +4,17 @@ import sys
 import shutil
 import shlex
 import zipfile
+from .subid_sync import sync_subid_incremental
 
 def run_stage1(ctx):
     ctx.log("INFO", "1. 正在准备构建环境与扩展 Dex...")
     
+    # 自动增量对齐 SubID 字典 (只增不减)
+    try:
+        sync_subid_incremental(ctx)
+    except Exception as e:
+        ctx.log("WARN", f"增量同步 SubID 异常: {e}")
+
     # 1. 编译 DexPatcher.java
     engine_src = os.path.join(ctx.root_dir, "DexPatcher.java")
     ctx.engine_bin = os.path.join(ctx.work_dir, "patcher_bin")
@@ -105,7 +112,6 @@ def run_stage1(ctx):
             import sync_killer
             sync_killer.unpack_aar()
 
-
     # 编译 NeoPacker.java
     packer_src = os.path.join(ctx.tools_dir, "NeoPacker.java")
     packer_class = os.path.join(ctx.engine_bin, "com/tencent/qqnt/patcher/NeoPacker.class")
@@ -114,4 +120,3 @@ def run_stage1(ctx):
     if os.path.isfile(packer_src) and not (os.path.exists(packer_class) and os.path.getmtime(packer_class) >= os.path.getmtime(packer_src)):
         os.makedirs(ctx.engine_bin, exist_ok=True)
         ctx.run_cmd(f"javac -cp {shlex.quote(neoapk_jar)} -d {shlex.quote(ctx.engine_bin)} {shlex.quote(packer_src)}")
-

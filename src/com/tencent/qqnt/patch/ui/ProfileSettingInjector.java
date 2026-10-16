@@ -1,23 +1,31 @@
 package com.tencent.qqnt.patch.ui;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
+import android.widget.TextView;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.modules.chat.QQVersionModule;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.qqnt.patch.util.ToastHelper;
+import me.yxp.qfun.utils.ui.ThemeHelper;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 
@@ -26,15 +34,11 @@ public class ProfileSettingInjector {
     private static final String TAG = "ProfileSettingInjector";
     private static final String TAG_VERSION_CARD = "zzz_qq_version_card_item";
 
-    /**
-     * 场景 1: ProfileCardMoreActivity 全动态挂载 (左右/上下标准 16dp 独立分离卡片)
-     */
     public static void injectProfileCardMore(Object activityObj) {
         if (!(activityObj instanceof Activity)) return;
 
         Activity activity = (Activity) activityObj;
         try {
-            // 1. 全动态定位卡片容器
             View sampleItem = findViewByClassName(activity.getWindow().getDecorView(), "QUISingleLineListItem");
             if (sampleItem == null) {
                 sampleItem = findViewByClassName(activity.getWindow().getDecorView(), "FormSimpleItem");
@@ -44,34 +48,27 @@ public class ProfileSettingInjector {
             ViewGroup parent = (ViewGroup) sampleItem.getParent();
             View existingCard = parent.findViewWithTag(TAG_VERSION_CARD);
 
-            // 模块关闭检查：若已关闭且界面上有卡片则立刻移除
             if (!ConfigManager.isModuleEnabled("qq_version", false)) {
-                if (existingCard != null) {
-                    parent.removeView(existingCard);
-                }
+                if (existingCard != null) parent.removeView(existingCard);
                 return;
             }
 
-            // 2. 全动态获取目标 UIN
             String targetUin = extractTargetUinFromActivity(activity);
             if (targetUin == null || targetUin.isEmpty()) return;
 
-            // 3. 反查版本号
             String versionText = QQVersionModule.getVersionByUin(targetUin);
+            long subId = QQVersionModule.getSubidByUin(targetUin);
 
-            // 标准独立卡片边距: 左右各 16dp, 顶部 16dp (与设置标题栏分离), 底部 12dp
             int hMargin = dp2px(activity, 16f);
             int topMargin = dp2px(activity, 16f);
             int bottomMargin = dp2px(activity, 12f);
 
-            // 4. 防重检查: 如果已存在则直接更新文字与边距
             if (existingCard != null) {
-                updateCardConfig(activity, existingCard, versionText, targetUin);
+                updateCardConfig(activity, existingCard, versionText, targetUin, subId);
                 applyCardMargins(existingCard, parent, hMargin, topMargin, bottomMargin);
                 return;
             }
 
-            // 5. 构建原生独立卡片
             ClassLoader cl = activity.getClassLoader();
             Class<?> itemClz = cl.loadClass("com.tencent.mobileqq.widget.listitem.QUISingleLineListItem");
             Class<?> bgTypeClz = cl.loadClass("com.tencent.mobileqq.widget.listitem.QUIListItemBackgroundType");
@@ -81,32 +78,23 @@ public class ProfileSettingInjector {
             View cardItem = (View) ctor.newInstance(activity);
             cardItem.setTag(TAG_VERSION_CARD);
 
-            // 设置四周全圆角与卡片样式
             Object allRound = Enum.valueOf((Class<Enum>) bgTypeClz, "AllRound");
-            Method setBgMethod = itemClz.getMethod("setBackgroundType", bgTypeClz);
-            setBgMethod.invoke(cardItem, allRound);
+            itemClz.getMethod("setBackgroundType", bgTypeClz).invoke(cardItem, allRound);
 
             Object cardStyle = Enum.valueOf((Class<Enum>) styleClz, "Card");
-            Method setStyleMethod = itemClz.getMethod("setStyle", styleClz);
-            setStyleMethod.invoke(cardItem, cardStyle);
+            itemClz.getMethod("setStyle", styleClz).invoke(cardItem, cardStyle);
 
-            updateCardConfig(activity, cardItem, versionText, targetUin);
-
-            // 赋予真正的卡片四向外边距 (彻底告别贴顶栏和撑满屏幕)
+            updateCardConfig(activity, cardItem, versionText, targetUin, subId);
             applyCardMargins(cardItem, parent, hMargin, topMargin, bottomMargin);
 
-            // 插入最上方 (第 0 位)
             parent.addView(cardItem, 0);
-            PLog.i(TAG, "已在 ProfileCardMoreActivity 挂载独立悬浮版本卡片: " + versionText);
+            PLog.i(TAG, "挂载独立版本卡片: " + versionText);
 
         } catch (Throwable t) {
             PLog.e(TAG, "injectProfileCardMore 异常", t);
         }
     }
 
-    /**
-     * 场景 2: MemberSettingFragment 全动态挂载
-     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static void injectMemberSettingGroups(Object fragment, Object groupsListObj) {
         if (fragment == null || !(groupsListObj instanceof ArrayList)) return;
@@ -118,6 +106,7 @@ public class ProfileSettingInjector {
             if (memberUin == null || memberUin.isEmpty()) return;
 
             String versionText = QQVersionModule.getVersionByUin(memberUin);
+            long subId = QQVersionModule.getSubidByUin(memberUin);
 
             ClassLoader cl = fragment.getClass().getClassLoader();
             Activity activity = null;
@@ -127,8 +116,8 @@ public class ProfileSettingInjector {
 
             final Activity finalAct = activity;
             Object textItem = NativeSettingHelper.createClickable(
-                    cl, "QQ 版本", versionText, false, false,
-                    v -> handleCardClick(finalAct, memberUin, versionText)
+                    cl, "QQ 版本", versionText, true, false,
+                    v -> handleCardClick(finalAct, memberUin, versionText, subId)
             );
 
             if (textItem != null) {
@@ -137,7 +126,6 @@ public class ProfileSettingInjector {
                 );
                 if (versionGroup != null) {
                     groupsList.add(0, versionGroup);
-                    PLog.i(TAG, "已在 MemberSettingFragment 挂载独立 Group: " + versionText);
                 }
             }
         } catch (Throwable t) {
@@ -145,7 +133,184 @@ public class ProfileSettingInjector {
         }
     }
 
-    // ========================== 边距与样式工具 ==========================
+    private static void updateCardConfig(Activity activity, View cardItem, String versionText, String uin, long subId) {
+        try {
+            ClassLoader cl = activity.getClassLoader();
+            Class<?> itemClz = cardItem.getClass();
+            Class<?> xClz = cl.loadClass("com.tencent.mobileqq.widget.listitem.x");
+            Class<?> xbdClz = cl.loadClass("com.tencent.mobileqq.widget.listitem.x$b$d");
+            Class<?> xcgClz = cl.loadClass("com.tencent.mobileqq.widget.listitem.x$c$g");
+
+            Object left = xbdClz.getConstructor(CharSequence.class).newInstance("QQ 版本");
+            Object right = xcgClz.getConstructor(CharSequence.class, boolean.class, boolean.class)
+                    .newInstance(versionText, true, false);
+
+            Constructor<?> xCtor = xClz.getConstructor(
+                    cl.loadClass("com.tencent.mobileqq.widget.listitem.x$b"),
+                    cl.loadClass("com.tencent.mobileqq.widget.listitem.x$c")
+            );
+            Object config = xCtor.newInstance(left, right);
+            itemClz.getMethod("setConfig", xClz).invoke(cardItem, config);
+
+            cardItem.setOnClickListener(v -> handleCardClick(activity, uin, versionText, subId));
+        } catch (Throwable ignored) {}
+    }
+
+    private static void handleCardClick(Activity activity, String uin, String versionText, long subId) {
+        if (activity == null || activity.isFinishing()) return;
+
+        if (QQVersionModule.UNKNOWN_STATUS.equals(versionText) || subId <= 0) {
+            ToastHelper.show(activity, "对方尚未产生消息推送，待对方在群聊发言后即可识别");
+            return;
+        }
+
+        QQVersionModule.SubidDetail detail = QQVersionModule.lookupDetail(subId);
+        showDetailDialog(activity, uin, subId, versionText, detail);
+    }
+
+    private static void showDetailDialog(Activity activity, String uin, long subId, String versionText, QQVersionModule.SubidDetail detail) {
+        boolean isNight = ThemeHelper.INSTANCE.isNightMode();
+
+        int bgColor = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
+        int textColor = isNight ? Color.WHITE : Color.parseColor("#1D1D1F");
+        int subTextColor = isNight ? Color.parseColor("#8E8E93") : Color.parseColor("#666666");
+        int rowBgColor = isNight ? Color.parseColor("#2C2C2E") : Color.parseColor("#F2F2F7");
+
+        Dialog dialog = new Dialog(activity);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        }
+
+        int pad = dp2px(activity, 20f);
+        LinearLayout root = new LinearLayout(activity);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(pad, pad, pad, pad);
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(bgColor);
+        bg.setCornerRadius(dp2px(activity, 18f));
+        root.setBackground(bg);
+
+        TextView title = new TextView(activity);
+        title.setText("客户端版本详细信息");
+        title.setTextSize(17);
+        title.getPaint().setFakeBoldText(true);
+        title.setTextColor(textColor);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(0, 0, 0, dp2px(activity, 14f));
+        root.addView(title);
+
+        LinearLayout infoBox = new LinearLayout(activity);
+        infoBox.setOrientation(LinearLayout.VERTICAL);
+        infoBox.setPadding(dp2px(activity, 12f), dp2px(activity, 8f), dp2px(activity, 12f), dp2px(activity, 8f));
+        GradientDrawable boxBg = new GradientDrawable();
+        boxBg.setColor(rowBgColor);
+        boxBg.setCornerRadius(dp2px(activity, 12f));
+        infoBox.setBackground(boxBg);
+
+        StringBuilder copySb = new StringBuilder();
+        copySb.append("QQ号: ").append(uin).append("\n");
+        copySb.append("协议 SubID: ").append(subId).append("\n");
+
+        addInfoRow(activity, infoBox, "目标 QQ 号", uin, textColor, subTextColor);
+        addInfoRow(activity, infoBox, "协议 SubID", String.valueOf(subId), textColor, subTextColor);
+
+        if (detail != null) {
+            if (detail.platform != null && !detail.platform.isEmpty()) {
+                addInfoRow(activity, infoBox, "操作系统平台", detail.platform, textColor, subTextColor);
+                copySb.append("平台: ").append(detail.platform).append("\n");
+            }
+            if (detail.arch != null && !detail.arch.isEmpty()) {
+                addInfoRow(activity, infoBox, "系统运行架构", detail.arch, textColor, subTextColor);
+                copySb.append("架构: ").append(detail.arch).append("\n");
+            }
+            if (detail.packages != null && !detail.packages.isEmpty()) {
+                String pkgs = String.join(" / ", detail.packages);
+                addInfoRow(activity, infoBox, "分发支持包", pkgs, textColor, subTextColor);
+                copySb.append("分发包: ").append(pkgs).append("\n");
+            }
+            if (detail.version != null && !detail.version.isEmpty()) {
+                addInfoRow(activity, infoBox, "精确版本号", detail.version, textColor, subTextColor);
+                copySb.append("版本: ").append(detail.version).append("\n");
+            }
+            if (detail.date != null && !detail.date.isEmpty()) {
+                addInfoRow(activity, infoBox, "发布构建日期", detail.date, textColor, subTextColor);
+                copySb.append("日期: ").append(detail.date).append("\n");
+            }
+        } else {
+            addInfoRow(activity, infoBox, "识别版本", versionText, textColor, subTextColor);
+            copySb.append("版本: ").append(versionText).append("\n");
+        }
+
+        root.addView(infoBox);
+
+        LinearLayout btnRow = new LinearLayout(activity);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+        btnRow.setPadding(0, dp2px(activity, 16f), 0, 0);
+
+        Button copyBtn = new Button(activity);
+        copyBtn.setText("复制完整信息");
+        copyBtn.setTextSize(14);
+        copyBtn.setTextColor(Color.WHITE);
+        copyBtn.setAllCaps(false);
+        GradientDrawable copyBg = new GradientDrawable();
+        copyBg.setColor(Color.parseColor("#007AFF"));
+        copyBg.setCornerRadius(dp2px(activity, 10f));
+        copyBtn.setBackground(copyBg);
+        LinearLayout.LayoutParams copyLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
+        copyLp.rightMargin = dp2px(activity, 8f);
+        copyBtn.setOnClickListener(v -> {
+            copyText(activity, copySb.toString().trim());
+            ToastHelper.show(activity, "已复制全部详细信息");
+            dialog.dismiss();
+        });
+        btnRow.addView(copyBtn, copyLp);
+
+        Button okBtn = new Button(activity);
+        okBtn.setText("关闭");
+        okBtn.setTextSize(14);
+        okBtn.setTextColor(subTextColor);
+        okBtn.setAllCaps(false);
+        GradientDrawable okBg = new GradientDrawable();
+        okBg.setColor(rowBgColor);
+        okBg.setCornerRadius(dp2px(activity, 10f));
+        okBtn.setBackground(okBg);
+        LinearLayout.LayoutParams okLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
+        okBtn.setOnClickListener(v -> dialog.dismiss());
+        btnRow.addView(okBtn, okLp);
+
+        root.addView(btnRow);
+
+        dialog.setContentView(root);
+        dialog.show();
+
+        if (dialog.getWindow() != null) {
+            int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.88);
+            dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
+    private static void addInfoRow(Context context, LinearLayout parent, String label, String value, int labelColor, int valColor) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp2px(context, 4f), 0, dp2px(context, 4f));
+
+        TextView tvLabel = new TextView(context);
+        tvLabel.setText(label);
+        tvLabel.setTextSize(13);
+        tvLabel.setTextColor(valColor);
+        row.addView(tvLabel, new LinearLayout.LayoutParams(dp2px(context, 90f), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView tvVal = new TextView(context);
+        tvVal.setText(value);
+        tvVal.setTextSize(13);
+        tvVal.getPaint().setFakeBoldText(true);
+        tvVal.setTextColor(labelColor);
+        row.addView(tvVal, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        parent.addView(row);
+    }
 
     private static void applyCardMargins(View cardView, ViewGroup parent, int hMargin, int topMargin, int bottomMargin) {
         ViewGroup.MarginLayoutParams lp;
@@ -198,8 +363,7 @@ public class ProfileSettingInjector {
 
     private static String extractMemberUinFromFragment(Object fragment) {
         try {
-            Method getArgsM = fragment.getClass().getMethod("getArguments");
-            Bundle args = (Bundle) getArgsM.invoke(fragment);
+            Bundle args = (Bundle) fragment.getClass().getMethod("getArguments").invoke(fragment);
             if (args != null) {
                 String[] candidateKeys = new String[]{"memberUin", "member_uin", "troop_member_uin", "uin"};
                 for (String k : candidateKeys) {
@@ -210,9 +374,7 @@ public class ProfileSettingInjector {
                 }
                 for (String k : args.keySet()) {
                     Object val = args.get(k);
-                    if (val instanceof String && ((String) val).matches("[1-9]\\d{4,12}")) {
-                        return (String) val;
-                    }
+                    if (val instanceof String && ((String) val).matches("[1-9]\\d{4,12}")) return (String) val;
                 }
             }
         } catch (Throwable ignored) {}
@@ -238,20 +400,9 @@ public class ProfileSettingInjector {
             for (Field f : obj.getClass().getDeclaredFields()) {
                 f.setAccessible(true);
                 Object val = f.get(obj);
-                if (val == null) continue;
-                if (val.getClass().getName().contains("TroopMemberCard")) {
+                if (val != null && val.getClass().getName().contains("TroopMemberCard")) {
                     Field fUin = val.getClass().getField("memberUin");
                     return (String) fUin.get(val);
-                }
-            }
-            for (Method m : obj.getClass().getDeclaredMethods()) {
-                if (m.getParameterTypes().length == 0) {
-                    m.setAccessible(true);
-                    Object val = m.invoke(obj);
-                    if (val != null && val.getClass().getName().contains("model")) {
-                        String res = scanObjectForTroopMemberCard(val);
-                        if (res != null) return res;
-                    }
                 }
             }
         } catch (Throwable ignored) {}
@@ -272,46 +423,11 @@ public class ProfileSettingInjector {
         return null;
     }
 
-    private static void updateCardConfig(Activity activity, View cardItem, String versionText, String uin) {
-        try {
-            ClassLoader cl = activity.getClassLoader();
-            Class<?> itemClz = cardItem.getClass();
-            Class<?> xClz = cl.loadClass("com.tencent.mobileqq.widget.listitem.x");
-            Class<?> xbdClz = cl.loadClass("com.tencent.mobileqq.widget.listitem.x$b$d");
-            Class<?> xcgClz = cl.loadClass("com.tencent.mobileqq.widget.listitem.x$c$g");
-
-            Object left = xbdClz.getConstructor(CharSequence.class).newInstance("QQ 版本");
-            Object right = xcgClz.getConstructor(CharSequence.class, boolean.class, boolean.class)
-                    .newInstance(versionText, false, false);
-
-            Constructor<?> xCtor = xClz.getConstructor(
-                    cl.loadClass("com.tencent.mobileqq.widget.listitem.x$b"),
-                    cl.loadClass("com.tencent.mobileqq.widget.listitem.x$c")
-            );
-            Object config = xCtor.newInstance(left, right);
-
-            Method setConfigM = itemClz.getMethod("setConfig", xClz);
-            setConfigM.invoke(cardItem, config);
-
-            cardItem.setOnClickListener(v -> handleCardClick(activity, uin, versionText));
-        } catch (Throwable ignored) {}
-    }
-
-    private static void handleCardClick(Activity activity, String uin, String versionText) {
-        if (activity == null || activity.isFinishing()) return;
-        if (QQVersionModule.UNKNOWN_STATUS.equals(versionText)) {
-            ToastHelper.show(activity, "对方尚未产生消息推送，待对方在群聊发言后即可识别");
-        } else {
-            copyText(activity, "QQ号: " + uin + "  版本: " + versionText);
-            ToastHelper.show(activity, "已复制版本信息: " + versionText);
-        }
-    }
-
     private static void copyText(Context context, String text) {
         try {
             ClipboardManager cm = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm != null) {
-                cm.setPrimaryClip(ClipData.newPlainText("qq_version", text));
+                cm.setPrimaryClip(ClipData.newPlainText("qq_version_detail", text));
             }
         } catch (Throwable ignored) {}
     }
