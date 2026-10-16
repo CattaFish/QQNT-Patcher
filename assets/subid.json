@@ -1,10 +1,13 @@
 {
   "537397325": {
     "summary": "QQ(Pad) 9.3.75.42245-Beta",
-    "version": "QQ(Pad) 9.3.75.42245-Beta"
+    "platform": "Android",
+    "version": "QQ(Pad) 9.3.75.42245-Beta",
+    "arch": "Pad"
   },
   "537397314": {
     "summary": "QQ 9.3.75.42245-Beta",
+    "platform": "Android",
     "version": "QQ 9.3.75.42245-Beta"
   },
   "537395477": {

@@ -213,7 +213,7 @@ public class ProfileSettingInjector {
             warningBox.setTextSize(12);
             warningBox.setTextColor(isNight ? Color.parseColor("#FFD60A") : Color.parseColor("#B25E00"));
             warningBox.setLineSpacing(dp2px(activity, 2f), 1f);
-            warningBox.setText("⚠️ 未精确匹配警告：\n" + infer.warningNote);
+            warningBox.setText("未精确匹配警告：\n" + infer.warningNote);
             warningBox.setPadding(dp2px(activity, 10f), dp2px(activity, 8f), dp2px(activity, 10f), dp2px(activity, 8f));
 
             GradientDrawable warnBg = new GradientDrawable();
