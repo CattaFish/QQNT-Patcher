@@ -27,14 +27,16 @@ public class QQVersionModule implements IPatchModule {
     private static final String CMD_MSG_PUSH = "trpc.msg.olpush.OlPushService.MsgPush";
     public static final String UNKNOWN_STATUS = "未捕获到客户端版本";
 
-    // 双源独立镜像组：同时吸收主仓 900+ 历史记录与 decoder 最新渠道增量
+    // 双源独立镜像组：多镜像冗余容灾，国内直连更稳健
     private static final String[][] REMOTE_SOURCE_GROUPS = new String[][]{
             {
+                    "https://ghproxy.net/https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
                     "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
                     "https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
                     "https://cdn.jsdelivr.net/gh/CattaFish/QQNT-Patcher@main/assets/subid.json"
             },
             {
+                    "https://ghproxy.net/https://raw.githubusercontent.com/CattaFish/qqDecoder/main/data/subid.json",
                     "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/qqDecoder/main/data/subid.json",
                     "https://raw.githubusercontent.com/CattaFish/qqDecoder/main/data/subid.json",
                     "https://cdn.jsdelivr.net/gh/CattaFish/qqDecoder@main/data/subid.json"
@@ -242,39 +244,63 @@ public class QQVersionModule implements IPatchModule {
 
         new Thread(() -> {
             try {
+                // 等待 6 秒平稳冷启动
                 Thread.sleep(6000);
 
                 File extFile = getExternalDictionaryFile(context);
                 if (extFile == null) return;
 
                 JSONObject localJson = new JSONObject();
-                if (extFile.exists()) {
+                if (extFile.exists() && extFile.length() > 0) {
                     try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(extFile), StandardCharsets.UTF_8))) {
                         StringBuilder sb = new StringBuilder();
                         String l;
                         while ((l = br.readLine()) != null) sb.append(l);
                         localJson = new JSONObject(sb.toString());
-                    } catch (Throwable ignored) {}
+                    } catch (Throwable t) {
+                        PLog.w(TAG, "读取本地已存字典异常，重新拉取: " + t.getMessage());
+                    }
                 }
 
                 int totalNewCount = 0;
 
-                // 遍历两个数据源组：先拉主仓保证 900+ 条不缺，再拉 decoder 增量吸纳豌豆荚等渠道
+                // 遍历两个数据源组
                 for (String[] mirrors : REMOTE_SOURCE_GROUPS) {
+                    boolean groupSuccess = false;
                     for (String urlStr : mirrors) {
+                        HttpURLConnection conn = null;
                         try {
                             long ts = System.currentTimeMillis();
                             String sep = urlStr.contains("?") ? "&" : "?";
                             URL url = new URL(urlStr + sep + "_nocache=" + ts);
-                            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+
+                            conn = (HttpURLConnection) url.openConnection();
                             conn.setRequestMethod("GET");
-                            conn.setConnectTimeout(4500);
-                            conn.setReadTimeout(4500);
+                            conn.setInstanceFollowRedirects(true);
+                            conn.setConnectTimeout(8000); // 放宽至 8 秒防超时
+                            conn.setReadTimeout(8000);
                             conn.setRequestProperty("User-Agent", "QQNT-Patcher-Client");
                             conn.setRequestProperty("Cache-Control", "no-cache");
                             conn.setRequestProperty("Pragma", "no-cache");
 
-                            if (conn.getResponseCode() == 200) {
+                            int code = conn.getResponseCode();
+
+                            // 针对部分 301/302 手动跟随重定向保障
+                            if (code == 301 || code == 302 || code == 307 || code == 308) {
+                                String redirectUrl = conn.getHeaderField("Location");
+                                if (redirectUrl != null && !redirectUrl.isEmpty()) {
+                                    conn.disconnect();
+                                    url = new URL(redirectUrl);
+                                    conn = (HttpURLConnection) url.openConnection();
+                                    conn.setRequestMethod("GET");
+                                    conn.setConnectTimeout(8000);
+                                    conn.setReadTimeout(8000);
+                                    conn.setRequestProperty("User-Agent", "QQNT-Patcher-Client");
+                                    code = conn.getResponseCode();
+                                }
+                            }
+
+                            if (code == 200) {
                                 StringBuilder sb = new StringBuilder();
                                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
                                     String line;
@@ -299,15 +325,55 @@ public class QQVersionModule implements IPatchModule {
                                         } else if (lVal instanceof JSONObject && rVal instanceof JSONObject) {
                                             JSONObject lObj = (JSONObject) lVal;
                                             JSONObject rObj = (JSONObject) rVal;
-                                            Iterator<String> rkIt = rObj.keys();
                                             boolean objModified = false;
+
+                                            Iterator<String> rkIt = rObj.keys();
                                             while (rkIt.hasNext()) {
                                                 String rk = rkIt.next();
-                                                String rStr = rObj.optString(rk, "");
-                                                String lStr = lObj.optString(rk, "");
-                                                // ★ 优化 3 核心：若本地无此属性，或远程带有更详细具体的渠道（如“豌豆荚”），直接无缝覆盖补全
-                                                if (!lObj.has(rk) || ("channel".equals(rk) && !rStr.isEmpty() && !rStr.equals(lStr))) {
-                                                    lObj.put(rk, rObj.opt(rk));
+                                                Object rFieldVal = rObj.opt(rk);
+                                                Object lFieldVal = lObj.opt(rk);
+
+                                                if (rFieldVal == null) continue;
+
+                                                if (!lObj.has(rk) || lFieldVal == null) {
+                                                    lObj.put(rk, rFieldVal);
+                                                    objModified = true;
+                                                } else if (lFieldVal instanceof String && rFieldVal instanceof String) {
+                                                    String rStr = ((String) rFieldVal).trim();
+                                                    String lStr = ((String) lFieldVal).trim();
+                                                    if (!rStr.isEmpty() && !rStr.equals(lStr)) {
+                                                        if ("channel".equals(rk)) {
+                                                            lObj.put(rk, rStr);
+                                                            objModified = true;
+                                                        } else if ("version".equals(rk)) {
+                                                            if (!lStr.contains(rStr)) {
+                                                                String combined = lStr + " / " + rStr;
+                                                                lObj.put("version", combined);
+                                                                if (lObj.has("summary")) {
+                                                                    lObj.put("summary", lObj.optString("summary").replace(lStr, combined));
+                                                                }
+                                                                objModified = true;
+                                                            }
+                                                        } else {
+                                                            lObj.put(rk, rStr);
+                                                            objModified = true;
+                                                        }
+                                                    }
+                                                } else if (lFieldVal instanceof JSONArray && rFieldVal instanceof JSONArray) {
+                                                    JSONArray lArr = (JSONArray) lFieldVal;
+                                                    JSONArray rArr = (JSONArray) rFieldVal;
+                                                    Set<String> set = new LinkedHashSet<>();
+                                                    for (int i = 0; i < lArr.length(); i++) set.add(lArr.optString(i));
+                                                    int beforeSize = set.size();
+                                                    for (int i = 0; i < rArr.length(); i++) set.add(rArr.optString(i));
+                                                    if (set.size() > beforeSize) {
+                                                        JSONArray newArr = new JSONArray();
+                                                        for (String s : set) newArr.put(s);
+                                                        lObj.put(rk, newArr);
+                                                        objModified = true;
+                                                    }
+                                                } else if (!lFieldVal.equals(rFieldVal)) {
+                                                    lObj.put(rk, rFieldVal);
                                                     objModified = true;
                                                 }
                                             }
@@ -315,25 +381,49 @@ public class QQVersionModule implements IPatchModule {
                                         }
                                     }
                                 }
-                                break; // 当前镜像源拉取成功，继续下一个源组
+                                groupSuccess = true;
+                                break; // 本镜像获取成功，继续下一个源组
+                            } else {
+                                PLog.w(TAG, "节点返回非 200 (HTTP " + code + "): " + urlStr);
                             }
-                        } catch (Throwable ignored) {}
+                        } catch (Throwable e) {
+                            PLog.w(TAG, "节点连接失败 [" + urlStr + "]: " + e.getMessage());
+                        } finally {
+                            if (conn != null) conn.disconnect();
+                        }
+                    }
+                    if (!groupSuccess) {
+                        PLog.w(TAG, "当前镜像组全量失败，跳过该组更新");
                     }
                 }
 
                 if (totalNewCount > 0) {
-                    try (FileOutputStream fos = new FileOutputStream(extFile);
+                    // 原子写盘（防写到一半被杀进程截断成 0 字节）
+                    File tmpFile = new File(extFile.getAbsolutePath() + ".tmp");
+                    try (FileOutputStream fos = new FileOutputStream(tmpFile);
                          OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
                         osw.write(localJson.toString(2));
                         osw.flush();
                     }
+
+                    if (tmpFile.exists() && tmpFile.length() > 0) {
+                        if (extFile.exists()) extFile.delete();
+                        if (!tmpFile.renameTo(extFile)) {
+                            copyFile(tmpFile, extFile);
+                            tmpFile.delete();
+                        }
+                    }
+
+                    // 热加载进内存
                     try (InputStream is = new FileInputStream(extFile)) {
                         parseJsonDictionary(is);
                     }
                     PLog.i(TAG, "已成功完成 SubID 字典静默增量更新，吸收新版本/更新渠道: " + totalNewCount + " 处，当前总数: " + sExactTable.size());
+                } else {
+                    PLog.i(TAG, "SubID 字典已是最新，无新增版本或渠道 (当前收录: " + sExactTable.size() + " 条)");
                 }
             } catch (Throwable t) {
-                PLog.d(TAG, "静默 OTA 增量同步跳过: " + t.getMessage());
+                PLog.w(TAG, "静默 OTA 增量同步异常: " + t.getMessage());
             }
         }).start();
     }
@@ -393,6 +483,7 @@ public class QQVersionModule implements IPatchModule {
                 }
 
                 if (detail.summary.isEmpty()) detail.summary = detail.version;
+                if (detail.summary.isEmpty()) detail.summary = "SubID " + key;
             } else if (valObj instanceof String) {
                 String str = ((String) valObj).trim();
                 detail.summary = str;
@@ -452,11 +543,30 @@ public class QQVersionModule implements IPatchModule {
                 obj.put(entry.getKey(), entry.getValue());
             }
 
-            try (FileOutputStream fos = new FileOutputStream(f);
+            File tmp = new File(f.getAbsolutePath() + ".tmp");
+            try (FileOutputStream fos = new FileOutputStream(tmp);
                  OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
                 osw.write(obj.toString());
                 osw.flush();
             }
+            if (tmp.exists() && tmp.length() > 0) {
+                if (f.exists()) f.delete();
+                if (!tmp.renameTo(f)) {
+                    copyFile(tmp, f);
+                    tmp.delete();
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void copyFile(File src, File dest) {
+        try (InputStream in = new FileInputStream(src); OutputStream out = new FileOutputStream(dest)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                out.write(buf, 0, n);
+            }
+            out.flush();
         } catch (Throwable ignored) {}
     }
 
