@@ -312,6 +312,7 @@ public class App extends Application {
         }
         File repFile = new File(dataDir, outDir);
         repFile.getParentFile().mkdirs();
+        cleanStaleTmp(repFile);
         try (ZipFile zipFile = new ZipFile(apkFile)) {
             ZipEntry entry = zipFile.getEntry(assetPath);
             if (entry == null) throw new RuntimeException("Entry not found: " + assetPath);
@@ -345,6 +346,38 @@ public class App extends Application {
         } finally {
             System.clearProperty("mt.signature.killer.path1");
             System.clearProperty("mt.signature.killer.path2");
+        }
+    }
+
+    private static void cleanStaleTmp(File repFile) {
+        try {
+            File parent = repFile.getParentFile();
+            if (parent == null) return;
+            final String prefix = repFile.getName() + ".tmp.";
+            File[] files = parent.listFiles();
+            if (files == null) return;
+            long now = System.currentTimeMillis();
+            int myPid = Process.myPid();
+            for (File f : files) {
+                String name = f.getName();
+                if (!name.startsWith(prefix)) continue;
+                String pidStr = name.substring(prefix.length());
+                long pid;
+                try {
+                    pid = Long.parseLong(pidStr);
+                } catch (NumberFormatException e) {
+                    continue;
+                }
+                if (pid == myPid) continue;
+                boolean pidAlive = new File("/proc/" + pid).exists();
+                boolean tooOld = (now - f.lastModified()) > 3600000L;
+                if (pidAlive && !tooOld) continue;
+                if (!f.delete()) {
+                    System.err.println("cleanStaleTmp: failed to delete " + f);
+                }
+            }
+        } catch (Throwable t) {
+            System.err.println("cleanStaleTmp: " + t);
         }
     }
 
