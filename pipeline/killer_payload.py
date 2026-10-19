@@ -86,8 +86,12 @@ def build_killer_app_dex(ctx, target_pkg: str, signature_b64: str, asset_path: s
 
     dex_out = os.path.join(work, "dex_out")
     os.makedirs(dex_out, exist_ok=True)
+    d8_bin = ctx.find_tool("d8")
+    if d8_bin == "d8" and shutil.which("d8") is None:
+        ctx.log("ERR", "未找到 d8，请安装 Android build-tools 并加入 PATH")
+        raise SystemExit(1)
     d8_cmd = (
-        f"d8 --min-api 21 --lib {_sh_quote(android_jar)} "
+        f"{_sh_quote(d8_bin)} --min-api 21 --lib {_sh_quote(android_jar)} "
         f"--output {_sh_quote(dex_out)} "
         + " ".join(_sh_quote(c) for c in class_files)
     )

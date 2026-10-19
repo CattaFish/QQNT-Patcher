@@ -43,6 +43,8 @@ jobs:
         run: |
           yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
           ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --install "build-tools;34.0.0" "platforms;android-34" "ndk;27.0.11902837" >/dev/null || true
+          echo "${ANDROID_HOME}/build-tools/34.0.0" >> $GITHUB_PATH
+          echo "${ANDROID_HOME}/platform-tools" >> $GITHUB_PATH
 
       - name: 5. 编译 NeoApk (单体 JAR 产物)
         run: |
