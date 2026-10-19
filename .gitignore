@@ -55,3 +55,7 @@ Thumbs.db
 tools/*
 !tools/*.java
 !tools/neoapk.jar
+
+# killer_lib：放行目录本身，只忽略预编 so
+!tools/killer_lib/
+tools/killer_lib/**/*.so
