@@ -11,16 +11,16 @@ class PipelineContext:
         self.work_dir = os.path.join(self.root_dir, "build_cache")
         self.assets_src_dir = os.path.join(self.root_dir, "assets")
         self.preset_plugins_dir = os.path.join(self.root_dir, "preset_plugins")
-        
+
         self.input_apk = os.path.abspath(input_apk)
         self.output_apk = os.path.abspath(output_apk)
-        
+
         self.no_sign = no_sign
         self.skip_dex_patch = skip_dex_patch
         self.no_killer = no_killer
         self.skipped_keywords = skipped_keywords or []
         self.only_keywords = only_keywords or []
-        
+
         # 特性决议
         self.active_features = resolve_active_features(self.only_keywords, self.skipped_keywords)
         if self.no_killer:
@@ -33,9 +33,13 @@ class PipelineContext:
             status = "\033[32m[ON]\033[0m" if fid in self.active_features else "\033[31m[SKIP]\033[0m"
             print(f"    {status} {fid:<18} ({desc})")
 
-        self.killer_dir = self._detect_killer_dir()
-        self.work_killer = os.path.join(self.killer_dir, "work_killer") if self.killer_dir else None
-        
+        # 去签载荷相关（stage2 填充）
+        self.target_pkg = ""
+        self.signature_b64 = ""
+        self.host_entry_path = ""
+        self.killer_app_dex = None
+
+        # 工具链
         self.baksmali_jar = os.path.join(self.tools_dir, "baksmali.jar")
         self.smali_jar = os.path.join(self.tools_dir, "smali.jar")
         self.dexlib2_jar = os.path.join(self.tools_dir, "dexlib2.jar")
@@ -45,7 +49,7 @@ class PipelineContext:
         self.protobuf_jar = os.path.join(self.tools_dir, "protobuf.jar")
         self.android_jar = os.path.join(self.tools_dir, "android.jar")
         self.fixed_keystore = os.path.join(self.tools_dir, "debug.keystore")
-        
+
         self.orig_apk_md5 = ""
         self.orig_sig_md5 = ""
         self.dex_data_dict = {}
@@ -54,32 +58,16 @@ class PipelineContext:
         self.all_rules = []
         self.dex_to_rules = {}
         self.modified_dex_files = []
-        
+
         self.libs_dex_path = None
         self.patch_dex_path = None
         self.bsh_standalone_dex = None
         self.preset_plugins_zip = None
         self.engine_bin = None
-        
+
         from .providers import get_provider
         p_name = "none" if self.no_sign else ("debug" if self.no_killer else "killer")
         self.provider = get_provider(self, p_name)
-
-    def _detect_killer_dir(self):
-        candidates = [
-            os.path.abspath(os.path.join(self.root_dir, "../ApkSignatureKillerEx/signature-killer")),
-            os.path.abspath(os.path.join(self.root_dir, "../ApkSignatureKillerEx")),
-            os.path.abspath(os.path.join(self.root_dir, "signature-killer")),
-        ]
-        for c in candidates:
-            target = os.path.join(c, "signature-killer") if os.path.isdir(os.path.join(c, "signature-killer")) else c
-            if os.path.isdir(target) and (
-                os.path.isdir(os.path.join(target, "killer")) or
-                os.path.isdir(os.path.join(target, "work_killer")) or
-                os.path.isfile(os.path.join(target, "settings.gradle"))
-            ):
-                return target
-        return None
 
     def log(self, tag, msg):
         colors = {

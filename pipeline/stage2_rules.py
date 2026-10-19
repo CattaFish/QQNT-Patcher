@@ -3,12 +3,18 @@ import os
 import re
 import json
 import struct
+import base64
+import random
+import shlex
 import hashlib
 import zipfile
 import subprocess
-import shlex
+
 from rules.engine import discover_rule_plugins
 from .features import BUS_DEPENDENCIES
+from . import killer_config as KC
+from .killer_payload import build_killer_app_dex, fqcn_to_dex_desc
+
 
 def get_file_mtime_safe(file_path):
     try:
@@ -16,20 +22,90 @@ def get_file_mtime_safe(file_path):
     except Exception:
         return 0
 
+
+def _extract_package_name(ctx, apk):
+    aapt = ctx.find_tool("aapt")
+    try:
+        out = subprocess.getoutput(f"{aapt} dump badging {shlex.quote(apk)} 2>/dev/null")
+        m = re.search(r"package: name='([^']+)'", out)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return ""
+
+
+def _extract_cert_der_b64(apk):
+    try:
+        out = subprocess.getoutput(f"keytool -printcert -jarfile {shlex.quote(apk)} -rfc 2>/dev/null")
+        m = re.search(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", out, re.DOTALL)
+        if m:
+            return re.sub(r"\s+", "", m.group(1))
+    except Exception:
+        pass
+    return ""
+
+
+def _extract_p7_b64(apk):
+    try:
+        with zipfile.ZipFile(apk, "r") as zf:
+            for n in zf.namelist():
+                if re.match(r"META-INF/.*\.(RSA|DSA|EC)$", n):
+                    return base64.b64encode(zf.read(n)).decode()
+    except Exception:
+        pass
+    return ""
+
+
+def _extract_signature_b64(ctx, apk):
+    if KC.SIGNATURE_MODE == "cert_der":
+        s = _extract_cert_der_b64(apk)
+        if s:
+            ctx.log("OK", "  -> 签名来源: X.509 证书 DER (cert_der)")
+            return s
+        ctx.log("WARN", "  -> cert_der 提取失败，降级 p7_raw")
+        s = _extract_p7_b64(apk)
+        if s:
+            ctx.log("OK", "  -> 签名来源: META-INF/*.RSA (p7_raw)")
+            return s
+    else:
+        s = _extract_p7_b64(apk)
+        if s:
+            ctx.log("OK", "  -> 签名来源: META-INF/*.RSA (p7_raw)")
+            return s
+        ctx.log("WARN", "  -> p7_raw 提取失败，尝试 cert_der")
+        s = _extract_cert_der_b64(apk)
+        if s:
+            ctx.log("OK", "  -> 签名来源: X.509 证书 DER (cert_der)")
+            return s
+    return ""
+
+
 def extract_apk_metadata(ctx):
     cache_file = os.path.join(ctx.work_dir, "apk_meta_cache.json")
     apk_stat = os.stat(ctx.input_apk)
-    
+
+    need_killer_meta = ("killer" in ctx.active_features)
+
     if os.path.exists(cache_file):
         try:
             with open(cache_file, "r", encoding="utf-8") as cf:
                 d = json.load(cf)
-            if d.get("apk_path") == ctx.input_apk and d.get("mtime") == apk_stat.st_mtime and d.get("size") == apk_stat.st_size:
+            if (d.get("apk_path") == ctx.input_apk
+                    and d.get("mtime") == apk_stat.st_mtime
+                    and d.get("size") == apk_stat.st_size):
                 ctx.orig_apk_md5 = d.get("apk_md5", "")
                 ctx.orig_sig_md5 = d.get("sig_md5", "")
-                ctx.log("OK", f"  -> 原版 APK MD5 : \033[36m{ctx.orig_apk_md5}\033[0m (缓存)")
-                ctx.log("OK", f"  -> 原版 签名 MD5: \033[36m{ctx.orig_sig_md5}\033[0m (缓存)")
-                return
+                ctx.target_pkg = d.get("target_pkg", "")
+                ctx.signature_b64 = d.get("signature_b64", "")
+
+                if (not need_killer_meta) or (ctx.target_pkg and ctx.signature_b64):
+                    ctx.log("OK", f"  -> 原版 APK MD5 : \033[36m{ctx.orig_apk_md5}\033[0m (缓存)")
+                    if ctx.orig_sig_md5:
+                        ctx.log("OK", f"  -> 原版 签名 MD5: \033[36m{ctx.orig_sig_md5}\033[0m (缓存)")
+                    if need_killer_meta:
+                        ctx.log("OK", f"  -> 目标包名: \033[36m{ctx.target_pkg}\033[0m (缓存)")
+                    return
         except Exception:
             pass
 
@@ -52,6 +128,12 @@ def extract_apk_metadata(ctx):
     if ctx.orig_sig_md5:
         ctx.log("OK", f"  -> 原版 签名 MD5: \033[36m{ctx.orig_sig_md5}\033[0m")
 
+    if need_killer_meta:
+        ctx.target_pkg = _extract_package_name(ctx, ctx.input_apk)
+        if ctx.target_pkg:
+            ctx.log("OK", f"  -> 目标包名: \033[36m{ctx.target_pkg}\033[0m")
+        ctx.signature_b64 = _extract_signature_b64(ctx, ctx.input_apk)
+
     try:
         with open(cache_file, "w", encoding="utf-8") as cf:
             json.dump({
@@ -59,10 +141,13 @@ def extract_apk_metadata(ctx):
                 "mtime": apk_stat.st_mtime,
                 "size": apk_stat.st_size,
                 "apk_md5": ctx.orig_apk_md5,
-                "sig_md5": ctx.orig_sig_md5
+                "sig_md5": ctx.orig_sig_md5,
+                "target_pkg": ctx.target_pkg,
+                "signature_b64": ctx.signature_b64,
             }, cf)
     except Exception:
         pass
+
 
 def get_defined_classes(dex_bytes):
     if len(dex_bytes) < 0x70 or dex_bytes[:4] != b'dex\n':
@@ -86,6 +171,7 @@ def get_defined_classes(dex_bytes):
         return classes
     except Exception:
         return set()
+
 
 def is_rule_active(rule: dict, plugin_id: str, active_features: set) -> bool:
     rule_feature = rule.get("feature")
@@ -112,6 +198,7 @@ def is_rule_active(rule: dict, plugin_id: str, active_features: set) -> bool:
     feature_id = id_map.get(plugin_id, plugin_id)
     return feature_id in active_features
 
+
 def resolve_dynamic_rules_with_cache(ctx):
     cache_path = os.path.join(ctx.work_dir, "rule_discovery_cache.json")
     provider_name = ctx.provider.name
@@ -133,12 +220,13 @@ def resolve_dynamic_rules_with_cache(ctx):
 
     rules_dir = os.path.join(ctx.root_dir, "rules")
     plugins = discover_rule_plugins(rules_dir)
-    
+
     meta = {
         "orig_apk_md5": ctx.orig_apk_md5,
         "orig_sig_md5": ctx.orig_sig_md5,
         "no_killer": ctx.no_killer,
         "provider": provider_name,
+        "killer_app_desc": fqcn_to_dex_desc(KC.KILLER_APP_CLASS),
     }
 
     all_discovered = []
@@ -147,10 +235,10 @@ def resolve_dynamic_rules_with_cache(ctx):
     for p in plugins:
         if not p.enabled:
             continue
-        
+
         mtime = get_file_mtime_safe(p.file_path)
         cached_entry = cache_data.get(p.plugin_id)
-        
+
         if cached_entry and cached_entry.get("mtime") == mtime and "rules" in cached_entry:
             mod_rules = cached_entry["rules"]
         else:
@@ -177,7 +265,6 @@ def resolve_dynamic_rules_with_cache(ctx):
     except Exception:
         pass
 
-    # 依照 Feature 决策树精准过滤
     active_rules = []
     for r in all_discovered:
         p_id = r.get("_plugin_id", "")
@@ -189,10 +276,53 @@ def resolve_dynamic_rules_with_cache(ctx):
 
     return active_rules
 
+
+def _make_host_entry_path():
+    if KC.HOST_ENTRY_MODE == "fixed":
+        return KC.HOST_ENTRY_FIXED
+    alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+    d = "".join(random.choice(alphabet) for _ in range(random.randint(6, 8)))
+    f = "".join(random.choice(alphabet) for _ in range(random.randint(8, 11)))
+    return f"assets/{d}/{f}.apk"
+
+
+def _check_class_conflict(ctx):
+    desc = fqcn_to_dex_desc(KC.KILLER_APP_CLASS)
+    hits = []
+    for dex_name, classes in ctx.dex_classes_map.items():
+        if desc in classes:
+            hits.append(dex_name)
+    if hits:
+        ctx.log("ERR", f"类名冲突: {KC.KILLER_APP_CLASS} 已存在于 {hits}，请修改 killer_config.KILLER_APP_CLASS")
+        raise SystemExit(1)
+
+
+def _prepare_killer_payload(ctx):
+    if "killer" not in ctx.active_features:
+        return
+
+    if not ctx.target_pkg:
+        ctx.log("ERR", "无法提取目标包名，killer 模式终止")
+        raise SystemExit(1)
+    if not ctx.signature_b64:
+        ctx.log("ERR", "无法提取签名，killer 模式终止")
+        raise SystemExit(1)
+
+    _check_class_conflict(ctx)
+
+    ctx.host_entry_path = _make_host_entry_path()
+    ctx.log("OK", f"-> HostEntry 路径: {ctx.host_entry_path}")
+
+    ctx.killer_app_dex = build_killer_app_dex(
+        ctx, ctx.target_pkg, ctx.signature_b64, ctx.host_entry_path
+    )
+    ctx.log("OK", f"-> killer_app.dex: {ctx.killer_app_dex}")
+
+
 def run_stage2(ctx):
     extract_apk_metadata(ctx)
     ctx.log("INFO", "2. 正在提取 Dex 并动态推导安全风控穿透规则...")
-    
+
     with zipfile.ZipFile(ctx.input_apk, 'r') as zf:
         for name in zf.namelist():
             if re.match(r'^classes\d*\.dex$', name):
@@ -240,3 +370,6 @@ def run_stage2(ctx):
     for r in ctx.all_rules:
         if r["name"] not in matched:
             ctx.log("WARN", f"-> 规则未命中当前包: [{r['name']}]")
+
+    # 去签载荷生成（必须在包名/签名/host路径确定后）
+    _prepare_killer_payload(ctx)

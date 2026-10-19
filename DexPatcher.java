@@ -124,8 +124,7 @@ public class DexPatcher {
                     for (PatchRule r : matchedRules) {
                         smaliCode = applyRule(smaliCode, r);
                     }
-                    
-                    // 纯内存即时汇编单个 ClassDef，彻底摆脱临时文件
+
                     ClassDef newClassDef = assembleSingleClassInMemory(smaliCode, opcodes, clsType);
                     if (newClassDef != null) {
                         replacedClasses.put(clsType, newClassDef);
@@ -165,7 +164,7 @@ public class DexPatcher {
         try {
             StringReader reader = new StringReader(smaliCode);
             smaliFlexLexer lexer = new smaliFlexLexer(reader, opcodes.api);
-            
+
             String virtualFileName = (classType != null) ? classType.replaceAll("[L;]", "").replace('/', '.') + ".smali" : "inline.smali";
             lexer.setSourceFile(new File(virtualFileName));
 
@@ -222,7 +221,31 @@ public class DexPatcher {
     }
 
     private static String applyRule(String code, PatchRule rule) {
+        // ===== 类级规则：super 替换（新） =====
+        if ("SUPER_REPLACE".equals(rule.type)) {
+            String oldSuper = rule.regex;
+            String newSuper = (rule.smali == null) ? "" : rule.smali.trim();
+            if (oldSuper == null || oldSuper.isEmpty() || newSuper.isEmpty()) {
+                System.err.println("[WARN] SUPER_REPLACE 规则缺少 REGEX 或 SMALI [" + rule.targetClass + "]");
+                return code;
+            }
+            String oldLine = ".super " + oldSuper;
+            String newLine = ".super " + newSuper;
+            if (!code.contains(oldLine)) {
+                if (code.contains(newLine)) {
+                    System.out.println("[DexPatcher] -> SUPER_REPLACE 已是目标 super，无需替换 [" + rule.targetClass + "]");
+                } else {
+                    System.err.println("[WARN] SUPER_REPLACE 未找到目标 super: " + oldLine + " [" + rule.targetClass + "]");
+                }
+                return code;
+            }
+            System.out.println("[DexPatcher] -> SUPER_REPLACE 命中: " + oldLine + " => " + newLine + " [" + rule.targetClass + "]");
+            return code.replace(oldLine, newLine);
+        }
+
         String methodName = rule.targetMethod;
+        if (methodName == null) methodName = "";
+
         Pattern pattern;
 
         if (methodName.contains("(")) {
@@ -237,7 +260,6 @@ public class DexPatcher {
 
         Matcher methodMatcher = pattern.matcher(code);
         if (!methodMatcher.find()) {
-            // 自动合成全新的静态代码块，容错目标类无 <clinit> 的情况
             if ("<clinit>()V".equals(rule.targetMethod) && "INSERT_BEFORE".equals(rule.type)) {
                 StringBuilder sb = new StringBuilder();
                 sb.append("\n# injected by KillerPatcher\n");
@@ -258,7 +280,19 @@ public class DexPatcher {
         methodMatcher.reset();
 
         if ("REPLACE".equals(rule.type)) {
-            return methodMatcher.replaceAll(Matcher.quoteReplacement(rule.smali));
+            String normNew = rule.smali == null ? "" : rule.smali.replaceAll("\\s+", "");
+            StringBuffer sb = new StringBuffer();
+            while (methodMatcher.find()) {
+                String mBody = methodMatcher.group(1);
+                if (!normNew.isEmpty() && mBody.replaceAll("\\s+", "").equals(normNew)) {
+                    System.out.println("[DexPatcher] -> [WARN] 已是目标实现，跳过替换: " + rule.targetClass + "->" + rule.targetMethod);
+                    methodMatcher.appendReplacement(sb, Matcher.quoteReplacement(mBody));
+                } else {
+                    methodMatcher.appendReplacement(sb, Matcher.quoteReplacement(rule.smali));
+                }
+            }
+            methodMatcher.appendTail(sb);
+            return sb.toString();
         } else if ("INSERT_BEFORE".equals(rule.type)) {
             int requiredLocals = calculateMaxRegisterIndex(rule.smali) + 1;
             StringBuffer sb = new StringBuffer();

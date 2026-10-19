@@ -9,10 +9,7 @@ def get_provider(ctx, provider_name="killer"):
         return NoneSignerProvider()
 
     if not ctx.no_killer and provider_name == "killer":
-        kp = KillerProvider(ctx.killer_dir)
-        if kp.is_available():
-            return kp
-        ctx.log("WARN", "Killer 环境未就绪或未找到，自动降级至 Debug 签名提供者")
+        return KillerProvider()
 
     return DebugSignerProvider()
 

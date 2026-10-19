@@ -8,7 +8,6 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
-import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipEntry;
@@ -74,17 +73,6 @@ public class PatchAssetHelper {
 
     private static String getRealApkPath(Context context) {
         if (sCachedRealApkPath != null) return sCachedRealApkPath;
-        try {
-            Class<?> killerClz = Class.forName("r.s.sign.KillerApplication");
-            Field f = killerClz.getDeclaredField("sBaseApkPath");
-            f.setAccessible(true);
-            Object p = f.get(null);
-            if (p instanceof String && !((String) p).isEmpty()) {
-                sCachedRealApkPath = (String) p;
-                return sCachedRealApkPath;
-            }
-        } catch (Throwable ignored) {}
-
         try {
             sCachedRealApkPath = context.getPackageResourcePath();
         } catch (Throwable ignored) {}

@@ -22,38 +22,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 1. Checkout qqPatch (主仓库)
+      - name: 1. Checkout qqPatch
         uses: actions/checkout@v4
         with:
           path: 'qqPatch'
 
-      - name: 2. Checkout ApkSignatureKillerEx (去签引擎)
-        uses: actions/checkout@v4
-        with:
-          repository: 'Cattafish/ApkSignatureKillerEx'
-          path: 'ApkSignatureKillerEx'
-
-      - name: 3. Checkout NeoApk (流式打包签名引擎)
+      - name: 2. Checkout NeoApk
         uses: actions/checkout@v4
         with:
           repository: 'HSSkyBoy/NeoApk'
           path: 'NeoApk'
 
-      - name: 4. Setup Java 17
+      - name: 3. Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 5. Setup Android SDK & NDK
+      - name: 4. Setup Android SDK & NDK
         run: |
           yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
           ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --install "build-tools;34.0.0" "platforms;android-34" "ndk;27.0.11902837" >/dev/null || true
 
-      - name: 6. 编译 NeoApk (单体 JAR 产物)
+      - name: 5. 编译 NeoApk (单体 JAR 产物)
         run: |
           cd NeoApk
-          # 动态注入 Java 17 适配与 FatJar 组装任务
           cat << 'GRADLE_EOF' >> build.gradle.kts
 
           java {
@@ -70,25 +63,56 @@ jobs:
               duplicatesStrategy = DuplicatesStrategy.EXCLUDE
           }
           GRADLE_EOF
-          
+
           chmod +x gradlew
           ./gradlew fatJar --no-daemon
           mkdir -p ../qqPatch/tools
           cp build/libs/NeoApk-*-all.jar ../qqPatch/tools/neoapk.jar
 
-      - name: 7. 编译 ApkSignatureKillerEx (底层 Native 去签 SO)
+      - name: 6. 确保 xHook 源码就绪
         run: |
-          cd ApkSignatureKillerEx
-          chmod +x gradlew
-          ./gradlew :killer:assembleRelease --no-daemon
-          cp killer/build/outputs/aar/killer-release.aar ../qqPatch/tools/killer-release.aar
+          cd qqPatch/killer_native
+          if [ ! -f xhook.c ]; then
+            echo "killer_native 缺少 xhook 源码，正在从 iqiyi/xHook 拉取..."
+            FETCH="$RUNNER_TEMP/xhook_fetch"
+            rm -rf "$FETCH"
+            git clone --depth 1 https://github.com/iqiyi/xHook.git "$FETCH"
+            SRC="$FETCH/lib/src/main/cpp"
+            cp "$SRC"/xhook.c "$SRC"/xh_core.c "$SRC"/xh_elf.c "$SRC"/xh_log.c "$SRC"/xh_util.c "$SRC"/xh_version.c .
+            cp "$SRC"/xhook.h "$SRC"/xh_core.h "$SRC"/xh_elf.h "$SRC"/xh_errno.h "$SRC"/xh_log.h "$SRC"/xh_util.h "$SRC"/xh_version.h "$SRC"/queue.h "$SRC"/tree.h .
+            rm -rf "$FETCH"
+          fi
+          ls -la
 
-      - name: 8. 下载基础组件并同步环境
+      - name: 7. 编译 killer_native (libzcraft.so, 4 ABI)
         run: |
           cd qqPatch
-          chmod +x setup_tools.sh
-          ./setup_tools.sh
-          python3 sync_killer.py
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.0.11902837"
+          for ABI in arm64-v8a armeabi-v7a x86 x86_64; do
+            echo ">>> Building $ABI"
+            cmake -S killer_native -B build_native/$ABI \
+              -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+              -DANDROID_ABI=$ABI -DANDROID_PLATFORM=android-21 -DCMAKE_BUILD_TYPE=Release
+            cmake --build build_native/$ABI
+            mkdir -p tools/killer_lib/$ABI
+            cp build_native/$ABI/libzcraft.so tools/killer_lib/$ABI/libzcraft.so
+          done
+          ls -la tools/killer_lib/*/
+
+      - name: 8. 下载基础组件 (内联，替代 setup_tools.sh)
+        run: |
+          cd qqPatch
+          mkdir -p tools
+          curl -fL --retry 3 -o tools/baksmali.jar  https://bitbucket.org/JesusFreke/smali/downloads/baksmali-2.5.2.jar
+          curl -fL --retry 3 -o tools/smali.jar     https://bitbucket.org/JesusFreke/smali/downloads/smali-2.5.2.jar
+          curl -fL --retry 3 -o tools/dexlib2.jar   https://repo1.maven.org/maven2/org/smali/dexlib2/2.5.2/dexlib2-2.5.2.jar
+          curl -fL --retry 3 -o tools/guava.jar     https://repo1.maven.org/maven2/com/google/guava/guava/18.0/guava-18.0.jar
+          curl -fL --retry 3 -o tools/bsh.aar       https://repo1.maven.org/maven2/io/github/copylibs/beanshell-android-lambda/3.0.0.beta10/beanshell-android-lambda-3.0.0.beta10.aar
+          python3 -c "import zipfile, os; open('tools/bsh.jar','wb').write(zipfile.ZipFile('tools/bsh.aar').read('classes.jar')); os.remove('tools/bsh.aar')"
+          curl -fL --retry 3 -o tools/dx.jar        https://repo1.maven.org/maven2/com/jakewharton/android/repackaged/dalvik-dx/9.0.0_r3/dalvik-dx-9.0.0_r3.jar
+          curl -fL --retry 3 -o tools/protobuf.jar  https://repo1.maven.org/maven2/com/google/protobuf/protobuf-java/3.25.3/protobuf-java-3.25.3.jar
+          curl -fL --retry 3 -o tools/android.jar   https://raw.githubusercontent.com/Sable/android-platforms/master/android-30/android.jar
+          ls -la tools/
 
       - name: 9. 下载官方原版 QQ
         run: |

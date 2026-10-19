@@ -2,20 +2,14 @@ package com.tencent.qqnt.patcher;
 
 import top.nkbe.nza.sign.GenericSignatureKey;
 import top.nkbe.nza.sign.V2V3SchemeSigner;
-import top.nkbe.nza.zip.ZipConstant;
 import top.nkbe.nza.zip.ZipEntry;
 import top.nkbe.nza.zip.ZipFile;
 import top.nkbe.nza.zip.ZipMaker;
 
 import java.io.*;
-import java.nio.file.Files;
-import java.security.KeyFactory;
 import java.security.KeyStore;
-import java.security.PrivateKey;
 import java.security.SecureRandom;
-import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
-import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.*;
 
 public class NeoPacker {
@@ -23,8 +17,8 @@ public class NeoPacker {
     private static String generateRandomHostPath() {
         String alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
         SecureRandom rnd = new SecureRandom();
-        int dirLen = 6 + rnd.nextInt(3);   // 6 ~ 8 位随机目录
-        int fileLen = 8 + rnd.nextInt(4);  // 8 ~ 11 位随机文件名
+        int dirLen = 6 + rnd.nextInt(3);
+        int fileLen = 8 + rnd.nextInt(4);
         StringBuilder dir = new StringBuilder();
         StringBuilder file = new StringBuilder();
         for (int i = 0; i < dirLen; i++) dir.append(alphabet.charAt(rnd.nextInt(alphabet.length())));
@@ -34,22 +28,26 @@ public class NeoPacker {
 
     public static void main(String[] args) {
         if (args.length < 3) {
-            System.err.println("用法: java NeoPacker <orig_apk> <output_apk> <inject_dir> [keystore_path] [--no-killer] [--no-sign]");
+            System.err.println("用法: java NeoPacker <orig_apk> <output_apk> <inject_dir> [keystore_path] [--host-path=...] [--no-killer] [--no-sign]");
             System.exit(1);
         }
 
         File origFile = new File(args[0]);
         File outFile = new File(args[1]);
         File injectDir = new File(args[2]);
-        
+
         File keyOrStoreFile = args.length > 3 && !args[3].startsWith("--") ? new File(args[3]) : null;
-        
+
         boolean enableKiller = true;
         boolean enableSign = true;
+        String hostPathArg = null;
 
         for (String arg : args) {
             if ("--no-killer".equals(arg)) enableKiller = false;
             if ("--no-sign".equals(arg)) enableSign = false;
+            if (arg.startsWith("--host-path=")) {
+                hostPathArg = arg.substring("--host-path=".length());
+            }
         }
 
         long t0 = System.currentTimeMillis();
@@ -96,8 +94,8 @@ public class NeoPacker {
                 }
 
                 if (enableKiller) {
-                    // 全随机路径挂载 HostEntry
-                    String hostEntryPath = generateRandomHostPath();
+                    String hostEntryPath = (hostPathArg != null && !hostPathArg.isEmpty())
+                            ? hostPathArg : generateRandomHostPath();
                     System.out.println("[NeoPacker] [Killer模式] 挂载 " + hostEntryPath + " 并建立数据复用映射...");
                     ZipMaker.HostEntryHolder host = maker.putNextHostEntry(hostEntryPath, origZip);
 

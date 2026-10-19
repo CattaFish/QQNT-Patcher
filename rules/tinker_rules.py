@@ -1,21 +1,51 @@
 # -*- coding: utf-8 -*-
 """
-禁用 Tinker 热修复动态规则插件
-强制 TinkerApplication->getTinkerFlags() 返回 0 (TINKER_DISABLE)，彻底阻断官方热更新补丁合成与加载
+Tinker 去签 + 热修复禁用规则插件
+
+- 去签（仅 provider=killer）: TinkerApplication.super -> killer_app_desc
+- 热修复禁用（始终生效）  : getTinkerFlags() 返回 0
 """
 
 RULE_ID = "tinker"
-RULE_NAME = "禁用 Tinker 热修复"
-RULE_ENABLED = True  # 插件默认开启
+RULE_NAME = "Tinker 去签与热修复禁用"
+RULE_ENABLED = True
 
-def build_tinker_rules(dex_data_dict):
-    tinker_app_cls = "Lcom/tencent/tinker/loader/app/TinkerApplication;"
-    
-    # Tinker 核心 loader 属于系统启动级组件，类名与方法名不参与混淆
-    return [{
-        "name": "强制禁用 Tinker 热修复 (getTinkerFlags -> 0)",
-        "target_class": tinker_app_cls,
-        "target_method": "getTinkerFlags()I",
+
+def _load_cfg():
+    try:
+        from pipeline import killer_config as KC
+        return KC
+    except Exception:
+        return None
+
+
+def build_tinker_rules(dex_data_dict, meta):
+    KC = _load_cfg()
+    tinker_cls = KC.TINKER_APP_CLASS if KC else "Lcom/tencent/tinker/loader/app/TinkerApplication;"
+    orig_super = KC.TINKER_ORIG_SUPER if KC else "Landroid/app/Application;"
+    flags_method = KC.TINKER_FLAGS_METHOD if KC else "getTinkerFlags()I"
+
+    provider = (meta or {}).get("provider", "")
+    killer_desc = (meta or {}).get("killer_app_desc", "") or ""
+
+    rules = []
+
+    # 1) super 替换：仅 killer 模式注入
+    if provider == "killer" and killer_desc:
+        rules.append({
+            "name": "去签: TinkerApplication.super -> " + killer_desc,
+            "target_class": tinker_cls,
+            "target_method": "",
+            "type": "SUPER_REPLACE",
+            "regex": orig_super,
+            "smali": killer_desc,
+        })
+
+    # 2) 禁用 Tinker 热修复：始终生效
+    rules.append({
+        "name": "禁用 Tinker 热修复 (getTinkerFlags -> 0)",
+        "target_class": tinker_cls,
+        "target_method": flags_method,
         "type": "REPLACE",
         "smali": """
 .method public getTinkerFlags()I
@@ -26,7 +56,10 @@ def build_tinker_rules(dex_data_dict):
     return p0
 .end method
 """
-    }]
+    })
+
+    return rules
+
 
 def resolve_rules(dex_data_dict, meta=None):
-    return build_tinker_rules(dex_data_dict)
+    return build_tinker_rules(dex_data_dict, meta)
