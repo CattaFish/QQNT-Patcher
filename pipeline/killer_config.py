@@ -12,7 +12,7 @@ ASSET_NAME          = "meow.apk"                            # assets 内原包�
 FILES_DIR           = "files/zcraft"                        # 释放目录（相对 /data/data/<pkg>/）
 
 # ========== 2. HostEntry 路径策略 ==========
-HOST_ENTRY_MODE     = "random"                              # random | fixed
+HOST_ENTRY_MODE     = "fixed"                              # random | fixed
 HOST_ENTRY_FIXED    = "assets/Zcraft/meow.apk"              # fixed 模式使用
 
 # ========== 3. Tinker 目标 ==========

@@ -132,3 +132,10 @@ jobs:
           name: QQ_Patched_Signed
           path: qqPatch/QQ_Patched.apk
           retention-days: 7
+
+      - name: 12. 上传 killer_libs (供本地离线复用)
+        uses: actions/upload-artifact@v4
+        with:
+          name: killer_libs
+          path: qqPatch/tools/killer_lib/**
+          retention-days: 30

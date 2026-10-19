@@ -8,6 +8,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.Process;
 import android.util.Base64;
 import android.util.Log;
 import dalvik.system.VMRuntime;
@@ -315,11 +316,23 @@ public class App extends Application {
             ZipEntry entry = zipFile.getEntry(assetPath);
             if (entry == null) throw new RuntimeException("Entry not found: " + assetPath);
             if (!repFile.exists() || repFile.length() != entry.getSize()) {
+                // 原子写入：先写 <repFile>.tmp.<pid>，再 rename 覆盖。
+                // Linux rename(2) 同目录下原子替换，并发读者只会看到完整文件。
+                File tmpFile = new File(repFile.getAbsolutePath() + ".tmp." + Process.myPid());
                 try (InputStream is = zipFile.getInputStream(entry);
-                     OutputStream os = new FileOutputStream(repFile)) {
+                     OutputStream os = new FileOutputStream(tmpFile)) {
                     byte[] buf = new byte[102400];
                     int len;
                     while ((len = is.read(buf)) != -1) os.write(buf, 0, len);
+                }
+                if (!tmpFile.renameTo(repFile)) {
+                    // 某些文件系统不允许 rename 覆盖已存在目标，退化为 delete + rename
+                    if (repFile.exists() && !repFile.delete()) {
+                        throw new RuntimeException("Cannot replace " + repFile);
+                    }
+                    if (!tmpFile.renameTo(repFile)) {
+                        throw new RuntimeException("Rename failed: " + tmpFile + " -> " + repFile);
+                    }
                 }
             }
         } catch (IOException e) {

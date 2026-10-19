@@ -4,6 +4,7 @@
 只负责"载荷生产线"，不接触 APK 本身。
 """
 import os
+import hashlib
 import shutil
 
 from . import killer_config as KC
@@ -37,6 +38,37 @@ def build_killer_app_dex(ctx, target_pkg: str, signature_b64: str, asset_path: s
     if not os.path.isfile(android_jar):
         ctx.log("ERR", "缺少 android.jar: " + android_jar)
         raise SystemExit(1)
+
+    # 缓存 key：所有影响 dex 内容的输入 + 模板 mtime
+    try:
+        tpl_mtime = int(os.path.getmtime(tpl_path))
+    except Exception:
+        tpl_mtime = 0
+
+    cache_key = hashlib.sha256(
+        "|".join([
+            KC.KILLER_APP_CLASS,
+            KC.LIB_NAME,
+            KC.FILES_DIR,
+            target_pkg,
+            signature_b64,
+            asset_path,
+            str(tpl_mtime),
+        ]).encode("utf-8")
+    ).hexdigest()
+
+    cache_dir = os.path.join(ctx.work_dir, "killer_cache")
+    cache_dex = os.path.join(cache_dir, "killer_app.dex")
+    cache_key_file = os.path.join(cache_dir, "cache_key.txt")
+
+    if os.path.isfile(cache_dex) and os.path.isfile(cache_key_file):
+        try:
+            with open(cache_key_file, "r", encoding="utf-8") as f:
+                if f.read().strip() == cache_key:
+                    ctx.log("OK", f"killer_app.dex 缓存命中 ({os.path.getsize(cache_dex)} bytes)")
+                    return cache_dex
+        except Exception:
+            pass
 
     work = os.path.join(ctx.work_dir, "killer_build")
     shutil.rmtree(work, ignore_errors=True)
@@ -102,4 +134,13 @@ def build_killer_app_dex(ctx, target_pkg: str, signature_b64: str, asset_path: s
         ctx.log("ERR", "d8 未产出 classes.dex")
         raise SystemExit(1)
     ctx.log("OK", f"killer_app.dex 生成成功 ({os.path.getsize(dex_path)} bytes)")
+
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        shutil.copyfile(dex_path, cache_dex)
+        with open(cache_key_file, "w", encoding="utf-8") as f:
+            f.write(cache_key)
+    except Exception as e:
+        ctx.log("WARN", f"写 killer_app.dex 缓存失败: {e}")
+
     return dex_path
