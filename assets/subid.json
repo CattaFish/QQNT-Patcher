@@ -1,4 +1,20 @@
 {
+  "537397821": {
+    "summary": "QQ(Pad) 9.3.75.42350",
+    "platform": "Android",
+    "version": "9.3.75.42350",
+    "arch": "Pad",
+    "date": "2026-10-20",
+    "channel": "OPPO"
+  },
+  "537397820": {
+    "summary": "QQ(Pad) 9.3.75.42350",
+    "platform": "Android",
+    "version": "9.3.75.42350",
+    "arch": "Pad",
+    "date": "2026-10-19",
+    "channel": "小米"
+  },
   "537397819": {
     "summary": "QQ(Pad) 9.3.75.42350",
     "platform": "Android",
@@ -6,6 +22,14 @@
     "arch": "Pad",
     "date": "2026-10-15",
     "channel": "荣耀"
+  },
+  "537397818": {
+    "summary": "QQ(Pad) 9.3.75.42350",
+    "platform": "Android",
+    "version": "9.3.75.42350",
+    "arch": "Pad",
+    "date": "2026-10-14",
+    "channel": "华为"
   },
   "537397816": {
     "summary": "QQ(Pad) 9.3.75.42350",
@@ -33,12 +57,33 @@
     "date": "2026-10-13",
     "channel": "官方"
   },
+  "537397782": {
+    "summary": "QQ 9.3.75.42350",
+    "platform": "Android",
+    "version": "9.3.75.42350",
+    "date": "2026-10-20",
+    "channel": "OPPO"
+  },
+  "537397781": {
+    "summary": "QQ 9.3.75.42350",
+    "platform": "Android",
+    "version": "9.3.75.42350",
+    "date": "2026-10-19",
+    "channel": "小米"
+  },
   "537397780": {
     "summary": "QQ 9.3.75.42350",
     "platform": "Android",
     "version": "9.3.75.42350",
     "date": "2026-10-15",
     "channel": "荣耀"
+  },
+  "537397779": {
+    "summary": "QQ 9.3.75.42350",
+    "platform": "Android",
+    "version": "9.3.75.42350",
+    "date": "2026-10-14",
+    "channel": "华为"
   },
   "537397777": {
     "summary": "QQ 9.3.75.42350",

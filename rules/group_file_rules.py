@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""群文件下载次数动态规则引擎 (自适应 9.2.90 ~ 9.3.60+ 全版本)"""
+"""群文件下载次数动态规则引擎 (高性能优化版)"""
 
 import struct
 from .parser import FastDexParser
@@ -18,6 +18,14 @@ def _find_method_strictly_referencing_string(p, class_idx, target_string):
             continue
         insns_size = struct.unpack_from('<I', p.data, code_off + 12)[0]
         insns = p.data[code_off + 16 : code_off + 16 + insns_size * 2]
+
+        # ★ 预检 1: 方法体内是否存在任何 const-string 操作码 (0x1A / 0x1B)
+        if b'\x1a' not in insns and b'\x1b' not in insns:
+            continue
+        # ★ 预检 2: 方法体内是否存在目标字符串 ID 字节
+        if (s_16 and s_16 not in insns) and (s_32 not in insns):
+            continue
+
         k = 0
         len_insns = len(insns)
         while k < len_insns - 1:
@@ -48,12 +56,22 @@ def _find_methods_calling_named_method(p, class_idx, target_method_name):
             
     if not target_m_indices: return []
     
+    # 预先打包目标方法 ID 的 2 字节切片，供底层 C 级滑窗高效匹配
+    patterns_16 = [struct.pack('<H', idx) for idx in target_m_indices]
+    
     matched = []
     for m_name, proto_desc, _, code_off, _ in p.get_class_methods(class_idx):
         if code_off == 0 or code_off + 16 >= len(p.data): continue
         insns_size = struct.unpack_from('<I', p.data, code_off + 12)[0]
         insns = p.data[code_off + 16 : code_off + 16 + insns_size * 2]
         
+        # ★ 预检 1: 方法体内是否存在任何 invoke-static (0x71) 或 invoke-static/range (0x77)
+        if b'\x71' not in insns and b'\x77' not in insns:
+            continue
+        # ★ 预检 2: 是否含有目标被调方法的 ID 字节
+        if not any(pat in insns for pat in patterns_16):
+            continue
+
         k = 0
         len_insns = len(insns)
         while k < len_insns - 3:
@@ -95,6 +113,8 @@ def build_group_file_rules(dex_data_dict):
     invoke-static {v0}, Lcom/tencent/qqnt/patch/PatchBridge;->handleGroupFileListResponse(Ljava/lang/Object;)V
 """
                         })
+                # 目标类已在此 DEX 命中并处理，跳出剩余 DEX 检查
+                break
 
     # 2. UI 渲染点 A: 检查 qqfile_common/components/f (9.2.90 主渲染通道)
     for _, dex_bytes in dex_data_dict.items():
@@ -118,6 +138,8 @@ def build_group_file_rules(dex_data_dict):
     move-result-object \2"""
                         })
                         break
+                # 目标类已处理，跳出循环
+                break
 
     # 3. UI 渲染点 B: 检查 GroupFileCellSlotProvider (9.3.60+ 主渲染通道)
     for _, dex_bytes in dex_data_dict.items():
@@ -141,8 +163,11 @@ def build_group_file_rules(dex_data_dict):
     move-result-object \2"""
                         })
                         break
+                # 目标类已处理，跳出循环
+                break
 
     return rules_list
+
 # === 规则插件契约 ===
 RULE_ID = "group_file"
 RULE_NAME = "群文件下载次数"
