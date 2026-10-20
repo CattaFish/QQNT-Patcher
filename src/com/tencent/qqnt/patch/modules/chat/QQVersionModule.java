@@ -27,7 +27,7 @@ public class QQVersionModule implements IPatchModule {
     private static final String CMD_MSG_PUSH = "trpc.msg.olpush.OlPushService.MsgPush";
     public static final String UNKNOWN_STATUS = "未捕获到客户端版本";
 
-    // 剔除失效的 ghproxy 与直连 githubusercontent，使用验证可用的 ghfast 与 jsdelivr
+    // 剔除失效的 ghproxy 与直连 githubusercontent，统一使用高可用代理与 jsdelivr CDN
     private static final String[][] REMOTE_SOURCE_GROUPS = new String[][]{
             {
                     "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
@@ -218,7 +218,7 @@ public class QQVersionModule implements IPatchModule {
 
         loadBuiltinFallback();
 
-        // ★ 核心修复：先读手机外部存储中的历史增量字典 (基底数据)
+        // 1. 先读取手机本地已存的缓存文件 (充当垫底历史数据)
         File extDictFile = getExternalDictionaryFile(context);
         if (extDictFile != null && extDictFile.exists() && extDictFile.isFile()) {
             try (InputStream fis = new FileInputStream(extDictFile)) {
@@ -226,7 +226,7 @@ public class QQVersionModule implements IPatchModule {
             } catch (Throwable ignored) {}
         }
 
-        // ★ 核心修复：后读安装包自带的 assets/subid.json (高优先级！新安装包底表必须覆盖旧文件)
+        // 2. 后读新安装包内的 assets/subid.json (高优先级！新包的底表无条件覆盖手机旧缓存)
         String[] dictNames = new String[]{"builtin_subid.json", "tim_subid.json", "win_subid.json", "subid.json"};
         for (String name : dictNames) {
             try (InputStream is = PatchAssetHelper.openStream(context, name)) {
@@ -281,8 +281,11 @@ public class QQVersionModule implements IPatchModule {
 
                 int totalNewCount = 0;
 
-                for (String[] mirrors : REMOTE_SOURCE_GROUPS) {
+                for (int gIdx = 0; gIdx < REMOTE_SOURCE_GROUPS.length; gIdx++) {
+                    String[] mirrors = REMOTE_SOURCE_GROUPS[gIdx];
+                    boolean isAuth = (gIdx == 0); // 组 0 为主仓权威源，允许强制覆盖本地字段
                     boolean groupSuccess = false;
+
                     for (String urlStr : mirrors) {
                         HttpURLConnection conn = null;
                         try {
@@ -369,19 +372,26 @@ public class QQVersionModule implements IPatchModule {
                                                         objModified = true;
                                                     }
                                                 } else {
-                                                    // ★ 标量字段覆盖：以远程最新非空字段直接覆盖，杜绝拼出混乱版本号
+                                                    // 主仓权威源：云端有变动直接覆盖本地已有字段
                                                     String rStr = rFieldVal.toString().trim();
                                                     if (!rStr.isEmpty() && !rStr.equals("null")) {
                                                         String lStr = lFieldVal != null ? lFieldVal.toString().trim() : "";
-                                                        if (!rStr.equals(lStr)) {
-                                                            lObj.put(rk, rFieldVal);
-                                                            objModified = true;
+                                                        if (isAuth) {
+                                                            if (!rStr.equals(lStr)) {
+                                                                lObj.put(rk, rFieldVal);
+                                                                objModified = true;
+                                                            }
+                                                        } else {
+                                                            if (lFieldVal == null || lStr.isEmpty()) {
+                                                                lObj.put(rk, rFieldVal);
+                                                                objModified = true;
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
                                             if (objModified) totalNewCount++;
-                                        } else if (rVal instanceof String && !rVal.equals(lVal)) {
+                                        } else if (isAuth && rVal instanceof String && !rVal.equals(lVal)) {
                                             localJson.put(subid, rVal);
                                             totalNewCount++;
                                         }
@@ -422,9 +432,9 @@ public class QQVersionModule implements IPatchModule {
                     try (InputStream is = new FileInputStream(extFile)) {
                         parseJsonDictionary(is);
                     }
-                    PLog.i(TAG, "已成功完成 SubID 字典静默增量更新，吸收新版本/更新渠道: " + totalNewCount + " 处，当前总数: " + sExactTable.size());
+                    PLog.i(TAG, "已成功完成 SubID 字典静默增量更新，吸收新版本/更新属性: " + totalNewCount + " 处，当前总数: " + sExactTable.size());
                 } else {
-                    PLog.i(TAG, "SubID 字典已是最新，无新增版本或渠道 (当前收录: " + sExactTable.size() + " 条)");
+                    PLog.i(TAG, "SubID 字典已是最新，无新增版本或属性 (当前收录: " + sExactTable.size() + " 条)");
                 }
             } catch (Throwable t) {
                 PLog.w(TAG, "静默 OTA 增量同步异常: " + t.getMessage());
@@ -631,8 +641,6 @@ public class QQVersionModule implements IPatchModule {
         if (data == null) return 0L;
         int pos = 0, limit = data.length;
         while (pos < limit) {
-            long tagRes = readVarint(data, pos, limit)[0];
-            // 避免空指针保护
             long[] res = readVarint(data, pos, limit);
             if (res == null) break;
             int fn = (int) (res[0] >>> 3), wt = (int) (res[0] & 7);

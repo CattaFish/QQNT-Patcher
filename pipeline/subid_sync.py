@@ -4,11 +4,12 @@ import json
 import time
 import urllib.request
 
-# 剔除已失效的 ghproxy 与国内无法直连的 raw.githubusercontent.com
-# 保留实测通过的 ghfast.top 代理与 jsdelivr 高速 CDN 镜像
+# 彻底移除失效的 ghproxy.net 与无法直连的 raw.githubusercontent.com
+# 仅保留已测通的 ghfast.top 代理与 jsdelivr 高速 CDN 镜像
 SOURCE_GROUPS = [
     {
         "name": "QQNT-Patcher 官方主仓全量底表",
+        "is_authoritative": True,  # 权威主仓源：云端修改直接覆盖本地已有字段
         "urls": [
             "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
             "https://cdn.jsdelivr.net/gh/CattaFish/QQNT-Patcher@main/assets/subid.json",
@@ -17,6 +18,7 @@ SOURCE_GROUPS = [
     },
     {
         "name": "qqDecoder 自动化流水线实时增量表",
+        "is_authoritative": False,  # 增量补充源：只补全缺失 SubID，不反向覆盖主仓字段
         "urls": [
             "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/qqDecoder/main/data/subid.json",
             "https://cdn.jsdelivr.net/gh/CattaFish/qqDecoder@main/data/subid.json",
@@ -26,7 +28,7 @@ SOURCE_GROUPS = [
 ]
 
 def fetch_json_from_urls(urls):
-    """带时间戳参数与防缓存头，击穿 CDN 节点旧缓存"""
+    """带时间戳与防缓存头，击穿 CDN 缓存获取最新云端数据"""
     ts = int(time.time() * 1000)
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) QQNT-Patcher-Sync",
@@ -39,7 +41,7 @@ def fetch_json_from_urls(urls):
         u = f"{base_u}{sep}_nocache={ts}"
         try:
             req = urllib.request.Request(u, headers=headers)
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
+            with urllib.request.urlopen(req, timeout=6.0) as resp:
                 if resp.status == 200:
                     raw_data = resp.read().decode('utf-8')
                     data = json.loads(raw_data)
@@ -52,21 +54,28 @@ def fetch_json_from_urls(urls):
 def is_valid_subid(subid_str: str) -> bool:
     return subid_str.isdigit() and len(subid_str) == 9 and subid_str.startswith("537")
 
-def merge_entry(local_dict, subid_str, remote_val):
-    """深度合并：以远程最新数据覆盖更新，彻底修复旧版本不覆盖的Bug"""
+def merge_entry(local_dict, subid_str, remote_val, is_authoritative=True):
+    """
+    深度合并：
+    - 新增 SubID：直接吸纳
+    - 权威主仓源 (is_authoritative=True)：云端修改强制覆盖本地现有字段
+    - 增量补充源 (is_authoritative=False)：仅补充本地缺失的字段，不回退已有数据
+    """
     if subid_str not in local_dict:
         local_dict[subid_str] = remote_val
         return "add"
 
     l_val = local_dict[subid_str]
+
     # 本地是简单字符串，远程升级为详细字典
     if isinstance(l_val, str) and isinstance(remote_val, dict):
         local_dict[subid_str] = remote_val
         return "upgrade"
+
     elif isinstance(l_val, dict) and isinstance(remote_val, dict):
         modified = False
 
-        # 1. 数组类型合并去重 (packages, versions)
+        # 1. 数组去重合并 (packages, versions)
         for rk in ("packages", "versions"):
             if rk in remote_val and isinstance(remote_val[rk], list):
                 if rk not in l_val or not isinstance(l_val[rk], list):
@@ -79,18 +88,23 @@ def merge_entry(local_dict, subid_str, remote_val):
                         modified = True
 
         # 2. 标量字段 (summary, version, channel, date, arch, platform 等)
-        # 只要远程提供了最新非空有效值且与本地不一致，无条件覆盖更新！
         for rk, rv in remote_val.items():
             if rk in ("packages", "versions"):
                 continue
             if rv is not None and str(rv).strip():
-                if rk not in l_val or l_val[rk] != rv:
-                    l_val[rk] = rv
-                    modified = True
+                # 核心修复点：主仓权威源直接无条件覆盖；增量源仅在本地缺失时填补
+                if is_authoritative:
+                    if rk not in l_val or l_val[rk] != rv:
+                        l_val[rk] = rv
+                        modified = True
+                else:
+                    if rk not in l_val:
+                        l_val[rk] = rv
+                        modified = True
 
         return "upgrade" if modified else "none"
 
-    elif isinstance(remote_val, str) and l_val != remote_val:
+    elif is_authoritative and isinstance(remote_val, str) and l_val != remote_val:
         local_dict[subid_str] = remote_val
         return "upgrade"
 
@@ -115,6 +129,7 @@ def sync_subid_incremental(ctx):
 
     for group in SOURCE_GROUPS:
         g_name = group["name"]
+        is_auth = group.get("is_authoritative", True)
         remote_data = fetch_json_from_urls(group["urls"])
 
         if not remote_data:
@@ -128,7 +143,7 @@ def sync_subid_incremental(ctx):
             if not is_valid_subid(subid_str):
                 continue
 
-            act = merge_entry(local_dict, subid_str, r_val)
+            act = merge_entry(local_dict, subid_str, r_val, is_authoritative=is_auth)
             if act == "add":
                 g_added += 1
             elif act == "upgrade":
@@ -136,7 +151,7 @@ def sync_subid_incremental(ctx):
 
         total_added += g_added
         total_upgraded += g_upgraded
-        ctx.log("INFO", f"-> 从 [{g_name}] 同步: 新增 {g_added} 条, 升级属性 {g_upgraded} 条")
+        ctx.log("INFO", f"-> 从 [{g_name}] 同步: 新增 {g_added} 条, 覆盖/更新属性 {g_upgraded} 条")
 
     if not local_dict:
         ctx.log("WARN", "未获取到任何有效 SubID 数据，放弃写盘")
@@ -153,7 +168,7 @@ def sync_subid_incremental(ctx):
             os.fsync(f.fileno())
 
         os.replace(temp_subid_path, assets_subid_path)
-        ctx.log("OK", f"-> SubID 字典全量对齐完成！当前收录 \033[36m{len(sorted_dict)}\033[0m 条 (已融合最新版本数据)")
+        ctx.log("OK", f"-> SubID 字典全量对齐完成！当前收录 \033[36m{len(sorted_dict)}\033[0m 条 (已应用最新云端修改)")
     except Exception as e:
         if os.path.exists(temp_subid_path):
             try: os.remove(temp_subid_path)
