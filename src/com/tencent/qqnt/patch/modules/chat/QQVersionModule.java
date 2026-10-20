@@ -27,7 +27,6 @@ public class QQVersionModule implements IPatchModule {
     private static final String CMD_MSG_PUSH = "trpc.msg.olpush.OlPushService.MsgPush";
     public static final String UNKNOWN_STATUS = "未捕获到客户端版本";
 
-    // 剔除失效的 ghproxy 与直连 githubusercontent，统一使用高可用代理与 jsdelivr CDN
     private static final String[][] REMOTE_SOURCE_GROUPS = new String[][]{
             {
                     "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
@@ -218,7 +217,7 @@ public class QQVersionModule implements IPatchModule {
 
         loadBuiltinFallback();
 
-        // 1. 先读取手机本地已存的缓存文件 (充当垫底历史数据)
+        // 1. 先读手机本地已存的缓存文件 (垫底数据)
         File extDictFile = getExternalDictionaryFile(context);
         if (extDictFile != null && extDictFile.exists() && extDictFile.isFile()) {
             try (InputStream fis = new FileInputStream(extDictFile)) {
@@ -226,7 +225,7 @@ public class QQVersionModule implements IPatchModule {
             } catch (Throwable ignored) {}
         }
 
-        // 2. 后读新安装包内的 assets/subid.json (高优先级！新包的底表无条件覆盖手机旧缓存)
+        // 2. 后读新安装包内的 assets/subid.json (高优先级！新包底表无条件覆盖旧缓存)
         String[] dictNames = new String[]{"builtin_subid.json", "tim_subid.json", "win_subid.json", "subid.json"};
         for (String name : dictNames) {
             try (InputStream is = PatchAssetHelper.openStream(context, name)) {
@@ -244,7 +243,8 @@ public class QQVersionModule implements IPatchModule {
 
         new Thread(() -> {
             try {
-                Thread.sleep(6000);
+                // 缩短至 2 秒，启动即刻快速完成同步检查
+                Thread.sleep(2000);
 
                 File extFile = getExternalDictionaryFile(context);
                 if (extFile == null) return;
@@ -414,19 +414,12 @@ public class QQVersionModule implements IPatchModule {
                 }
 
                 if (totalNewCount > 0) {
-                    File tmpFile = new File(extFile.getAbsolutePath() + ".tmp");
-                    try (FileOutputStream fos = new FileOutputStream(tmpFile);
+                    // ★ 核心改动：抛弃 .tmp 与 renameTo，直接 FileOutputStream 截断重写并调用 sync() 强制刷盘
+                    try (FileOutputStream fos = new FileOutputStream(extFile, false);
                          OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
                         osw.write(localJson.toString(2));
                         osw.flush();
-                    }
-
-                    if (tmpFile.exists() && tmpFile.length() > 0) {
-                        if (extFile.exists()) extFile.delete();
-                        if (!tmpFile.renameTo(extFile)) {
-                            copyFile(tmpFile, extFile);
-                            tmpFile.delete();
-                        }
+                        fos.getFD().sync(); // 强制刷入物理闪存，穿透 FUSE 驱动缓存
                     }
 
                     try (InputStream is = new FileInputStream(extFile)) {
@@ -557,30 +550,13 @@ public class QQVersionModule implements IPatchModule {
                 obj.put(entry.getKey(), entry.getValue());
             }
 
-            File tmp = new File(f.getAbsolutePath() + ".tmp");
-            try (FileOutputStream fos = new FileOutputStream(tmp);
+            // ★ 用户记录缓存也改为 FileOutputStream 直写 + sync 刷盘，杜绝 FUSE 虚拟文件系统重命名失败
+            try (FileOutputStream fos = new FileOutputStream(f, false);
                  OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
                 osw.write(obj.toString());
                 osw.flush();
+                fos.getFD().sync();
             }
-            if (tmp.exists() && tmp.length() > 0) {
-                if (f.exists()) f.delete();
-                if (!tmp.renameTo(f)) {
-                    copyFile(tmp, f);
-                    tmp.delete();
-                }
-            }
-        } catch (Throwable ignored) {}
-    }
-
-    private static void copyFile(File src, File dest) {
-        try (InputStream in = new FileInputStream(src); OutputStream out = new FileOutputStream(dest)) {
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) != -1) {
-                out.write(buf, 0, n);
-            }
-            out.flush();
         } catch (Throwable ignored) {}
     }
 
