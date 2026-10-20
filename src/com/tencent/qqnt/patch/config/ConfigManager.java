@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class ConfigManager {
 
-    public static final String VERSION = String.valueOf("v0.1.2");
+    public static final String VERSION = String.valueOf("v0.2.0");
     public static final String GITHUB_REPO = "Cattafish/QQNT-Patcher";
     public static final String TG_CHANNEL_URL = "https://t.me/ZcraftMod";
     public static final String GITHUB_REPO_URL = "https://github.com/" + GITHUB_REPO;
