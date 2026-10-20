@@ -7,12 +7,10 @@ import top.nkbe.nza.zip.ZipFile;
 import top.nkbe.nza.zip.ZipMaker;
 
 import java.io.*;
-import java.lang.reflect.Field;
 import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.util.*;
-import java.util.zip.Deflater;
 
 public class NeoPacker {
 
@@ -26,23 +24,6 @@ public class NeoPacker {
         for (int i = 0; i < dirLen; i++) dir.append(alphabet.charAt(rnd.nextInt(alphabet.length())));
         for (int i = 0; i < fileLen; i++) file.append(alphabet.charAt(rnd.nextInt(alphabet.length())));
         return "assets/" + dir + "/" + file + ".apk";
-    }
-
-    /**
-     * 自动探测并获取 NeoApk/Deflater 支持的最高压缩级别
-     */
-    private static int resolveHighCompressionLevel() {
-        String[] highLevelCandidates = new String[]{
-            "LEVEL_MAXIMUM", "LEVEL_BEST", "LEVEL_ULTRA", "LEVEL_NORMAL", "LEVEL_DEFAULT"
-        };
-        for (String fieldName : highLevelCandidates) {
-            try {
-                Field f = ZipMaker.class.getField(fieldName);
-                return f.getInt(null);
-            } catch (Throwable ignored) {}
-        }
-        // 如果未定义常量，直接使用标准 Deflater.BEST_COMPRESSION (级别 9)
-        return Deflater.BEST_COMPRESSION;
     }
 
     public static void main(String[] args) {
@@ -84,10 +65,8 @@ public class NeoPacker {
             try (ZipFile origZip = new ZipFile(origFile);
                  ZipMaker maker = new ZipMaker(outFile)) {
 
-                // ★ 调高压缩率：从 LEVEL_FASTER 调整为高压缩模式 (Deflate Level 9 / MAXIMUM)
-                int highLevel = resolveHighCompressionLevel();
-                maker.setLevel(highLevel);
-                System.out.println("[NeoPacker] 压缩级别已提升至: " + highLevel + " (开启高压缩率以缩减安装包体积)");
+                // 恢复默认的极速打包模式
+                maker.setLevel(ZipMaker.LEVEL_FASTER);
 
                 for (Map.Entry<String, File> e : injectedMap.entrySet()) {
                     String name = e.getKey();
@@ -100,7 +79,6 @@ public class NeoPacker {
                         if (name.endsWith(".dex")) {
                             maker.setMethod(ZipMaker.METHOD_DEFLATED);
                         } else if (name.endsWith(".so")) {
-                            // ★ 坚决保持不变：SO 库必须是 METHOD_STORED 且 16KB/4KB 对齐
                             maker.setMethod(ZipMaker.METHOD_STORED);
                         } else if (name.endsWith(".zip") || name.endsWith(".apk")) {
                             maker.setMethod(ZipMaker.METHOD_STORED);
