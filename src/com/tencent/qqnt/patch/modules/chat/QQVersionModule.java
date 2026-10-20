@@ -27,19 +27,17 @@ public class QQVersionModule implements IPatchModule {
     private static final String CMD_MSG_PUSH = "trpc.msg.olpush.OlPushService.MsgPush";
     public static final String UNKNOWN_STATUS = "未捕获到客户端版本";
 
-    // 双源独立镜像组：多镜像冗余容灾，国内直连更稳健
+    // 剔除失效的 ghproxy 与直连 githubusercontent，使用验证可用的 ghfast 与 jsdelivr
     private static final String[][] REMOTE_SOURCE_GROUPS = new String[][]{
             {
-                    "https://ghproxy.net/https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
                     "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
-                    "https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
-                    "https://cdn.jsdelivr.net/gh/CattaFish/QQNT-Patcher@main/assets/subid.json"
+                    "https://cdn.jsdelivr.net/gh/CattaFish/QQNT-Patcher@main/assets/subid.json",
+                    "https://fastly.jsdelivr.net/gh/CattaFish/QQNT-Patcher@main/assets/subid.json"
             },
             {
-                    "https://ghproxy.net/https://raw.githubusercontent.com/CattaFish/qqDecoder/main/data/subid.json",
                     "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/qqDecoder/main/data/subid.json",
-                    "https://raw.githubusercontent.com/CattaFish/qqDecoder/main/data/subid.json",
-                    "https://cdn.jsdelivr.net/gh/CattaFish/qqDecoder@main/data/subid.json"
+                    "https://cdn.jsdelivr.net/gh/CattaFish/qqDecoder@main/data/subid.json",
+                    "https://fastly.jsdelivr.net/gh/CattaFish/qqDecoder@main/data/subid.json"
             }
     };
 
@@ -220,19 +218,21 @@ public class QQVersionModule implements IPatchModule {
 
         loadBuiltinFallback();
 
+        // ★ 核心修复：先读手机外部存储中的历史增量字典 (基底数据)
+        File extDictFile = getExternalDictionaryFile(context);
+        if (extDictFile != null && extDictFile.exists() && extDictFile.isFile()) {
+            try (InputStream fis = new FileInputStream(extDictFile)) {
+                parseJsonDictionary(fis);
+            } catch (Throwable ignored) {}
+        }
+
+        // ★ 核心修复：后读安装包自带的 assets/subid.json (高优先级！新安装包底表必须覆盖旧文件)
         String[] dictNames = new String[]{"builtin_subid.json", "tim_subid.json", "win_subid.json", "subid.json"};
         for (String name : dictNames) {
             try (InputStream is = PatchAssetHelper.openStream(context, name)) {
                 if (is != null) {
                     parseJsonDictionary(is);
                 }
-            } catch (Throwable ignored) {}
-        }
-
-        File extDictFile = getExternalDictionaryFile(context);
-        if (extDictFile != null && extDictFile.exists() && extDictFile.isFile()) {
-            try (InputStream fis = new FileInputStream(extDictFile)) {
-                parseJsonDictionary(fis);
             } catch (Throwable ignored) {}
         }
 
@@ -244,27 +244,43 @@ public class QQVersionModule implements IPatchModule {
 
         new Thread(() -> {
             try {
-                // 等待 6 秒平稳冷启动
                 Thread.sleep(6000);
 
                 File extFile = getExternalDictionaryFile(context);
                 if (extFile == null) return;
 
                 JSONObject localJson = new JSONObject();
+
+                // 优先以安装包自带的最全资产作为底表基准
+                try (InputStream is = PatchAssetHelper.openStream(context, "subid.json")) {
+                    if (is != null) {
+                        BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+                        StringBuilder sb = new StringBuilder();
+                        String l;
+                        while ((l = br.readLine()) != null) sb.append(l);
+                        localJson = new JSONObject(sb.toString());
+                    }
+                } catch (Throwable ignored) {}
+
+                // 再合并已有外部缓存
                 if (extFile.exists() && extFile.length() > 0) {
                     try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(extFile), StandardCharsets.UTF_8))) {
                         StringBuilder sb = new StringBuilder();
                         String l;
                         while ((l = br.readLine()) != null) sb.append(l);
-                        localJson = new JSONObject(sb.toString());
+                        JSONObject extJson = new JSONObject(sb.toString());
+                        Iterator<String> ekIt = extJson.keys();
+                        while (ekIt.hasNext()) {
+                            String k = ekIt.next();
+                            localJson.put(k, extJson.get(k));
+                        }
                     } catch (Throwable t) {
-                        PLog.w(TAG, "读取本地已存字典异常，重新拉取: " + t.getMessage());
+                        PLog.w(TAG, "合并本地已有字典异常: " + t.getMessage());
                     }
                 }
 
                 int totalNewCount = 0;
 
-                // 遍历两个数据源组
                 for (String[] mirrors : REMOTE_SOURCE_GROUPS) {
                     boolean groupSuccess = false;
                     for (String urlStr : mirrors) {
@@ -277,7 +293,7 @@ public class QQVersionModule implements IPatchModule {
                             conn = (HttpURLConnection) url.openConnection();
                             conn.setRequestMethod("GET");
                             conn.setInstanceFollowRedirects(true);
-                            conn.setConnectTimeout(8000); // 放宽至 8 秒防超时
+                            conn.setConnectTimeout(8000);
                             conn.setReadTimeout(8000);
                             conn.setRequestProperty("User-Agent", "QQNT-Patcher-Client");
                             conn.setRequestProperty("Cache-Control", "no-cache");
@@ -285,7 +301,6 @@ public class QQVersionModule implements IPatchModule {
 
                             int code = conn.getResponseCode();
 
-                            // 针对部分 301/302 手动跟随重定向保障
                             if (code == 301 || code == 302 || code == 307 || code == 308) {
                                 String redirectUrl = conn.getHeaderField("Location");
                                 if (redirectUrl != null && !redirectUrl.isEmpty()) {
@@ -314,7 +329,7 @@ public class QQVersionModule implements IPatchModule {
                                     Object rVal = remoteJson.opt(subid);
                                     if (rVal == null) continue;
 
-                                    if (!localJson.has(subid) || !sExactTable.containsKey(subid)) {
+                                    if (!localJson.has(subid)) {
                                         localJson.put(subid, rVal);
                                         totalNewCount++;
                                     } else {
@@ -331,58 +346,49 @@ public class QQVersionModule implements IPatchModule {
                                             while (rkIt.hasNext()) {
                                                 String rk = rkIt.next();
                                                 Object rFieldVal = rObj.opt(rk);
-                                                Object lFieldVal = lObj.opt(rk);
-
                                                 if (rFieldVal == null) continue;
 
-                                                if (!lObj.has(rk) || lFieldVal == null) {
-                                                    lObj.put(rk, rFieldVal);
-                                                    objModified = true;
-                                                } else if (lFieldVal instanceof String && rFieldVal instanceof String) {
-                                                    String rStr = ((String) rFieldVal).trim();
-                                                    String lStr = ((String) lFieldVal).trim();
-                                                    if (!rStr.isEmpty() && !rStr.equals(lStr)) {
-                                                        if ("channel".equals(rk)) {
-                                                            lObj.put(rk, rStr);
+                                                Object lFieldVal = lObj.opt(rk);
+
+                                                if (rFieldVal instanceof JSONArray) {
+                                                    JSONArray rArr = (JSONArray) rFieldVal;
+                                                    if (lFieldVal instanceof JSONArray) {
+                                                        JSONArray lArr = (JSONArray) lFieldVal;
+                                                        Set<String> set = new LinkedHashSet<>();
+                                                        for (int i = 0; i < lArr.length(); i++) set.add(lArr.optString(i));
+                                                        int beforeSize = set.size();
+                                                        for (int i = 0; i < rArr.length(); i++) set.add(rArr.optString(i));
+                                                        if (set.size() > beforeSize) {
+                                                            JSONArray newArr = new JSONArray();
+                                                            for (String s : set) newArr.put(s);
+                                                            lObj.put(rk, newArr);
                                                             objModified = true;
-                                                        } else if ("version".equals(rk)) {
-                                                            if (!lStr.contains(rStr)) {
-                                                                String combined = lStr + " / " + rStr;
-                                                                lObj.put("version", combined);
-                                                                if (lObj.has("summary")) {
-                                                                    lObj.put("summary", lObj.optString("summary").replace(lStr, combined));
-                                                                }
-                                                                objModified = true;
-                                                            }
-                                                        } else {
-                                                            lObj.put(rk, rStr);
+                                                        }
+                                                    } else {
+                                                        lObj.put(rk, rArr);
+                                                        objModified = true;
+                                                    }
+                                                } else {
+                                                    // ★ 标量字段覆盖：以远程最新非空字段直接覆盖，杜绝拼出混乱版本号
+                                                    String rStr = rFieldVal.toString().trim();
+                                                    if (!rStr.isEmpty() && !rStr.equals("null")) {
+                                                        String lStr = lFieldVal != null ? lFieldVal.toString().trim() : "";
+                                                        if (!rStr.equals(lStr)) {
+                                                            lObj.put(rk, rFieldVal);
                                                             objModified = true;
                                                         }
                                                     }
-                                                } else if (lFieldVal instanceof JSONArray && rFieldVal instanceof JSONArray) {
-                                                    JSONArray lArr = (JSONArray) lFieldVal;
-                                                    JSONArray rArr = (JSONArray) rFieldVal;
-                                                    Set<String> set = new LinkedHashSet<>();
-                                                    for (int i = 0; i < lArr.length(); i++) set.add(lArr.optString(i));
-                                                    int beforeSize = set.size();
-                                                    for (int i = 0; i < rArr.length(); i++) set.add(rArr.optString(i));
-                                                    if (set.size() > beforeSize) {
-                                                        JSONArray newArr = new JSONArray();
-                                                        for (String s : set) newArr.put(s);
-                                                        lObj.put(rk, newArr);
-                                                        objModified = true;
-                                                    }
-                                                } else if (!lFieldVal.equals(rFieldVal)) {
-                                                    lObj.put(rk, rFieldVal);
-                                                    objModified = true;
                                                 }
                                             }
                                             if (objModified) totalNewCount++;
+                                        } else if (rVal instanceof String && !rVal.equals(lVal)) {
+                                            localJson.put(subid, rVal);
+                                            totalNewCount++;
                                         }
                                     }
                                 }
                                 groupSuccess = true;
-                                break; // 本镜像获取成功，继续下一个源组
+                                break;
                             } else {
                                 PLog.w(TAG, "节点返回非 200 (HTTP " + code + "): " + urlStr);
                             }
@@ -398,7 +404,6 @@ public class QQVersionModule implements IPatchModule {
                 }
 
                 if (totalNewCount > 0) {
-                    // 原子写盘（防写到一半被杀进程截断成 0 字节）
                     File tmpFile = new File(extFile.getAbsolutePath() + ".tmp");
                     try (FileOutputStream fos = new FileOutputStream(tmpFile);
                          OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
@@ -414,7 +419,6 @@ public class QQVersionModule implements IPatchModule {
                         }
                     }
 
-                    // 热加载进内存
                     try (InputStream is = new FileInputStream(extFile)) {
                         parseJsonDictionary(is);
                     }
@@ -627,10 +631,12 @@ public class QQVersionModule implements IPatchModule {
         if (data == null) return 0L;
         int pos = 0, limit = data.length;
         while (pos < limit) {
-            long[] tagRes = readVarint(data, pos, limit);
-            if (tagRes == null) break;
-            int fn = (int) (tagRes[0] >>> 3), wt = (int) (tagRes[0] & 7);
-            pos = (int) tagRes[1];
+            long tagRes = readVarint(data, pos, limit)[0];
+            // 避免空指针保护
+            long[] res = readVarint(data, pos, limit);
+            if (res == null) break;
+            int fn = (int) (res[0] >>> 3), wt = (int) (res[0] & 7);
+            pos = (int) res[1];
             if (wt == 0) {
                 long[] vRes = readVarint(data, pos, limit);
                 if (vRes == null) break;

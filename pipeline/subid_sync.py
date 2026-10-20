@@ -4,28 +4,29 @@ import json
 import time
 import urllib.request
 
-# 统一使用确切大小写 CattaFish，并添加时间戳击穿 CDN 缓存
+# 剔除已失效的 ghproxy 与国内无法直连的 raw.githubusercontent.com
+# 保留实测通过的 ghfast.top 代理与 jsdelivr 高速 CDN 镜像
 SOURCE_GROUPS = [
     {
-        "name": "QQNT-Patcher 官方主仓全量底表 (900+ 条)",
+        "name": "QQNT-Patcher 官方主仓全量底表",
         "urls": [
             "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
-            "https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
-            "https://cdn.jsdelivr.net/gh/CattaFish/QQNT-Patcher@main/assets/subid.json"
+            "https://cdn.jsdelivr.net/gh/CattaFish/QQNT-Patcher@main/assets/subid.json",
+            "https://fastly.jsdelivr.net/gh/CattaFish/QQNT-Patcher@main/assets/subid.json"
         ]
     },
     {
-        "name": "qqDecoder 自动化流水线实时增量表 (含豌豆荚等多渠道)",
+        "name": "qqDecoder 自动化流水线实时增量表",
         "urls": [
             "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/qqDecoder/main/data/subid.json",
-            "https://raw.githubusercontent.com/CattaFish/qqDecoder/main/data/subid.json",
-            "https://cdn.jsdelivr.net/gh/CattaFish/qqDecoder@main/data/subid.json"
+            "https://cdn.jsdelivr.net/gh/CattaFish/qqDecoder@main/data/subid.json",
+            "https://fastly.jsdelivr.net/gh/CattaFish/qqDecoder@main/data/subid.json"
         ]
     }
 ]
 
 def fetch_json_from_urls(urls):
-    """带时间戳参数与防缓存头，强制击穿 CDN 节点旧缓存"""
+    """带时间戳参数与防缓存头，击穿 CDN 节点旧缓存"""
     ts = int(time.time() * 1000)
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) QQNT-Patcher-Sync",
@@ -52,38 +53,46 @@ def is_valid_subid(subid_str: str) -> bool:
     return subid_str.isdigit() and len(subid_str) == 9 and subid_str.startswith("537")
 
 def merge_entry(local_dict, subid_str, remote_val):
-    """深度合并：只增不减，并无条件吸纳渠道等新增字段"""
+    """深度合并：以远程最新数据覆盖更新，彻底修复旧版本不覆盖的Bug"""
     if subid_str not in local_dict:
         local_dict[subid_str] = remote_val
         return "add"
 
     l_val = local_dict[subid_str]
+    # 本地是简单字符串，远程升级为详细字典
     if isinstance(l_val, str) and isinstance(remote_val, dict):
         local_dict[subid_str] = remote_val
         return "upgrade"
     elif isinstance(l_val, dict) and isinstance(remote_val, dict):
         modified = False
 
-        # 核心修复：如果远程提供了 channel 字段，无条件覆盖合并入本地！
+        # 1. 数组类型合并去重 (packages, versions)
+        for rk in ("packages", "versions"):
+            if rk in remote_val and isinstance(remote_val[rk], list):
+                if rk not in l_val or not isinstance(l_val[rk], list):
+                    l_val[rk] = remote_val[rk]
+                    modified = True
+                else:
+                    combined = list(dict.fromkeys(l_val[rk] + remote_val[rk]))
+                    if len(combined) != len(l_val[rk]):
+                        l_val[rk] = combined
+                        modified = True
+
+        # 2. 标量字段 (summary, version, channel, date, arch, platform 等)
+        # 只要远程提供了最新非空有效值且与本地不一致，无条件覆盖更新！
         for rk, rv in remote_val.items():
-            if rk not in l_val or (rk == "channel" and rv and rv != l_val.get("channel")):
-                l_val[rk] = rv
-                modified = True
-            elif isinstance(rv, list) and isinstance(l_val.get(rk), list):
-                combined = list(dict.fromkeys(l_val[rk] + rv))
-                if len(combined) != len(l_val[rk]):
-                    l_val[rk] = combined
+            if rk in ("packages", "versions"):
+                continue
+            if rv is not None and str(rv).strip():
+                if rk not in l_val or l_val[rk] != rv:
+                    l_val[rk] = rv
                     modified = True
 
-        l_ver = str(l_val.get("version", ""))
-        r_ver = str(remote_val.get("version", ""))
-        if l_ver and r_ver and l_ver != r_ver and r_ver not in l_ver:
-            combined_ver = f"{l_ver} / {r_ver}"
-            l_val["version"] = combined_ver
-            l_val["summary"] = l_val.get("summary", "").replace(l_ver, combined_ver)
-            modified = True
-
         return "upgrade" if modified else "none"
+
+    elif isinstance(remote_val, str) and l_val != remote_val:
+        local_dict[subid_str] = remote_val
+        return "upgrade"
 
     return "none"
 
@@ -144,7 +153,7 @@ def sync_subid_incremental(ctx):
             os.fsync(f.fileno())
 
         os.replace(temp_subid_path, assets_subid_path)
-        ctx.log("OK", f"-> SubID 字典全量对齐完成！当前收录 \033[36m{len(sorted_dict)}\033[0m 条 (已融合主仓与渠道数据)")
+        ctx.log("OK", f"-> SubID 字典全量对齐完成！当前收录 \033[36m{len(sorted_dict)}\033[0m 条 (已融合最新版本数据)")
     except Exception as e:
         if os.path.exists(temp_subid_path):
             try: os.remove(temp_subid_path)
