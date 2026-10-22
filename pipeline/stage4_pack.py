@@ -2,38 +2,50 @@
 import os
 import re
 import json
-import shlex
 import shutil
 import zipfile
+from .context import Colors
+
 
 def run_stage4(ctx):
-    ctx.log("INFO", "4. 正在准备注入目录 (收集 Dex、SO、资产与扩展包)...")
+    ctx.print_stage_header(4, 5, "Assemble Assets & Payload")
 
     inject_dir = os.path.join(ctx.work_dir, "inject")
-    if os.path.exists(inject_dir): shutil.rmtree(inject_dir, ignore_errors=True)
+    if os.path.exists(inject_dir):
+        shutil.rmtree(inject_dir, ignore_errors=True)
     os.makedirs(inject_dir, exist_ok=True)
 
-    # 4.1 收集已修改的宿主 Dex
+    injected_summary = {
+        "host_dex": 0,
+        "extra_dex": 0,
+        "sos": [],
+        "assets": []
+    }
+
+    # 4.1 收集修改后的宿主 Dex
     for local_path, in_zip_name in ctx.modified_dex_files:
         if os.path.isfile(local_path):
             shutil.copyfile(local_path, os.path.join(inject_dir, in_zip_name))
+            injected_summary["host_dex"] += 1
 
     # 4.2 收集扩展库 Dex
     libs_dex_name = f"classes{ctx.max_dex_idx + 1}.dex"
     patch_dex_name = f"classes{ctx.max_dex_idx + 2}.dex"
     if ctx.libs_dex_path and os.path.isfile(ctx.libs_dex_path):
         shutil.copyfile(ctx.libs_dex_path, os.path.join(inject_dir, libs_dex_name))
+        injected_summary["extra_dex"] += 1
 
     if ctx.patch_dex_path and os.path.isfile(ctx.patch_dex_path):
         shutil.copyfile(ctx.patch_dex_path, os.path.join(inject_dir, patch_dex_name))
+        injected_summary["extra_dex"] += 1
 
-    # 4.3 从 Provider 索取额外的 Dex 载荷 (killer 特性开启时注入)
+    # 4.3 收集 Provider Dex (如 killer_app.dex)
     if "killer" in ctx.active_features:
         for dex_name, src_path in ctx.provider.get_extra_dexes(ctx):
             shutil.copyfile(src_path, os.path.join(inject_dir, dex_name))
-            ctx.log("OK", f"-> [Provider:{ctx.provider.name}] 注入 Dex: {dex_name}")
+            injected_summary["extra_dex"] += 1
 
-    # 4.4 从 Provider 索取额外的 SO 载荷 (killer 特性开启时注入)
+    # 4.4 收集 Provider SO 载荷
     if "killer" in ctx.active_features:
         apk_abis = set()
         with zipfile.ZipFile(ctx.input_apk, 'r') as zf:
@@ -45,31 +57,26 @@ def run_stage4(ctx):
             dst_so_dir = os.path.join(inject_dir, "lib", abi)
             os.makedirs(dst_so_dir, exist_ok=True)
             shutil.copyfile(src_path, os.path.join(dst_so_dir, os.path.basename(rel_so_path)))
-            ctx.log("OK", f"-> [Provider:{ctx.provider.name}] 注入 Native 库: {rel_so_path}")
+            injected_summary["sos"].append(f"{abi}/{os.path.basename(rel_so_path)}")
 
-    # 4.5 挂载静态资产与扩展插件 (按需注入)
+    # 4.5 挂载静态资产与扩展插件
     assets_dir = os.path.join(inject_dir, "assets")
     os.makedirs(assets_dir, exist_ok=True)
 
-    # 写入构建期特性激活清单，供 Java 运行时精确感知
     features_json_path = os.path.join(assets_dir, "zzz_features.json")
     with open(features_json_path, "w", encoding="utf-8") as f:
         json.dump(list(ctx.active_features), f, ensure_ascii=False, indent=2)
-    ctx.log("OK", f"-> 已生成特性激活清单: assets/zzz_features.json ({len(ctx.active_features)} 项)")
+    injected_summary["assets"].append("zzz_features.json")
 
-    # 仅在 script 特性激活时，向包体注入脚本引擎和预设插件
     if "script" in ctx.active_features:
         if ctx.bsh_standalone_dex and os.path.isfile(ctx.bsh_standalone_dex):
             shutil.copyfile(ctx.bsh_standalone_dex, os.path.join(assets_dir, "bsh.dex"))
-            ctx.log("OK", "-> 注入脚本引擎: assets/bsh.dex")
+            injected_summary["assets"].append("bsh.dex")
 
         if ctx.preset_plugins_zip and os.path.isfile(ctx.preset_plugins_zip):
             shutil.copyfile(ctx.preset_plugins_zip, os.path.join(assets_dir, "preset_plugins.zip"))
-            ctx.log("OK", "-> 注入预设脚本包: assets/preset_plugins.zip")
-    else:
-        ctx.log("WARN", "已跳过 [script] 特性: 拒绝向包体注入 bsh.dex 与预设脚本资产")
+            injected_summary["assets"].append("preset_plugins.zip")
 
-    # 注入通用图标资源
     if "setting" in ctx.active_features and os.path.isdir(ctx.assets_src_dir):
         for root, _, files in os.walk(ctx.assets_src_dir):
             for f in files:
@@ -79,6 +86,15 @@ def run_stage4(ctx):
                     dst_fp = os.path.join(assets_dir, rel_fp)
                     os.makedirs(os.path.dirname(dst_fp), exist_ok=True)
                     shutil.copyfile(src_fp, dst_fp)
-                    ctx.log("OK", f"-> 注入静态图标资源: assets/{rel_fp}")
+                    injected_summary["assets"].append(rel_fp)
 
-    ctx.log("OK", "-> 注入目录整理就绪")
+    # 优雅树形打印汇总
+    print(f"  {Colors.CYAN}┌{Colors.RESET} 注入产物清单汇总:")
+    print(f"  {Colors.CYAN}│{Colors.RESET}  ├─ 重构宿主 DEX  : {Colors.BOLD}{injected_summary['host_dex']}{Colors.RESET} 个分包")
+    print(f"  {Colors.CYAN}│{Colors.RESET}  ├─ 注入扩展 DEX  : {Colors.BOLD}{injected_summary['extra_dex']}{Colors.RESET} 个分包")
+    if injected_summary["sos"]:
+        so_desc = ", ".join(injected_summary["sos"])
+        print(f"  {Colors.CYAN}│{Colors.RESET}  ├─ 原生 Native 库: {Colors.BOLD}{so_desc}{Colors.RESET}")
+    print(f"  {Colors.CYAN}│{Colors.RESET}  └─ 挂载静态资产  : {Colors.BOLD}{len(injected_summary['assets'])}{Colors.RESET} 项文件")
+
+    ctx.log("OK", "装配注入目录准备完毕")

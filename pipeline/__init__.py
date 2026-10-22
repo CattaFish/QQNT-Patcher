@@ -2,7 +2,7 @@
 import os
 import shutil
 import time
-from .context import PipelineContext
+from .context import PipelineContext, Colors
 from .stage1_prepare import run_stage1
 from .stage2_rules import run_stage2
 from .stage3_transform import run_stage3
@@ -12,27 +12,18 @@ from .stage5_sign import run_stage5
 def run_pipeline(ctx: PipelineContext):
     t_start = time.time()
     
-    t0 = time.time()
+    # 打印现代简约标题
+    print(f"{Colors.BOLD}{Colors.CYAN}┌─────────────────────────────────────────────────────────┐{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.CYAN}│{Colors.RESET}   QQNT-Patcher Pipeline Bus Engine                      {Colors.BOLD}{Colors.CYAN}│{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.CYAN}└─────────────────────────────────────────────────────────┘{Colors.RESET}")
+    
     run_stage1(ctx)
-    ctx.log("TIME", f"  -> 阶段 1 耗时: {round(time.time() - t0, 2)}s")
-
-    t0 = time.time()
     run_stage2(ctx)
-    ctx.log("TIME", f"  -> 阶段 2 耗时: {round(time.time() - t0, 2)}s")
-
-    t0 = time.time()
     run_stage3(ctx)
-    ctx.log("TIME", f"  -> 阶段 3 耗时: {round(time.time() - t0, 2)}s")
-
-    t0 = time.time()
     run_stage4(ctx)
-    ctx.log("TIME", f"  -> 阶段 4 耗时: {round(time.time() - t0, 2)}s")
-
-    t0 = time.time()
     run_stage5(ctx)
-    ctx.log("TIME", f"  -> 阶段 5 耗时: {round(time.time() - t0, 2)}s")
 
-    # 工作空间清理
+    # 清理非持久缓存
     keep_list = {
         "patcher_bin", "dex_out", "bin", "bsh.dex", "bsh_dex",
         "libs_cached.dex", "preset_plugins.zip", "apk_meta_cache.json",
@@ -45,4 +36,12 @@ def run_pipeline(ctx: PipelineContext):
             if os.path.isdir(p): shutil.rmtree(p, ignore_errors=True)
             else: os.remove(p)
 
-    ctx.log("OK", f"全流程构建完成，总耗时: {round(time.time() - t_start, 2)}s, 输出: {ctx.output_apk}")
+    total_cost = round(time.time() - t_start, 2)
+    out_size_mb = os.path.getsize(ctx.output_apk) / (1024 * 1024) if os.path.isfile(ctx.output_apk) else 0
+
+    print(f"\n{Colors.BOLD}{Colors.GREEN}═══════════════════════════════════════════════════════════{Colors.RESET}")
+    print(f"  {Colors.BOLD}{Colors.GREEN}BUILD SUCCESSFUL{Colors.RESET}")
+    print(f"  {Colors.GRAY}├─ 产物路径:{Colors.RESET} {Colors.WHITE}{ctx.output_apk}{Colors.RESET}")
+    print(f"  {Colors.GRAY}├─ 产物体积:{Colors.RESET} {Colors.CYAN}{out_size_mb:.2f} MB{Colors.RESET}")
+    print(f"  {Colors.GRAY}└─ 构建耗时:{Colors.RESET} {Colors.PURPLE}{total_cost}s{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.GREEN}═══════════════════════════════════════════════════════════{Colors.RESET}\n")

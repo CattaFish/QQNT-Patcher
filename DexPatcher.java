@@ -21,7 +21,6 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -43,29 +42,29 @@ public class DexPatcher {
             int availableCores = Runtime.getRuntime().availableProcessors();
             int threadCount = Math.max(1, Math.min(totalTasks, availableCores));
 
-            System.out.println("[DexPatcher] 启动纯内存 AST 编译引擎 (待处理分包: " + totalTasks + ", 并发线程: " + threadCount + ")");
+            System.out.println("[DexPatcher:START] TOTAL=" + totalTasks + ",THREADS=" + threadCount);
             System.out.flush();
 
             ExecutorService executor = Executors.newFixedThreadPool(threadCount);
             List<Future<?>> futures = new ArrayList<>();
-            AtomicInteger completedCounter = new AtomicInteger(0);
 
             for (DexTask task : tasks) {
                 futures.add(executor.submit(() -> {
                     String dexName = new File(task.dexIn).getName();
                     try {
-                        System.out.println("[DexPatcher] 正在处理: " + dexName + " (装载 " + task.rules.size() + " 条规则)...");
-                        System.out.flush();
-
                         long tTask = System.currentTimeMillis();
                         patchSingleDex(task, opcodes);
+                        long cost = System.currentTimeMillis() - tTask;
 
-                        int cur = completedCounter.incrementAndGet();
-                        System.out.println("[DexPatcher] [" + cur + "/" + totalTasks + "] " + dexName + " 重构完成，耗时: " + (System.currentTimeMillis() - tTask) + "ms");
+                        // 将警告写入专属 .warn 文件
+                        writeWarningsToFile(task);
+
+                        System.out.println("[DexPatcher:TASK_DONE] NAME=" + dexName + ",COST=" + cost + ",WARNS=" + task.warnings.size());
                         System.out.flush();
                     } catch (Exception e) {
-                        System.err.println("[ERROR] 处理 " + task.dexIn + " 致命异常: " + e.getMessage());
+                        System.err.println("[DexPatcher:TASK_FAIL] NAME=" + dexName + ",MSG=" + e.getMessage());
                         new File(task.dexOut).delete();
+                        if (task.dexWarn != null) new File(task.dexWarn).delete();
                         throw new RuntimeException("Patch failed for " + task.dexIn, e);
                     }
                 }));
@@ -76,22 +75,39 @@ public class DexPatcher {
                 try {
                     f.get();
                 } catch (Exception e) {
-                    System.err.println("[ERROR] 任务执行失败: " + e.getMessage());
                     hasError = true;
                 }
             }
             executor.shutdown();
 
             if (hasError) {
-                System.err.println("[ERROR] 存在构建失败的分包，终止构建以防污染缓存！");
+                System.err.println("[DexPatcher:ERROR] 存在构建失败的分包，终止流程");
                 System.exit(1);
             }
 
-            System.out.println("[DexPatcher] 全部分包重构耗时: " + (System.currentTimeMillis() - t0) + "ms");
+            System.out.println("[DexPatcher:ALL_DONE] COST=" + (System.currentTimeMillis() - t0));
             System.out.flush();
         } catch (Throwable t) {
-            System.err.println("[ERROR] 引擎主流程捕获异常: " + t.getMessage());
+            System.err.println("[DexPatcher:FATAL] 引擎主流程捕获异常: " + t.getMessage());
+            System.exit(1);
         }
+    }
+
+    private static void writeWarningsToFile(DexTask task) {
+        if (task.dexWarn == null || task.dexWarn.trim().isEmpty()) return;
+        File wFile = new File(task.dexWarn);
+        if (task.warnings.isEmpty()) {
+            if (wFile.exists()) wFile.delete();
+            return;
+        }
+
+        try (BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(wFile), StandardCharsets.UTF_8))) {
+            for (String w : task.warnings) {
+                bw.write(w);
+                bw.newLine();
+            }
+            bw.flush();
+        } catch (Throwable ignored) {}
     }
 
     private static void patchSingleDex(DexTask task, Opcodes opcodes) throws Exception {
@@ -122,17 +138,17 @@ public class DexPatcher {
                     String smaliCode = disassembleClass(classDef, baksmaliOptions);
                     smaliCode = smaliCode.replace("\r\n", "\n");
                     for (PatchRule r : matchedRules) {
-                        smaliCode = applyRule(smaliCode, r);
+                        smaliCode = applyRule(smaliCode, r, task);
                     }
 
-                    ClassDef newClassDef = assembleSingleClassInMemory(smaliCode, opcodes, clsType);
+                    ClassDef newClassDef = assembleSingleClassInMemory(smaliCode, opcodes, clsType, task);
                     if (newClassDef != null) {
                         replacedClasses.put(clsType, newClassDef);
                     } else {
-                        System.err.println("[WARN] 类汇编未产生结果，保留原类: " + clsType);
+                        task.warnings.add("类汇编未产生结果，保留原类: " + clsType);
                     }
                 } catch (Throwable t) {
-                    System.err.println("[WARN] 修补类 " + clsType + " 异常，保留原类: " + t.getMessage());
+                    task.warnings.add("修补类 " + clsType + " 异常，保留原类: " + t.getMessage());
                 }
             }
         }
@@ -160,7 +176,7 @@ public class DexPatcher {
         return sw.toString();
     }
 
-    private static ClassDef assembleSingleClassInMemory(String smaliCode, Opcodes opcodes, String classType) {
+    private static ClassDef assembleSingleClassInMemory(String smaliCode, Opcodes opcodes, String classType, DexTask task) {
         try {
             StringReader reader = new StringReader(smaliCode);
             smaliFlexLexer lexer = new smaliFlexLexer(reader, opcodes.api);
@@ -175,7 +191,7 @@ public class DexPatcher {
 
             smaliParser.smali_file_return result = parser.smali_file();
             if (parser.getNumberOfSyntaxErrors() > 0 || lexer.getNumberOfSyntaxErrors() > 0) {
-                System.err.println("[WARN] Smali 语法解析错误 [" + classType + "]: 发现 " + parser.getNumberOfSyntaxErrors() + " 处语法错误");
+                task.warnings.add("Smali 语法解析错误 [" + classType + "]: 发现 " + parser.getNumberOfSyntaxErrors() + " 处语法错误");
                 return null;
             }
 
@@ -191,7 +207,7 @@ public class DexPatcher {
             dexGen.smali_file();
 
             if (dexGen.getNumberOfSyntaxErrors() > 0) {
-                System.err.println("[WARN] Smali 语义生成错误 [" + classType + "]");
+                task.warnings.add("Smali 语义生成错误 [" + classType + "]");
                 return null;
             }
 
@@ -203,7 +219,7 @@ public class DexPatcher {
             return classes.isEmpty() ? null : classes.iterator().next();
 
         } catch (Throwable t) {
-            System.err.println("[WARN] 内存汇编类失败 [" + classType + "]: " + t.getMessage());
+            task.warnings.add("内存汇编类失败 [" + classType + "]: " + t.getMessage());
             return null;
         }
     }
@@ -220,26 +236,22 @@ public class DexPatcher {
         return maxIndex;
     }
 
-    private static String applyRule(String code, PatchRule rule) {
-        // ===== 类级规则：super 替换（新） =====
+    private static String applyRule(String code, PatchRule rule, DexTask task) {
         if ("SUPER_REPLACE".equals(rule.type)) {
             String oldSuper = rule.regex;
             String newSuper = (rule.smali == null) ? "" : rule.smali.trim();
             if (oldSuper == null || oldSuper.isEmpty() || newSuper.isEmpty()) {
-                System.err.println("[WARN] SUPER_REPLACE 规则缺少 REGEX 或 SMALI [" + rule.targetClass + "]");
+                task.warnings.add("SUPER_REPLACE 规则缺少 REGEX 或 SMALI [" + rule.targetClass + "]");
                 return code;
             }
             String oldLine = ".super " + oldSuper;
             String newLine = ".super " + newSuper;
             if (!code.contains(oldLine)) {
-                if (code.contains(newLine)) {
-                    System.out.println("[DexPatcher] -> SUPER_REPLACE 已是目标 super，无需替换 [" + rule.targetClass + "]");
-                } else {
-                    System.err.println("[WARN] SUPER_REPLACE 未找到目标 super: " + oldLine + " [" + rule.targetClass + "]");
+                if (!code.contains(newLine)) {
+                    task.warnings.add("SUPER_REPLACE 未找到目标 super: " + oldLine + " [" + rule.targetClass + "]");
                 }
                 return code;
             }
-            System.out.println("[DexPatcher] -> SUPER_REPLACE 命中: " + oldLine + " => " + newLine + " [" + rule.targetClass + "]");
             return code.replace(oldLine, newLine);
         }
 
@@ -247,7 +259,6 @@ public class DexPatcher {
         if (methodName == null) methodName = "";
 
         Pattern pattern;
-
         if (methodName.contains("(")) {
             String escaped = Pattern.quote(methodName);
             pattern = Pattern.compile("(\\.method[^\\n]*\\s+" + escaped + "\\s*?\\n.*?\\.end method)", Pattern.DOTALL);
@@ -262,7 +273,7 @@ public class DexPatcher {
         if (!methodMatcher.find()) {
             if ("<clinit>()V".equals(rule.targetMethod) && "INSERT_BEFORE".equals(rule.type)) {
                 StringBuilder sb = new StringBuilder();
-                sb.append("\n# injected by KillerPatcher\n");
+                sb.append("\n# injected by DexPatcher\n");
                 sb.append(".method static constructor <clinit>()V\n");
                 sb.append("    .registers 0\n\n");
                 sb.append("    ").append(rule.smali.trim()).append("\n\n");
@@ -270,10 +281,9 @@ public class DexPatcher {
                 sb.append(".end method\n");
                 int idx = code.indexOf("\n.method ");
                 if (idx < 0) idx = code.length();
-                System.out.println("[DexPatcher] -> 目标类无静态代码块，已自动合成全新 <clinit>: " + rule.targetClass);
                 return code.substring(0, idx) + sb.toString() + code.substring(idx);
             }
-            System.err.println("[WARN] 未在类中定位到目标方法: " + rule.targetClass + "->" + rule.targetMethod);
+            task.warnings.add("未在类中定位到目标方法: " + rule.targetClass + "->" + rule.targetMethod);
             return code;
         }
 
@@ -285,7 +295,6 @@ public class DexPatcher {
             while (methodMatcher.find()) {
                 String mBody = methodMatcher.group(1);
                 if (!normNew.isEmpty() && mBody.replaceAll("\\s+", "").equals(normNew)) {
-                    System.out.println("[DexPatcher] -> [WARN] 已是目标实现，跳过替换: " + rule.targetClass + "->" + rule.targetMethod);
                     methodMatcher.appendReplacement(sb, Matcher.quoteReplacement(mBody));
                 } else {
                     methodMatcher.appendReplacement(sb, Matcher.quoteReplacement(rule.smali));
@@ -337,10 +346,8 @@ public class DexPatcher {
                 int hitCount = 0;
                 while (rm.find()) hitCount++;
 
-                if (hitCount > 0) {
-                    System.out.println("[DexPatcher] -> 规则 [" + rule.targetMethod.split("\\(")[0] + "] 正则命中 " + hitCount + " 处，注入成功");
-                } else {
-                    System.err.println("[WARN] -> 规则 [" + rule.targetMethod.split("\\(")[0] + "] 正则命中 0 处，未发生替换! 正则: " + rule.regex);
+                if (hitCount == 0) {
+                    task.warnings.add("规则 [" + rule.targetMethod.split("\\(")[0] + "] 正则命中 0 处: " + rule.regex);
                 }
 
                 String replacedBody = rp.matcher(mBody).replaceAll(javaReplacement);
@@ -374,6 +381,7 @@ public class DexPatcher {
                     for (String l : lines) {
                         if (l.startsWith("DEX_IN=")) task.dexIn = l.substring(7).trim();
                         else if (l.startsWith("DEX_OUT=")) task.dexOut = l.substring(8).trim();
+                        else if (l.startsWith("DEX_WARN=")) task.dexWarn = l.substring(9).trim();
                     }
                 } else {
                     PatchRule r = new PatchRule();
@@ -429,7 +437,9 @@ public class DexPatcher {
     static class DexTask {
         String dexIn;
         String dexOut;
+        String dexWarn;
         List<PatchRule> rules = new ArrayList<>();
+        List<String> warnings = Collections.synchronizedList(new ArrayList<>());
     }
 
     static class PatchRule {

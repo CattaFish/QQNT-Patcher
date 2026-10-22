@@ -14,6 +14,7 @@ from rules.engine import discover_rule_plugins
 from .features import BUS_DEPENDENCIES
 from . import killer_config as KC
 from .killer_payload import build_killer_app_dex, fqcn_to_dex_desc
+from .context import Colors
 
 
 def get_file_mtime_safe(file_path):
@@ -61,22 +62,22 @@ def _extract_signature_b64(ctx, apk):
     if KC.SIGNATURE_MODE == "cert_der":
         s = _extract_cert_der_b64(apk)
         if s:
-            ctx.log("OK", "  -> 签名来源: X.509 证书 DER (cert_der)")
+            ctx.log("OK", "签名来源: X.509 DER (cert_der)", indent=1)
             return s
-        ctx.log("WARN", "  -> cert_der 提取失败，降级 p7_raw")
+        ctx.log("WARN", "cert_der 提取失败，降级为 p7_raw", indent=1)
         s = _extract_p7_b64(apk)
         if s:
-            ctx.log("OK", "  -> 签名来源: META-INF/*.RSA (p7_raw)")
+            ctx.log("OK", "签名来源: META-INF/*.RSA (p7_raw)", indent=1)
             return s
     else:
         s = _extract_p7_b64(apk)
         if s:
-            ctx.log("OK", "  -> 签名来源: META-INF/*.RSA (p7_raw)")
+            ctx.log("OK", "签名来源: META-INF/*.RSA (p7_raw)", indent=1)
             return s
-        ctx.log("WARN", "  -> p7_raw 提取失败，尝试 cert_der")
+        ctx.log("WARN", "p7_raw 提取失败，尝试 cert_der", indent=1)
         s = _extract_cert_der_b64(apk)
         if s:
-            ctx.log("OK", "  -> 签名来源: X.509 证书 DER (cert_der)")
+            ctx.log("OK", "签名来源: X.509 DER (cert_der)", indent=1)
             return s
     return ""
 
@@ -100,22 +101,18 @@ def extract_apk_metadata(ctx):
                 ctx.signature_b64 = d.get("signature_b64", "")
 
                 if (not need_killer_meta) or (ctx.target_pkg and ctx.signature_b64):
-                    ctx.log("OK", f"  -> 原版 APK MD5 : \033[36m{ctx.orig_apk_md5}\033[0m (缓存)")
-                    if ctx.orig_sig_md5:
-                        ctx.log("OK", f"  -> 原版 签名 MD5: \033[36m{ctx.orig_sig_md5}\033[0m (缓存)")
-                    if need_killer_meta:
-                        ctx.log("OK", f"  -> 目标包名: \033[36m{ctx.target_pkg}\033[0m (缓存)")
+                    ctx.log("CACHE", f"原包指纹缓存命中 (MD5: {Colors.CYAN}{ctx.orig_apk_md5}{Colors.RESET})")
                     return
         except Exception:
             pass
 
-    ctx.log("INFO", "0. 正在提取官方原包特征指纹...")
+    ctx.log("INFO", "正在提取官方原包特征指纹...")
     h = hashlib.md5()
     with open(ctx.input_apk, "rb") as f:
         while chunk := f.read(65536):
             h.update(chunk)
     ctx.orig_apk_md5 = h.hexdigest().lower()
-    ctx.log("OK", f"  -> 原版 APK MD5 : \033[36m{ctx.orig_apk_md5}\033[0m")
+    ctx.log("OK", f"原包 APK MD5 : {Colors.CYAN}{ctx.orig_apk_md5}{Colors.RESET}")
 
     try:
         cert_out = subprocess.getoutput(f"apksigner verify --print-certs {shlex.quote(ctx.input_apk)}")
@@ -126,12 +123,12 @@ def extract_apk_metadata(ctx):
         pass
 
     if ctx.orig_sig_md5:
-        ctx.log("OK", f"  -> 原版 签名 MD5: \033[36m{ctx.orig_sig_md5}\033[0m")
+        ctx.log("OK", f"官方证书 MD5 : {Colors.CYAN}{ctx.orig_sig_md5}{Colors.RESET}")
 
     if need_killer_meta:
         ctx.target_pkg = _extract_package_name(ctx, ctx.input_apk)
         if ctx.target_pkg:
-            ctx.log("OK", f"  -> 目标包名: \033[36m{ctx.target_pkg}\033[0m")
+            ctx.log("OK", f"识别目标包名 : {Colors.CYAN}{ctx.target_pkg}{Colors.RESET}")
         ctx.signature_b64 = _extract_signature_b64(ctx, ctx.input_apk)
 
     try:
@@ -251,6 +248,7 @@ def resolve_dynamic_rules_with_cache(ctx):
 
         for r in mod_rules:
             r["_plugin_id"] = p.plugin_id
+            r["_plugin_name"] = p.name
         all_discovered.extend(mod_rules)
 
     full_providers_cache[provider_name] = new_cache
@@ -266,13 +264,21 @@ def resolve_dynamic_rules_with_cache(ctx):
         pass
 
     active_rules = []
+    plugin_summary = {}
+
     for r in all_discovered:
         p_id = r.get("_plugin_id", "")
+        p_name = r.get("_plugin_name", p_id)
         if is_rule_active(r, p_id, ctx.active_features):
             active_rules.append(r)
-            ctx.log("OK", f"-> 规则生效: [{r.get('name', '未命名')}]")
-        else:
-            ctx.log("WARN", f"-> [测试跳过] 未激活特性规则: [{r.get('name', '未命名')}]")
+            plugin_summary[p_name] = plugin_summary.get(p_name, 0) + 1
+
+    # 树状紧凑优雅展示，杜绝刷屏
+    print(f"  {Colors.CYAN}┌{Colors.RESET} 规则决议汇总 ({Colors.GREEN}{len(active_rules)}{Colors.RESET} 条生效规则, 涉及 {len(plugin_summary)} 个模块):")
+    summary_items = list(plugin_summary.items())
+    for i, (p_name, count) in enumerate(summary_items):
+        branch = "└─" if i == len(summary_items) - 1 else "├─"
+        print(f"  {Colors.CYAN}│{Colors.RESET}  {branch} {p_name:<24} ({Colors.BOLD}{count:>2}{Colors.RESET} 条规则)")
 
     return active_rules
 
@@ -286,42 +292,23 @@ def _make_host_entry_path():
     return f"assets/{d}/{f}.apk"
 
 
-def _check_class_conflict(ctx):
-    desc = fqcn_to_dex_desc(KC.KILLER_APP_CLASS)
-    hits = []
-    for dex_name, classes in ctx.dex_classes_map.items():
-        if desc in classes:
-            hits.append(dex_name)
-    if hits:
-        ctx.log("ERR", f"类名冲突: {KC.KILLER_APP_CLASS} 已存在于 {hits}，请修改 killer_config.KILLER_APP_CLASS")
-        raise SystemExit(1)
-
-
 def _prepare_killer_payload(ctx):
     if "killer" not in ctx.active_features:
         return
 
-    if not ctx.target_pkg:
-        ctx.log("ERR", "无法提取目标包名，killer 模式终止")
+    if not ctx.target_pkg or not ctx.signature_b64:
+        ctx.log("ERR", "目标包名或签名提取缺失，终止 Killer 载荷生成")
         raise SystemExit(1)
-    if not ctx.signature_b64:
-        ctx.log("ERR", "无法提取签名，killer 模式终止")
-        raise SystemExit(1)
-
-    _check_class_conflict(ctx)
 
     ctx.host_entry_path = _make_host_entry_path()
-    ctx.log("OK", f"-> HostEntry 路径: {ctx.host_entry_path}")
-
     ctx.killer_app_dex = build_killer_app_dex(
         ctx, ctx.target_pkg, ctx.signature_b64, ctx.host_entry_path
     )
-    ctx.log("OK", f"-> killer_app.dex: {ctx.killer_app_dex}")
 
 
 def run_stage2(ctx):
+    ctx.print_stage_header(2, 5, "Fingerprint & Semantic Rule Resolve")
     extract_apk_metadata(ctx)
-    ctx.log("INFO", "2. 正在提取 Dex 并动态推导安全风控穿透规则...")
 
     with zipfile.ZipFile(ctx.input_apk, 'r') as zf:
         for name in zf.namelist():
@@ -329,8 +316,7 @@ def run_stage2(ctx):
                 ctx.dex_data_dict[name] = zf.read(name)
 
     def dex_index(name):
-        if name == "classes.dex":
-            return 1
+        if name == "classes.dex": return 1
         m = re.match(r'classes(\d+)\.dex', name)
         return int(m.group(1)) if m else 0
 
@@ -369,7 +355,6 @@ def run_stage2(ctx):
 
     for r in ctx.all_rules:
         if r["name"] not in matched:
-            ctx.log("WARN", f"-> 规则未命中当前包: [{r['name']}]")
+            ctx.log("WARN", f"规则未命中当前包: [{r['name']}]")
 
-    # 去签载荷生成（必须在包名/签名/host路径确定后）
     _prepare_killer_payload(ctx)

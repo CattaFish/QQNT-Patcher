@@ -4,23 +4,24 @@ import sys
 import shutil
 import shlex
 from .subid_sync import sync_subid_incremental
+from .context import Colors
 
 
 def _resolve_tool(ctx, name):
     p = ctx.find_tool(name)
     if (p == name) and (shutil.which(name) is None):
-        ctx.log("ERR", f"未找到 {name}，请安装 Android build-tools 并加入 PATH")
+        ctx.log("ERR", f"未找到 {name}，请安装 Android SDK build-tools 并加入 PATH")
         sys.exit(1)
     return p
 
 
 def run_stage1(ctx):
-    ctx.log("INFO", "1. 正在准备构建环境与扩展 Dex...")
+    ctx.print_stage_header(1, 5, "Prepare Environment & Extension Dex")
 
     d8_bin = _resolve_tool(ctx, "d8")
-    ctx.log("INFO", f"使用 d8: {d8_bin}")
+    ctx.log("INFO", f"构建工具就绪: d8 -> {Colors.CYAN}{d8_bin}{Colors.RESET}")
 
-    # 自动增量对齐 SubID 字典 (只增不减)
+    # 增量对齐 SubID 字典
     try:
         sync_subid_incremental(ctx)
     except Exception as e:
@@ -35,6 +36,7 @@ def run_stage1(ctx):
         os.makedirs(ctx.engine_bin, exist_ok=True)
         cp = f"{shlex.quote(ctx.dexlib2_jar)}:{shlex.quote(ctx.smali_jar)}:{shlex.quote(ctx.baksmali_jar)}"
         ctx.run_cmd(f"javac -cp {cp} -d {shlex.quote(ctx.engine_bin)} {shlex.quote(engine_src)}")
+        ctx.log("OK", "编译字节码重构引擎 (DexPatcher.java)")
 
     # 2. 增量编译纯 Java 扩展 (src -> classes)
     src_dir = os.path.join(ctx.root_dir, "src")
@@ -47,13 +49,13 @@ def run_stage1(ctx):
     os.makedirs(bin_dir, exist_ok=True)
     os.makedirs(dex_out, exist_ok=True)
 
-    # 基础依赖库 Dex 编译
+    # 预编译基础依赖 Dex (dx + protobuf)
     dep_mtime = max(
         os.path.getmtime(ctx.dx_jar) if os.path.exists(ctx.dx_jar) else 0,
         os.path.getmtime(ctx.protobuf_jar) if os.path.exists(ctx.protobuf_jar) else 0
     )
     if not os.path.exists(libs_cached_dex) or os.path.getmtime(libs_cached_dex) < dep_mtime:
-        ctx.log("INFO", "检测到基础依赖库更新，正在预编译基础依赖 Dex (dx + protobuf)...")
+        ctx.log("INFO", "检测到依赖更新，正在预编译基础类库 (dx + protobuf)...")
         libs_temp_dir = os.path.join(ctx.work_dir, "libs_temp")
         os.makedirs(libs_temp_dir, exist_ok=True)
         ctx.run_cmd(
@@ -64,6 +66,7 @@ def run_stage1(ctx):
         if os.path.exists(temp_out):
             shutil.move(temp_out, libs_cached_dex)
         shutil.rmtree(libs_temp_dir, ignore_errors=True)
+        ctx.log("OK", "基础类库预编译完成 (libs_cached.dex)")
 
     # 业务代码增量重编
     latest_src_mtime = max((os.path.getmtime(f) for f in java_files), default=0)
@@ -99,6 +102,7 @@ def run_stage1(ctx):
             if os.path.exists(t_out):
                 shutil.move(t_out, target_patch_dex)
             shutil.rmtree(temp_patch_dir, ignore_errors=True)
+            ctx.log("OK", f"增量编译扩展业务类: {len(modified_java)} 个源码变更")
 
     ctx.libs_dex_path = libs_cached_dex if os.path.exists(libs_cached_dex) else None
     ctx.patch_dex_path = target_patch_dex if os.path.exists(target_patch_dex) else None
@@ -117,6 +121,7 @@ def run_stage1(ctx):
         )
         if os.path.exists(target_bsh_dex):
             shutil.copyfile(target_bsh_dex, final_bsh_dex)
+        ctx.log("OK", "编译 BeanShell 独立运行时 (bsh.dex)")
 
     ctx.bsh_standalone_dex = final_bsh_dex if os.path.exists(final_bsh_dex) else None
 
@@ -130,6 +135,7 @@ def run_stage1(ctx):
             with zipfile.ZipFile(p_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
                 for fp in valid_files:
                     zf.write(fp, os.path.relpath(fp, ctx.preset_plugins_dir))
+            ctx.log("OK", f"打包预设动态脚本: {len(valid_files)} 项资源")
         ctx.preset_plugins_zip = p_zip
 
     # 5. 编译 NeoPacker.java
@@ -140,3 +146,4 @@ def run_stage1(ctx):
     if os.path.isfile(packer_src) and not (os.path.exists(packer_class) and os.path.getmtime(packer_class) >= os.path.getmtime(packer_src)):
         os.makedirs(ctx.engine_bin, exist_ok=True)
         ctx.run_cmd(f"javac -cp {shlex.quote(neoapk_jar)} -d {shlex.quote(ctx.engine_bin)} {shlex.quote(packer_src)}")
+        ctx.log("OK", "编译 NeoPacker 流式装配引擎")
