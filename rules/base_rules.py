@@ -173,44 +173,6 @@ BASE_RULES = [
 """
     },
     {
-        "name": "静默 @全体成员 实时通知 (NotificationFacade.x)",
-        "feature": "block_at_all",
-        "target_class": "Lcom/tencent/qqnt/notification/NotificationFacade;",
-        "target_method": "x(Lcom/tencent/qqnt/notification/NotificationFacade;Lmqq/app/AppRuntime;Lcom/tencent/qqnt/kernel/nativeinterface/MsgNotifyItem;ZLcom/tencent/qqnt/notification/trace/INotifyTracker;Lcom/tencent/qqnt/global/settings/notification/a;)Lcom/tencent/qqnt/notification/NotificationFacade$a$a;",
-        "type": "INSERT_BEFORE",
-        "smali": """
-    move-object/16 v0, p2
-    invoke-static {v0}, Lcom/tencent/qqnt/patch/PatchBridge;->shouldDropMsgNotify(Ljava/lang/Object;)Z
-    move-result v0
-    if-eqz v0, :cond_pass_x
-    new-instance v0, Lcom/tencent/qqnt/notification/NotificationFacade$a$a;
-    const/4 v1, 0x0
-    const/4 v2, 0x0
-    invoke-direct {v0, v1, v2}, Lcom/tencent/qqnt/notification/NotificationFacade$a$a;-><init>(Lcom/tencent/qqnt/notification/struct/d;Z)V
-    return-object v0
-    :cond_pass_x
-"""
-    },
-    {
-        "name": "静默 @全体成员 会话通知 (NotificationFacade.y)",
-        "feature": "block_at_all",
-        "target_class": "Lcom/tencent/qqnt/notification/NotificationFacade;",
-        "target_method": "y(Lcom/tencent/qqnt/notification/NotificationFacade;Lmqq/app/AppRuntime;Lcom/tencent/qqnt/kernel/nativeinterface/RecentContactInfo;Lcom/tencent/qqnt/kernel/nativeinterface/NotificationCommonInfo;ZLcom/tencent/qqnt/notification/trace/INotifyTracker;Lcom/tencent/qqnt/global/settings/notification/a;)Lcom/tencent/qqnt/notification/NotificationFacade$a$a;",
-        "type": "INSERT_BEFORE",
-        "smali": """
-    move-object/16 v0, p2
-    invoke-static {v0}, Lcom/tencent/qqnt/patch/PatchBridge;->shouldDropRecentContact(Ljava/lang/Object;)Z
-    move-result v0
-    if-eqz v0, :cond_pass_y
-    new-instance v0, Lcom/tencent/qqnt/notification/NotificationFacade$a$a;
-    const/4 v1, 0x0
-    const/4 v2, 0x0
-    invoke-direct {v0, v1, v2}, Lcom/tencent/qqnt/notification/NotificationFacade$a$a;-><init>(Lcom/tencent/qqnt/notification/struct/d;Z)V
-    return-object v0
-    :cond_pass_y
-"""
-    },
-    {
         "name": "经典群文件列表显示下载次数 (TroopFileShowAdapter.getView)",
         "feature": "group_file",
         "target_class": "Lcom/tencent/mobileqq/troop/file/data/TroopFileShowAdapter;",
