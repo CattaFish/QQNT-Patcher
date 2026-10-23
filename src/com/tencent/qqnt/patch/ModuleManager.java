@@ -35,6 +35,7 @@ public class ModuleManager {
         MOD_TO_FEATURE.put("disable_split_screen_limit", "multi_window");
         MOD_TO_FEATURE.put("tg_stickers", "tg_stickers");
         MOD_TO_FEATURE.put("browser_mitigation", "browser");
+        MOD_TO_FEATURE.put("disable_upgrade", "disable_upgrade");
         MOD_TO_FEATURE.put("qq_version", "qq_version");
     }
 
@@ -51,6 +52,7 @@ public class ModuleManager {
         register(new DisableSplitScreenLimitModule());
         register(new TgStickerModule());
         register(new BrowserMitigationModule());
+        register(new DisableUpgradeModule());
         register(new QQVersionModule());
     }
 

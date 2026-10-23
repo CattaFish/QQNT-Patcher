@@ -47,6 +47,14 @@
     "date": "2026-10-14",
     "channel": "华为"
   },
+  "537397817": {
+    "summary": "QQ(Pad) 9.3.75.42350",
+    "platform": "Android",
+    "version": "9.3.75.42350",
+    "arch": "Pad",
+    "date": "2026-10-19",
+    "channel": "vivo"
+  },
   "537397816": {
     "summary": "QQ(Pad) 9.3.75.42350",
     "platform": "Android",
@@ -114,6 +122,13 @@
     "version": "9.3.75.42350",
     "date": "2026-10-14",
     "channel": "华为"
+  },
+  "537397778": {
+    "summary": "QQ 9.3.75.42350",
+    "platform": "Android",
+    "version": "9.3.75.42350",
+    "date": "2026-10-19",
+    "channel": "vivo"
   },
   "537397777": {
     "summary": "QQ 9.3.75.42350",

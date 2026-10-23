@@ -24,6 +24,7 @@ ALL_FEATURES = {
     "modify_pic_summary": "修改图片与表情外显",
     "tg_stickers": "Telegram 外部表情包",
     "browser": "禁用内置浏览器网页拦截",
+    "disable_upgrade": "禁用检查更新与去除提示",
     "meow": "喵喵助手",
     "floating_ball": "会话悬浮球快捷入口",
     "chat_history": "查看本地聊天记录 (私聊/群聊)",
@@ -63,6 +64,8 @@ FEATURE_ALIASES = {
     "tg_stickers": "tg_stickers", "sticker": "tg_stickers", "stickers": "tg_stickers", "表情包": "tg_stickers", "tg表情": "tg_stickers",
     # browser
     "browser": "browser", "网页拦截": "browser", "浏览器": "browser",
+    # disable_upgrade
+    "disable_upgrade": "disable_upgrade", "upgrade": "disable_upgrade", "update": "disable_upgrade", "更新": "disable_upgrade", "去更新": "disable_upgrade", "禁用更新": "disable_upgrade", "升级": "disable_upgrade", "强更": "disable_upgrade",
     # meow
     "meow": "meow", "喵喵": "meow", "喵喵助手": "meow",
     # floating_ball

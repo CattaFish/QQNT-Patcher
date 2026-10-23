@@ -20,6 +20,10 @@ import java.util.List;
 
 public class PatchBridge {
 
+    public static boolean isDisableUpgradeEnabled() {
+        return ConfigManager.isModuleEnabled("disable_upgrade", false);
+    }
+
     public static boolean isTabletModeEnabled() {
         return ConfigManager.isModuleEnabled("tablet_mode", false);
     }
