@@ -21,7 +21,7 @@ public class DisableUpgradeModule implements IPatchModule {
 
     @Override
     public String getSubName() {
-        return "去除关于页更新提示与版本过低强制登出等";
+        return "去除关于页更新提示与版本过低强制登出，这有助于在使用核心破解降级时不被踢下线";
     }
 
     @Override
