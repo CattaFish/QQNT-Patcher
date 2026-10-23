@@ -20,6 +20,13 @@ import java.util.List;
 
 public class PatchBridge {
 
+    // 线程安全的文件项上下文，避免深层字节码中入参寄存器被覆盖的问题
+    private static final ThreadLocal<Object> sCurrentFileItem = new ThreadLocal<>();
+
+    public static void setCurrentFileItem(Object fileItem) {
+        sCurrentFileItem.set(fileItem);
+    }
+
     public static boolean isDisableUpgradeEnabled() {
         return ConfigManager.isModuleEnabled("disable_upgrade", false);
     }
@@ -82,6 +89,11 @@ public class PatchBridge {
 
     public static void handleTroopFileGetView(View view, Object adapter, int position) {
         ShowDownloadTimesModule.handleTroopFileGetView(view, adapter, position);
+    }
+
+    public static String appendDownloadCountToStatusText(String originalStatus) {
+        Object item = sCurrentFileItem.get();
+        return ShowDownloadTimesModule.appendDownloadCountToStatusText(originalStatus, item);
     }
 
     public static String appendDownloadCountToStatusText(String originalStatus, Object fileItemObj) {
