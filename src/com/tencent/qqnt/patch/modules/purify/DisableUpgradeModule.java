@@ -11,7 +11,7 @@ public class DisableUpgradeModule implements IPatchModule {
 
     @Override
     public String getName() {
-        return "禁止检查更新";
+        return "去除更新检测";
     }
 
     @Override
@@ -21,7 +21,7 @@ public class DisableUpgradeModule implements IPatchModule {
 
     @Override
     public String getSubName() {
-        return "去除版本检测、关于页更新提示与版本过低强制登出";
+        return "去除关于页更新提示与版本过低强制登出等";
     }
 
     @Override

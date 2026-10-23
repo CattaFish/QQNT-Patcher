@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class QQVersionModule implements IPatchModule {
 
-    private static final String TAG = "QqVersion";
+    private static final String TAG = "QQVersion";
     private static final String CMD_MSG_PUSH = "trpc.msg.olpush.OlPushService.MsgPush";
     public static final String UNKNOWN_STATUS = "未捕获到客户端版本";
 
@@ -86,7 +86,8 @@ public class QQVersionModule implements IPatchModule {
         if (!isEnabled()) {
             return "在好友设置与群成员设置展示对方版本与架构详情";
         }
-        return "在好友设置与群成员设置展示对方版本与架构 (已捕获 " + sLastSubidByUin.size() + " 人)";
+        return "在好友设置与群成员设置展示对方版本与架构\n" +
+               "(已捕获 " + sLastSubidByUin.size() + " 人)";
     }
 
     @Override
