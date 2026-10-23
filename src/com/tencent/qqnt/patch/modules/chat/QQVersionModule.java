@@ -84,7 +84,7 @@ public class QQVersionModule implements IPatchModule {
     @Override
     public String getSubName() {
         if (!isEnabled()) {
-            return "在好友设置与群成员设置展示对方版本与架构详情";
+            return "在好友设置与群成员设置展示对方版本与架构";
         }
         return "在好友设置与群成员设置展示对方版本与架构\n" +
                "(已捕获 " + sLastSubidByUin.size() + " 人)";
