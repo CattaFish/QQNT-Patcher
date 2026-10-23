@@ -83,10 +83,6 @@ public class PatchBridge {
         ShowDownloadTimesModule.handleGroupFileListResponse(responseObj);
     }
 
-    public static void handleGroupFileList(Object fileListObj, Object responseObj) {
-        ShowDownloadTimesModule.handleGroupFileList(fileListObj, responseObj);
-    }
-
     public static void handleTroopFileGetView(View view, Object adapter, int position) {
         ShowDownloadTimesModule.handleTroopFileGetView(view, adapter, position);
     }

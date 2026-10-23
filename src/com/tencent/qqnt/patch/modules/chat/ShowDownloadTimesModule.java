@@ -30,10 +30,6 @@ public class ShowDownloadTimesModule implements IPatchModule {
     @Override public String getName() { return "群文件显示下载次数"; }
     @Override public boolean defaultEnabled() { return false; }
 
-    public static void handleGroupFileList(Object fileListObj, Object responseObj) {
-        handleGroupFileListResponse(responseObj);
-    }
-
     public static void handleGroupFileListResponse(Object responseObj) {
         if (responseObj == null) return;
         if (!ConfigManager.isModuleEnabled("show_file_download_count", false)) return;
