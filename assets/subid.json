@@ -1,4 +1,28 @@
 {
+  "537403582": {
+    "summary": "QQ(Win-Arm) 9.9.37.54276",
+    "platform": "Windows",
+    "version": "9.9.37.54276",
+    "arch": "Arm",
+    "date": "2026-10-23",
+    "channel": "官方"
+  },
+  "537403570": {
+    "summary": "QQ(Win-X64) 9.9.37.54276",
+    "platform": "Windows",
+    "version": "9.9.37.54276",
+    "arch": "X64",
+    "date": "2026-10-23",
+    "channel": "官方"
+  },
+  "537403569": {
+    "summary": "QQ(Win-X86) 9.9.37.54276",
+    "platform": "Windows",
+    "version": "9.9.37.54276",
+    "arch": "X86",
+    "date": "2026-10-23",
+    "channel": "官方"
+  },
   "537397831": {
     "summary": "QQ(Pad) 9.3.75.42350",
     "platform": "Android",
