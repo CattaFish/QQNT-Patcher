@@ -90,9 +90,6 @@ public class DoubleTapRepeatModule implements IPatchModule {
         return items;
     }
 
-    /**
-     * 动态读取官方左滑阈值 (完全消除对方法名 "c" 的硬编码)
-     */
     private static int getOfficialSwipeThreshold() {
         try {
             Class<?> constClz = Class.forName("com.tencent.mobileqq.aio.msglist.holder.component.leftswipearea.LeftSwipeConstants");
@@ -115,7 +112,6 @@ public class DoubleTapRepeatModule implements IPatchModule {
             }
         } catch (Throwable ignored) {}
 
-        // 安全兜底
         Context ctx = AppContext.get();
         if (ctx != null) {
             float density = ctx.getResources().getDisplayMetrics().density;
@@ -138,21 +134,21 @@ public class DoubleTapRepeatModule implements IPatchModule {
         }
 
         try {
-            // 按类型自省查找 AIOMsgItem (不依赖混淆字段名 "i")
-            Object msgItem = getFieldByTypeRecursive(componentObj, "AIOMsgItem");
+            // 健壮查找：按实际运行时能够解析出 MsgRecord 的对象匹配
+            Object msgItem = resolveMsgItemFromComponent(componentObj);
             if (msgItem != null) {
                 performRepeat(msgItem);
-                return true; // 静默发包
+                return true; // 成功发包并拦截回复框
             }
         } catch (Throwable t) {
             PLog.e(TAG, "左滑复读异常", t);
         }
 
-        return true;
+        return false; // 若未成功获取消息对象，放行原生逻辑，避免误阻断
     }
 
     /**
-     * 【方案 2 核心：官方原生监听器点击拦截 (完全消除 "d", "h", "X1" 等混淆名)】
+     * 【方案 2 核心：官方原生监听器 a.onClick 点击拦截】
      */
     public static boolean onFollowIconClick(Object listenerObj) {
         if (!isPlusOneModeActive() || listenerObj == null) {
@@ -160,20 +156,12 @@ public class DoubleTapRepeatModule implements IPatchModule {
         }
 
         try {
-            // 1. 按类型查找宿主组件 AIOMsgFollowComponent (不依赖混淆字段名 "d")
             Object component = getFieldByTypeRecursive(listenerObj, "AIOMsgFollowComponent");
-
             if (component != null) {
-                // 2. 按类型查找消息项 AIOMsgItem (不依赖混淆字段名 "h")
-                Object msgItem = getFieldByTypeRecursive(component, "AIOMsgItem");
-                if (msgItem == null) {
-                    // 兜底：查找返回类型为 AIOMsgItem 的无参方法或单参静态方法 (不依赖合成方法 "X1")
-                    msgItem = invokeMethodReturningType(component, "AIOMsgItem");
-                }
-
+                Object msgItem = resolveMsgItemFromComponent(component);
                 if (msgItem != null) {
                     performRepeat(msgItem);
-                    return true; // 拦截成功，阻断官方对图片视频无效的默认意图
+                    return true;
                 }
             }
         } catch (Throwable t) {
@@ -181,6 +169,37 @@ public class DoubleTapRepeatModule implements IPatchModule {
         }
 
         return false;
+    }
+
+    /**
+     * 动态从组件中提取消息数据项（多重保险，自适应超类声明与具体实例）
+     */
+    private static Object resolveMsgItemFromComponent(Object componentObj) {
+        if (componentObj == null) return null;
+
+        // 1. 优先检查已知字段 "i" 或 "h"
+        Object direct = getFieldRecursive(componentObj, "i");
+        if (direct != null && extractMsgRecord(direct) != null) return direct;
+        direct = getFieldRecursive(componentObj, "h");
+        if (direct != null && extractMsgRecord(direct) != null) return direct;
+
+        // 2. 遍历字段，检查运行时实际对象是否包含有效 MsgRecord
+        Class<?> clz = componentObj.getClass();
+        while (clz != null && clz != Object.class) {
+            for (Field f : clz.getDeclaredFields()) {
+                try {
+                    f.setAccessible(true);
+                    Object val = f.get(componentObj);
+                    if (val != null && extractMsgRecord(val) != null) {
+                        return val;
+                    }
+                } catch (Throwable ignored) {}
+            }
+            clz = clz.getSuperclass();
+        }
+
+        // 3. 兜底扫描方法
+        return invokeMethodReturningType(componentObj, "AIOMsgItem");
     }
 
     /**
@@ -307,7 +326,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
         return false;
     }
 
-    private static boolean directSend(Contact contact, MsgRecord record) {
+    private static directSend(Contact contact, MsgRecord record) {
         try {
             IKernelMsgService msgService = getNativeKernelMsgService();
             if (msgService != null) {
@@ -405,7 +424,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
         LinearLayout option2 = createOptionCard(
                 activity, isNight, textColor, subTextColor, cardBgColor,
                 "方案二：气泡旁显示 +1 图标",
-                "在每条消息气泡旁边显示 +1 复读图标",
+                "在每条消息气泡旁边显示官方 +1 复读图标，支持文本/图片/视频一键复读",
                 selectedMode[0] == MODE_PLUS_ONE
         );
         root.addView(option2);
@@ -520,9 +539,21 @@ public class DoubleTapRepeatModule implements IPatchModule {
         return (int) (dp * c.getResources().getDisplayMetrics().density + 0.5f);
     }
 
-    /**
-     * 按 Class 类型自省查找字段 (完全消灭混淆字段名硬编码)
-     */
+    private static Object getFieldRecursive(Object obj, String fieldName) {
+        if (obj == null) return null;
+        Class<?> clz = obj.getClass();
+        while (clz != null && clz != Object.class) {
+            try {
+                Field f = clz.getDeclaredField(fieldName);
+                f.setAccessible(true);
+                return f.get(obj);
+            } catch (NoSuchFieldException ignored) {}
+            catch (Throwable ignored) {}
+            clz = clz.getSuperclass();
+        }
+        return null;
+    }
+
     private static Object getFieldByTypeRecursive(Object obj, String simpleTypeName) {
         if (obj == null) return null;
         Class<?> clz = obj.getClass();
@@ -540,9 +571,6 @@ public class DoubleTapRepeatModule implements IPatchModule {
         return null;
     }
 
-    /**
-     * 按返回类型自省调用无参/单参方法 (完全消灭混淆方法名硬编码)
-     */
     private static Object invokeMethodReturningType(Object obj, String simpleReturnTypeName) {
         if (obj == null) return null;
         Class<?> clz = obj.getClass();
