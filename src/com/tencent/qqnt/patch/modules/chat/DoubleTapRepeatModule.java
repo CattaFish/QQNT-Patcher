@@ -405,7 +405,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
         LinearLayout option2 = createOptionCard(
                 activity, isNight, textColor, subTextColor, cardBgColor,
                 "方案二：气泡旁显示 +1 图标",
-                "在每条消息气泡旁边显示官方 +1 复读图标，支持文本/图片/视频一键复读",
+                "在每条消息气泡旁边显示 +1 复读图标",
                 selectedMode[0] == MODE_PLUS_ONE
         );
         root.addView(option2);
