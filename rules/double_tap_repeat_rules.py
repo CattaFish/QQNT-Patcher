@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-消息复读动态规则引擎
+消息复读动态规则引擎 (全版本自适应零硬编码版)
 - 方案 1 (左滑复读): 拦截 AIOContentLeftSwipeHelper.j 与 AIOLeftSwipeAreaComponent.G1
-- 方案 2 (+1 图标复读): 动态嗅探 AIOMsgItem.N0() 源头唤醒官方图标，接管 a.onClick 支持文本/图片/视频全能复读
+- 方案 2 (+1 图标复读):
+  1. 动态嗅探绑定方法 (I...List)V
+  2. 机器码动态提取 AIOMsgItem.N0() 原型，源头放行官方 +1 图标
+  3. 动态嗅探独立点击监听器类 (零硬编码混淆类名 a)，接管发包
 """
 
 import struct
@@ -20,7 +23,7 @@ def build_double_tap_repeat_rules(dex_data_dict):
     left_swipe_component_cls = "Lcom/tencent/mobileqq/aio/msglist/holder/component/leftswipearea/AIOLeftSwipeAreaComponent;"
     msg_follow_component_cls = "Lcom/tencent/mobileqq/aio/msglist/holder/component/msgfollow/AIOMsgFollowComponent;"
     msg_item_cls = "Lcom/tencent/mobileqq/aio/msg/AIOMsgItem;"
-    follow_click_listener_cls = "Lcom/tencent/mobileqq/aio/msglist/holder/component/msgfollow/a;"
+    msgfollow_pkg_prefix = "Lcom/tencent/mobileqq/aio/msglist/holder/component/msgfollow/"
 
     # ==================== 方案 1: 左滑复读 ====================
     rules.append({
@@ -53,15 +56,17 @@ def build_double_tap_repeat_rules(dex_data_dict):
 """
     })
 
-    # ==================== 方案 2: +1 图标复读 ====================
+    # ==================== 方案 2: 全动态自适应 +1 复读 ====================
     n0_method_name = "N0"
+    follow_click_listener_cls = None
 
-    # 动态探测绑定方法中实际调用的 AIOMsgItem 的方法名
     for _, dex_bytes in dex_data_dict.items():
         if b"AIOMsgFollowComponent" in dex_bytes:
             p = FastDexParser(dex_bytes)
             if not p.valid:
                 continue
+
+            # 1. 动态嗅探组件数据绑定方法及调用的 AIOMsgItem.N0() 方法名
             c_idx = p.find_class_index(msg_follow_component_cls)
             if c_idx != -1:
                 methods = p.get_class_methods(c_idx)
@@ -90,8 +95,28 @@ def build_double_tap_repeat_rules(dex_data_dict):
                                                 break
                                     k += 2
                             break
-            if n0_method_name != "N0":
+
+            # 2. 动态嗅探独立的点击监听器类 (彻底消灭硬编码混淆类名 a)
+            # 特征：位于 msgfollow 包下、非 AIOMsgFollowComponent 本身、包含 onClick(View)V 方法
+            for i in range(p.class_defs_size):
+                class_idx = struct.unpack_from('<I', p.data, p.class_defs_off + i * 32)[0]
+                cls_name = p.get_type_str(class_idx)
+                if (cls_name.startswith(msgfollow_pkg_prefix)
+                        and cls_name != msg_follow_component_cls
+                        and "$followIcon$" not in cls_name):
+                    for m_name, proto_desc, _, _, _ in p.get_class_methods(i):
+                        if m_name == "onClick" and proto_desc == "(Landroid/view/View;)V":
+                            follow_click_listener_cls = cls_name
+                            break
+                if follow_click_listener_cls:
+                    break
+
+            if follow_click_listener_cls and n0_method_name != "N0":
                 break
+
+    # 兜底已知回退符号
+    if not follow_click_listener_cls:
+        follow_click_listener_cls = "Lcom/tencent/mobileqq/aio/msglist/holder/component/msgfollow/a;"
 
     target_n0_method = f"{n0_method_name}()Z"
 
@@ -111,7 +136,7 @@ def build_double_tap_repeat_rules(dex_data_dict):
 """
     })
 
-    # [规则 2.2 原生监听拦截] 接管点击，支持图片、视频、文本全类型复读发包
+    # [规则 2.2 原生监听拦截] 全动态类名拦截，支持文本/图片/视频全类型复读发包
     rules.append({
         "name": f"接管官方+1图标原生点击 ({follow_click_listener_cls}->onClick)",
         "target_class": follow_click_listener_cls,

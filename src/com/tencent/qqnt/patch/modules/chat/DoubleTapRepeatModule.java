@@ -123,7 +123,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
         }
 
         try {
-            Object msgItem = getFieldRecursive(componentObj, "i");
+            Object msgItem = getFieldByTypeRecursive(componentObj, "AIOMsgItem");
             if (msgItem != null) {
                 performRepeat(msgItem);
                 return true; // 静默发包
@@ -136,7 +136,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
     }
 
     /**
-     * 【方案 2 核心：官方原生监听器 a.onClick 点击拦截】
+     * 【方案 2 核心：官方原生监听器点击拦截 (零混淆字段硬编码，按 Class 类型自省查找)】
      */
     public static boolean onFollowIconClick(Object listenerObj) {
         if (!isPlusOneModeActive() || listenerObj == null) {
@@ -144,30 +144,15 @@ public class DoubleTapRepeatModule implements IPatchModule {
         }
 
         try {
-            // 从监听器 a 中提取引用的宿主组件 this$0 (AIOMsgFollowComponent)
-            Object component = getFieldRecursive(listenerObj, "d");
-            if (component == null) {
-                component = getFieldRecursive(listenerObj, "this$0");
-            }
+            // 1. 按类型查找宿主组件 AIOMsgFollowComponent (不依赖混淆字段名 "d")
+            Object component = getFieldByTypeRecursive(listenerObj, "AIOMsgFollowComponent");
 
             if (component != null) {
-                // 从组件中获取持有的当前 AIOMsgItem (字段 h，或通过静态合成方法 X1 获取)
-                Object msgItem = getFieldRecursive(component, "h");
+                // 2. 按类型查找组件持有的消息数据 AIOMsgItem (不依赖混淆字段名 "h" 和合成方法 "X1")
+                Object msgItem = getFieldByTypeRecursive(component, "AIOMsgItem");
                 if (msgItem == null) {
-                    try {
-                        for (Method m : component.getClass().getDeclaredMethods()) {
-                            if (Modifier.isStatic(m.getModifiers()) 
-                                    && m.getParameterTypes().length == 1 
-                                    && m.getParameterTypes()[0] == component.getClass()) {
-                                m.setAccessible(true);
-                                Object res = m.invoke(null, component);
-                                if (res != null) {
-                                    msgItem = res;
-                                    break;
-                                }
-                            }
-                        }
-                    } catch (Throwable ignored) {}
+                    // 兜底：查找返回类型为 AIOMsgItem 的无参方法或合成静态方法
+                    msgItem = invokeMethodReturningType(component, "AIOMsgItem");
                 }
 
                 if (msgItem != null) {
@@ -233,6 +218,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
             if (res instanceof MsgRecord) return (MsgRecord) res;
         } catch (Throwable ignored) {}
 
+        // 按类型严格查找 MsgRecord 字段
         Class<?> clz = obj.getClass();
         while (clz != null && clz != Object.class) {
             for (Field f : clz.getDeclaredFields()) {
@@ -291,7 +277,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
             ArrayList<Contact> dstContacts = new ArrayList<>();
             dstContacts.add(contact);
 
-            Object msgAttrs = getFieldRecursive(record, "msgAttrs");
+            Object msgAttrs = getFieldByTypeRecursive(record, "HashMap");
 
             for (Method m : msgService.getClass().getMethods()) {
                 if ("forwardMsg".equals(m.getName()) && m.getParameterTypes().length == 5) {
@@ -317,7 +303,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
                     if (res instanceof Long) msgId = (Long) res;
                 } catch (Throwable ignored) {}
 
-                Object msgAttrs = getFieldRecursive(record, "msgAttrs");
+                Object msgAttrs = getFieldByTypeRecursive(record, "HashMap");
 
                 for (Method m : msgService.getClass().getMethods()) {
                     if ("sendMsg".equals(m.getName()) && m.getParameterTypes().length >= 4) {
@@ -404,7 +390,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
         LinearLayout option2 = createOptionCard(
                 activity, isNight, textColor, subTextColor, cardBgColor,
                 "方案二：气泡旁显示 +1 图标",
-                "在每条消息气泡旁边显示官方 +1 复读图标",
+                "在每条消息气泡旁边显示 +1 复读图标",
                 selectedMode[0] == MODE_PLUS_ONE
         );
         root.addView(option2);
@@ -519,17 +505,44 @@ public class DoubleTapRepeatModule implements IPatchModule {
         return (int) (dp * c.getResources().getDisplayMetrics().density + 0.5f);
     }
 
-    private static Object getFieldRecursive(Object obj, String fieldName) {
+    /**
+     * 按 Class 类型自省查找字段 (彻底避免混淆字段名硬编码)
+     */
+    private static Object getFieldByTypeRecursive(Object obj, String simpleTypeName) {
         if (obj == null) return null;
         Class<?> clz = obj.getClass();
         while (clz != null && clz != Object.class) {
-            try {
-                Field f = clz.getDeclaredField(fieldName);
-                f.setAccessible(true);
-                return f.get(obj);
-            } catch (NoSuchFieldException ignored) {}
-            catch (Throwable ignored) {}
+            for (Field f : clz.getDeclaredFields()) {
+                if (f.getType().getName().contains(simpleTypeName)) {
+                    try {
+                        f.setAccessible(true);
+                        return f.get(obj);
+                    } catch (Throwable ignored) {}
+                }
+            }
             clz = clz.getSuperclass();
+        }
+        return null;
+    }
+
+    /**
+     * 按返回类型自省调用无参/单参方法 (彻底避免混淆方法名硬编码)
+     */
+    private static Object invokeMethodReturningType(Object obj, String simpleReturnTypeName) {
+        if (obj == null) return null;
+        Class<?> clz = obj.getClass();
+        for (Method m : clz.getDeclaredMethods()) {
+            if (m.getReturnType().getName().contains(simpleReturnTypeName)) {
+                try {
+                    m.setAccessible(true);
+                    if (m.getParameterTypes().length == 0) {
+                        return m.invoke(obj);
+                    } else if (m.getParameterTypes().length == 1 && Modifier.isStatic(m.getModifiers())
+                            && m.getParameterTypes()[0] == clz) {
+                        return m.invoke(null, obj);
+                    }
+                } catch (Throwable ignored) {}
+            }
         }
         return null;
     }
