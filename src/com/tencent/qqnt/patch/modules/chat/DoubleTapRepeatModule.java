@@ -134,7 +134,6 @@ public class DoubleTapRepeatModule implements IPatchModule {
         }
 
         try {
-            // 健壮查找：按实际运行时能够解析出 MsgRecord 的对象匹配
             Object msgItem = resolveMsgItemFromComponent(componentObj);
             if (msgItem != null) {
                 performRepeat(msgItem);
@@ -144,7 +143,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
             PLog.e(TAG, "左滑复读异常", t);
         }
 
-        return false; // 若未成功获取消息对象，放行原生逻辑，避免误阻断
+        return false;
     }
 
     /**
@@ -326,7 +325,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
         return false;
     }
 
-    private static directSend(Contact contact, MsgRecord record) {
+    private static boolean directSend(Contact contact, MsgRecord record) {
         try {
             IKernelMsgService msgService = getNativeKernelMsgService();
             if (msgService != null) {
@@ -424,7 +423,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
         LinearLayout option2 = createOptionCard(
                 activity, isNight, textColor, subTextColor, cardBgColor,
                 "方案二：气泡旁显示 +1 图标",
-                "在每条消息气泡旁边显示官方 +1 复读图标，支持文本/图片/视频一键复读",
+                "在每条消息气泡旁边显示 +1 复读图标",
                 selectedMode[0] == MODE_PLUS_ONE
         );
         root.addView(option2);
