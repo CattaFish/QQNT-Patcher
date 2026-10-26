@@ -9,6 +9,7 @@ import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.modules.chat.AutoRemarkApkModule;
+import com.tencent.qqnt.patch.modules.chat.DoubleTapRepeatModule;
 import com.tencent.qqnt.patch.modules.chat.ShowDownloadTimesModule;
 import com.tencent.qqnt.patch.modules.purify.AtAllNotifyBlockModule;
 import com.tencent.qqnt.patch.modules.purify.BrowserMitigationModule;
@@ -20,13 +21,28 @@ import java.util.List;
 
 public class PatchBridge {
 
-    // 线程安全的文件项上下文，避免深层字节码中入参寄存器被覆盖的问题
     private static final ThreadLocal<Object> sCurrentFileItem = new ThreadLocal<>();
 
     public static void setCurrentFileItem(Object fileItem) {
         sCurrentFileItem.set(fileItem);
     }
+    
+    public static boolean isSwipeRepeatEnabled() {
+        return DoubleTapRepeatModule.isSwipeModeActive();
+    }
 
+    public static boolean isPlusOneModeActive() {
+        return DoubleTapRepeatModule.isPlusOneModeActive();
+    }
+
+    public static boolean onLeftSwipeTrigger(Object componentObj, int scrollX) {
+        return DoubleTapRepeatModule.onLeftSwipeTrigger(componentObj, scrollX);
+    }
+
+    public static boolean onFollowIconClick(Object listenerObj) {
+        return DoubleTapRepeatModule.onFollowIconClick(listenerObj);
+    }
+    
     public static boolean isDisableUpgradeEnabled() {
         return ConfigManager.isModuleEnabled("disable_upgrade", false);
     }

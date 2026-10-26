@@ -16,6 +16,7 @@ public class MsgRecord {
     public long senderUin;
     public String sendMemberName;
     public String sendNickName;
+    public String guildId;
     public String guildName;
     public ArrayList<MsgElement> elements;
     public byte[] extInfoForUI;

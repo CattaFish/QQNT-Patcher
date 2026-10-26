@@ -37,6 +37,7 @@ public class ModuleManager {
         MOD_TO_FEATURE.put("browser_mitigation", "browser");
         MOD_TO_FEATURE.put("disable_upgrade", "disable_upgrade");
         MOD_TO_FEATURE.put("qq_version", "qq_version");
+        MOD_TO_FEATURE.put("double_tap_repeat", "double_tap_repeat");
     }
 
     static {
@@ -54,6 +55,7 @@ public class ModuleManager {
         register(new BrowserMitigationModule());
         register(new DisableUpgradeModule());
         register(new QQVersionModule());
+        register(new DoubleTapRepeatModule());
     }
 
     public static void register(IPatchModule module) {

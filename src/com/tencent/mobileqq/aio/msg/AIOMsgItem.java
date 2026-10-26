@@ -13,4 +13,8 @@ public class AIOMsgItem {
     public MsgRecord getMsgRecord() {
         return msgRecord;
     }
+
+    public long getMsgId() {
+        return msgRecord != null ? msgRecord.msgId : 0L;
+    }
 }

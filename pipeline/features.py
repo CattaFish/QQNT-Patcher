@@ -29,6 +29,7 @@ ALL_FEATURES = {
     "floating_ball": "会话悬浮球快捷入口",
     "chat_history": "查看本地聊天记录 (私聊/群聊)",
     "qq_version": "发送者 QQ 版本识别",
+    "double_tap_repeat": "双击消息复读",
 }
 
 FEATURE_ALIASES = {
@@ -75,6 +76,11 @@ FEATURE_ALIASES = {
     "聊天记录": "chat_history", "历史记录": "chat_history",
     # qq_version
     "qq_version": "qq_version", "version": "qq_version", "版本": "qq_version", "qq版本": "qq_version",
+    # double_tap_repeat
+    "double_tap_repeat": "double_tap_repeat",
+    "repeat": "double_tap_repeat",
+    "复读": "double_tap_repeat",
+    "左滑复读": "double_tap_repeat",
 }
 
 BUS_DEPENDENCIES = {

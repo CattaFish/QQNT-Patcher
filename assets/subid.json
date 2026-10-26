@@ -1,4 +1,11 @@
 {
+  "537403594": {
+    "summary": "QQ(Mac) 7.0.3.54276",
+    "platform": "macOS",
+    "version": "7.0.3.54276",
+    "date": "2026-10-23",
+    "channel": "官方"
+  },
   "537403582": {
     "summary": "QQ(Win-Arm) 9.9.37.54276",
     "platform": "Windows",
@@ -23,6 +30,21 @@
     "date": "2026-10-23",
     "channel": "官方"
   },
+  "537399663": {
+    "summary": "QQ(Pad) 9.3.80.42670",
+    "platform": "Android",
+    "version": "9.3.80.42670",
+    "arch": "Pad",
+    "date": "2026-10-23",
+    "channel": "官方"
+  },
+  "537399652": {
+    "summary": "QQ 9.3.80.42670",
+    "platform": "Android",
+    "version": "9.3.80.42670",
+    "date": "2026-10-23",
+    "channel": "官方"
+  },
   "537397831": {
     "summary": "QQ(Pad) 9.3.75.42350",
     "platform": "Android",
@@ -30,6 +52,14 @@
     "arch": "Pad",
     "date": "2026-10-19",
     "channel": "应用汇"
+  },
+  "537397827": {
+    "summary": "QQ(Pad) 9.3.75.42350",
+    "platform": "Android",
+    "version": "9.3.75.42350",
+    "arch": "Pad",
+    "date": "2026-10-24",
+    "channel": "百度"
   },
   "537397826": {
     "summary": "QQ(Pad) 9.3.75.42350",
@@ -111,6 +141,13 @@
     "version": "9.3.75.42350",
     "date": "2026-10-19",
     "channel": "应用汇"
+  },
+  "537397788": {
+    "summary": "QQ 9.3.75.42350",
+    "platform": "Android",
+    "version": "9.3.75.42350",
+    "date": "2026-10-24",
+    "channel": "百度"
   },
   "537397787": {
     "summary": "QQ 9.3.75.42350",
@@ -320,6 +357,14 @@
     "arch": "LoongArch",
     "date": "2026-09-23"
   },
+  "537391665": {
+    "summary": "QQ(Linux-Arm) 3.2.34.53644",
+    "platform": "Linux",
+    "version": "3.2.34.53644",
+    "arch": "Arm",
+    "date": "2026-09-23",
+    "channel": "官方"
+  },
   "537391664": {
     "summary": "QQ(Linux) 3.2.34.53644",
     "platform": "Linux",
@@ -329,7 +374,9 @@
       "DEB",
       "APPIMAGE"
     ],
-    "date": "2026-09-23"
+    "date": "2026-09-23",
+    "arch": "X64",
+    "channel": "官方"
   },
   "537391652": {
     "summary": "QQ(Mac) 7.0.2.53644",
