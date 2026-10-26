@@ -90,23 +90,38 @@ public class DoubleTapRepeatModule implements IPatchModule {
         return items;
     }
 
+    /**
+     * 动态读取官方左滑阈值 (完全消除对方法名 "c" 的硬编码)
+     */
     private static int getOfficialSwipeThreshold() {
         try {
             Class<?> constClz = Class.forName("com.tencent.mobileqq.aio.msglist.holder.component.leftswipearea.LeftSwipeConstants");
-            Field instField = constClz.getDeclaredField("a");
-            instField.setAccessible(true);
-            Object inst = instField.get(null);
-            Method cMethod = constClz.getDeclaredMethod("c");
-            cMethod.setAccessible(true);
-            return (Integer) cMethod.invoke(inst);
-        } catch (Throwable t) {
-            Context ctx = AppContext.get();
-            if (ctx != null) {
-                float density = ctx.getResources().getDisplayMetrics().density;
-                return (int) (40f * density + 0.5f);
+            Object inst = null;
+            for (Field f : constClz.getDeclaredFields()) {
+                if (Modifier.isStatic(f.getModifiers()) && f.getType() == constClz) {
+                    f.setAccessible(true);
+                    inst = f.get(null);
+                    break;
+                }
             }
-            return 80;
+
+            if (inst != null) {
+                for (Method m : constClz.getDeclaredMethods()) {
+                    if (m.getParameterTypes().length == 0 && m.getReturnType() == int.class) {
+                        m.setAccessible(true);
+                        return (Integer) m.invoke(inst);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        // 安全兜底
+        Context ctx = AppContext.get();
+        if (ctx != null) {
+            float density = ctx.getResources().getDisplayMetrics().density;
+            return (int) (40f * density + 0.5f);
         }
+        return 80;
     }
 
     /**
@@ -123,6 +138,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
         }
 
         try {
+            // 按类型自省查找 AIOMsgItem (不依赖混淆字段名 "i")
             Object msgItem = getFieldByTypeRecursive(componentObj, "AIOMsgItem");
             if (msgItem != null) {
                 performRepeat(msgItem);
@@ -136,7 +152,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
     }
 
     /**
-     * 【方案 2 核心：官方原生监听器点击拦截 (零混淆字段硬编码，按 Class 类型自省查找)】
+     * 【方案 2 核心：官方原生监听器点击拦截 (完全消除 "d", "h", "X1" 等混淆名)】
      */
     public static boolean onFollowIconClick(Object listenerObj) {
         if (!isPlusOneModeActive() || listenerObj == null) {
@@ -148,16 +164,16 @@ public class DoubleTapRepeatModule implements IPatchModule {
             Object component = getFieldByTypeRecursive(listenerObj, "AIOMsgFollowComponent");
 
             if (component != null) {
-                // 2. 按类型查找组件持有的消息数据 AIOMsgItem (不依赖混淆字段名 "h" 和合成方法 "X1")
+                // 2. 按类型查找消息项 AIOMsgItem (不依赖混淆字段名 "h")
                 Object msgItem = getFieldByTypeRecursive(component, "AIOMsgItem");
                 if (msgItem == null) {
-                    // 兜底：查找返回类型为 AIOMsgItem 的无参方法或合成静态方法
+                    // 兜底：查找返回类型为 AIOMsgItem 的无参方法或单参静态方法 (不依赖合成方法 "X1")
                     msgItem = invokeMethodReturningType(component, "AIOMsgItem");
                 }
 
                 if (msgItem != null) {
                     performRepeat(msgItem);
-                    return true; // 拦截成功，阻断官方对图片视频无效的默认逻辑
+                    return true; // 拦截成功，阻断官方对图片视频无效的默认意图
                 }
             }
         } catch (Throwable t) {
@@ -218,7 +234,6 @@ public class DoubleTapRepeatModule implements IPatchModule {
             if (res instanceof MsgRecord) return (MsgRecord) res;
         } catch (Throwable ignored) {}
 
-        // 按类型严格查找 MsgRecord 字段
         Class<?> clz = obj.getClass();
         while (clz != null && clz != Object.class) {
             for (Field f : clz.getDeclaredFields()) {
@@ -390,7 +405,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
         LinearLayout option2 = createOptionCard(
                 activity, isNight, textColor, subTextColor, cardBgColor,
                 "方案二：气泡旁显示 +1 图标",
-                "在每条消息气泡旁边显示 +1 复读图标",
+                "在每条消息气泡旁边显示官方 +1 复读图标，支持文本/图片/视频一键复读",
                 selectedMode[0] == MODE_PLUS_ONE
         );
         root.addView(option2);
@@ -506,7 +521,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
     }
 
     /**
-     * 按 Class 类型自省查找字段 (彻底避免混淆字段名硬编码)
+     * 按 Class 类型自省查找字段 (完全消灭混淆字段名硬编码)
      */
     private static Object getFieldByTypeRecursive(Object obj, String simpleTypeName) {
         if (obj == null) return null;
@@ -526,7 +541,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
     }
 
     /**
-     * 按返回类型自省调用无参/单参方法 (彻底避免混淆方法名硬编码)
+     * 按返回类型自省调用无参/单参方法 (完全消灭混淆方法名硬编码)
      */
     private static Object invokeMethodReturningType(Object obj, String simpleReturnTypeName) {
         if (obj == null) return null;
