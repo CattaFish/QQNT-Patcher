@@ -27,6 +27,10 @@ public class PatchBridge {
         sCurrentFileItem.set(fileItem);
     }
     
+    public static boolean isUnlockSwipeReplyEnabled() {
+        return ConfigManager.isModuleEnabled("unlock_swipe_reply", false);
+    }
+    
     public static boolean isSwipeRepeatEnabled() {
         return DoubleTapRepeatModule.isSwipeModeActive();
     }

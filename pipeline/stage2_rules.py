@@ -193,6 +193,7 @@ def is_rule_active(rule: dict, plugin_id: str, active_features: set) -> bool:
         "tg_stickers": "tg_stickers",
         "disable_upgrade": "disable_upgrade",
         "double_tap_repeat": "double_tap_repeat",
+        "unlock_swipe_reply": "unlock_swipe_reply",
     }
     feature_id = id_map.get(plugin_id, plugin_id)
     return feature_id in active_features

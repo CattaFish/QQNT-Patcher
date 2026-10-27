@@ -30,6 +30,7 @@ ALL_FEATURES = {
     "chat_history": "查看本地聊天记录 (私聊/群聊)",
     "qq_version": "发送者 QQ 版本识别",
     "double_tap_repeat": "双击消息复读",
+    "unlock_swipe_reply": "解除左滑回复限制",
 }
 
 FEATURE_ALIASES = {
@@ -81,6 +82,14 @@ FEATURE_ALIASES = {
     "repeat": "double_tap_repeat",
     "复读": "double_tap_repeat",
     "左滑复读": "double_tap_repeat",
+    
+    # unlock_swipe_reply
+    "unlock_swipe_reply": "unlock_swipe_reply",
+    "unlock_swipe": "unlock_swipe_reply",
+    "左滑回复": "unlock_swipe_reply",
+    "解除左滑回复": "unlock_swipe_reply",
+    "回复限制": "unlock_swipe_reply",
+    "swipe_reply": "unlock_swipe_reply",
 }
 
 BUS_DEPENDENCIES = {
