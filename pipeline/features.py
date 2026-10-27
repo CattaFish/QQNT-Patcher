@@ -29,7 +29,7 @@ ALL_FEATURES = {
     "floating_ball": "会话悬浮球快捷入口",
     "chat_history": "查看本地聊天记录 (私聊/群聊)",
     "qq_version": "发送者 QQ 版本识别",
-    "double_tap_repeat": "双击消息复读",
+    "double_tap_repeat": "消息复读 (左滑/+1)",
     "unlock_swipe_reply": "解除左滑回复限制",
 }
 
@@ -81,7 +81,13 @@ FEATURE_ALIASES = {
     "double_tap_repeat": "double_tap_repeat",
     "repeat": "double_tap_repeat",
     "复读": "double_tap_repeat",
+    "消息复读": "double_tap_repeat",      # ← 新增准确别名
+    "快捷复读": "double_tap_repeat",      # ← 新增准确别名
     "左滑复读": "double_tap_repeat",
+    "+1": "double_tap_repeat",           # ← 新增 +1 别名
+    "+1复读": "double_tap_repeat",
+    "双击": "double_tap_repeat",          # 保留旧习惯兼容
+    "双击复读": "double_tap_repeat",
     
     # unlock_swipe_reply
     "unlock_swipe_reply": "unlock_swipe_reply",
