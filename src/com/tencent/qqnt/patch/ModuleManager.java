@@ -40,6 +40,7 @@ public class ModuleManager {
         MOD_TO_FEATURE.put("double_tap_repeat", "double_tap_repeat");
         MOD_TO_FEATURE.put("unlock_swipe_reply", "unlock_swipe_reply");
         MOD_TO_FEATURE.put("records_reply_check", "records_reply_check");
+        MOD_TO_FEATURE.put("remove_reply_at", "remove_reply_at");
     }
 
     static {
@@ -60,6 +61,7 @@ public class ModuleManager {
         register(new DoubleTapRepeatModule());
         register(new UnlockSwipeReplyModule());
         register(new RecordsReplyCheckModule());
+        register(new RemoveReplyAtModule());
     }
 
     public static void register(IPatchModule module) {

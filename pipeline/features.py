@@ -32,6 +32,7 @@ ALL_FEATURES = {
     "double_tap_repeat": "消息复读 (左滑/+1)",
     "unlock_swipe_reply": "解除左滑回复限制",
     "records_reply_check": "查看聊天记录回复图片",
+    "remove_reply_at": "去除回复自动艾特",
 }
 
 FEATURE_ALIASES = {
@@ -105,6 +106,15 @@ FEATURE_ALIASES = {
     "聊天记录回复": "records_reply_check",
     "回复图片": "records_reply_check",
     "合并转发回复": "records_reply_check",
+    
+    # remove_reply_at
+    "remove_reply_at": "remove_reply_at",
+    "no_reply_at": "remove_reply_at",
+    "去除回复艾特": "remove_reply_at",
+    "去除回复@": "remove_reply_at",
+    "去除回复自动艾特": "remove_reply_at",
+    "回复不艾特": "remove_reply_at",
+    "去艾特": "remove_reply_at",
 }
 
 BUS_DEPENDENCIES = {

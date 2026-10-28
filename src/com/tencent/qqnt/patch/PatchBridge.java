@@ -68,21 +68,9 @@ public class PatchBridge {
             BrowserMitigationModule.handleWebSecurityCallback((android.os.Bundle) bundleObj);
         }
     }
-
-    public static boolean isInMultiWindowMode(Object activityObj) {
-        if (isDisableSplitScreenLimit()) {
-            return false;
-        }
-        if (activityObj instanceof Activity && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            return ((Activity) activityObj).isInMultiWindowMode();
-        }
-        if (activityObj != null) {
-            try {
-                java.lang.reflect.Method m = activityObj.getClass().getMethod("isInMultiWindowMode");
-                return (Boolean) m.invoke(activityObj);
-            } catch (Throwable ignored) {}
-        }
-        return false;
+    
+    public static boolean isRemoveReplyAtEnabled() {
+        return com.tencent.qqnt.patch.modules.chat.RemoveReplyAtModule.isModuleActive();
     }
 
     public static boolean shouldDropTroopToDo() {
