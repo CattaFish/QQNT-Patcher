@@ -279,7 +279,7 @@ public class ZzzSettingFragment {
                 if (!funcItems.isEmpty()) {
                     String headerTitle = "功能列表";
                     if (IPatchModule.CATEGORY_CHAT.equals(category)) headerTitle = "聊天功能";
-                    else if (IPatchModule.CATEGORY_PURIFY.equals(category)) headerTitle = "净化与穿透";
+                    else if (IPatchModule.CATEGORY_PURIFY.equals(category)) headerTitle = "净化功能";
                     pendingGroups.add(new GroupData(headerTitle, funcItems));
                 }
 

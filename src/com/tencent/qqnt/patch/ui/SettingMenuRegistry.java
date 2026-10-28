@@ -55,7 +55,7 @@ public class SettingMenuRegistry {
 
         register(new SettingItem() {
             @Override public String getCategory() { return IPatchModule.CATEGORY_ADVANCED; }
-            @Override public String getGroupName() { return "调试与诊断"; }
+            @Override public String getGroupName() { return "调试"; }
             @Override public String getTitle() { return "调试日志输出 (Logcat)"; }
             @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
                 return NativeSettingHelper.createSwitch(
@@ -70,7 +70,7 @@ public class SettingMenuRegistry {
 
         register(new SettingItem() {
             @Override public String getCategory() { return IPatchModule.CATEGORY_ADVANCED; }
-            @Override public String getGroupName() { return "调试与诊断"; }
+            @Override public String getGroupName() { return "调试"; }
             @Override public String getTitle() { return "实时运行日志"; }
             @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
                 return NativeSettingHelper.createClickable(
