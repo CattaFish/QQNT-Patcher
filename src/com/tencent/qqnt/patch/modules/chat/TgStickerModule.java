@@ -31,9 +31,13 @@ import com.tencent.qqnt.patch.util.ToastHelper;
 import me.yxp.qfun.utils.ui.ThemeHelper;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -61,14 +65,19 @@ public class TgStickerModule implements IPatchModule {
 
     @Override public String getId() { return "tg_stickers"; }
     @Override public String getName() { return "Telegram 表情包集"; }
+
     @Override public String getSubName() {
         if (!isEnabled()) {
             return "加载 /zzz/stickers/ 目录下的外部表情包";
         }
+        int orphanCount = getOrphanImages().size();
+        if (orphanCount > 0) {
+            return "检测到 " + orphanCount + " 张图片未放入子文件夹，无法识别";
+        }
         int count = sPanelMap.size();
         String summary = "已加载 " + count + " 个表情包 (" + getPanelColumns() + "列)";
         if (isRemoveQQEmoticons() || isRemoveQQMisc()) {
-            summary += " · 净化中";
+            summary += "，已开启净化";
         }
         return summary;
     }
@@ -84,6 +93,50 @@ public class TgStickerModule implements IPatchModule {
                 v -> onConfigClick(activity, onRefresh)
         ));
         return items;
+    }
+
+    public static List<File> getOrphanImages() {
+        File baseDir = getStickerBaseDir();
+        if (!baseDir.exists() || !baseDir.isDirectory()) return Collections.emptyList();
+        File[] files = baseDir.listFiles();
+        if (files == null) return Collections.emptyList();
+
+        List<File> orphans = new ArrayList<>();
+        for (File f : files) {
+            if (f.isFile() && !f.getName().startsWith(".")) {
+                String name = f.getName().toLowerCase();
+                int dotIdx = name.lastIndexOf(".");
+                if (dotIdx != -1 && ALLOWED_EXTS.contains(name.substring(dotIdx))) {
+                    orphans.add(f);
+                }
+            }
+        }
+        return orphans;
+    }
+
+    public static int autoCollectOrphanImages() {
+        List<File> orphans = getOrphanImages();
+        if (orphans.isEmpty()) return 0;
+
+        File baseDir = getStickerBaseDir();
+        File targetDir = new File(baseDir, "默认表情包");
+        int suffix = 1;
+        while (targetDir.exists() && !targetDir.isDirectory()) {
+            targetDir = new File(baseDir, "默认表情包_" + suffix);
+            suffix++;
+        }
+        if (!targetDir.exists()) {
+            targetDir.mkdirs();
+        }
+
+        int successCount = 0;
+        for (File img : orphans) {
+            File dest = new File(targetDir, img.getName());
+            if (img.renameTo(dest)) {
+                successCount++;
+            }
+        }
+        return successCount;
     }
 
     @Override
@@ -124,17 +177,76 @@ public class TgStickerModule implements IPatchModule {
 
         List<StickerPanel> currentPanels = getPanels();
         final String stickerPath = getStickerBaseDir().getAbsolutePath();
+
         TextView statusDesc = new TextView(activity);
         statusDesc.setTextSize(12);
-        statusDesc.setText("[路径] " + stickerPath + " (点击复制)\n[状态] 当前识别 " + currentPanels.size() + " 个表情包 (支持 PNG/JPG/WebP/GIF)");
         statusDesc.setTextColor(Color.parseColor("#34C759"));
         statusDesc.setLineSpacing(dp2px(activity, 2f), 1f);
-        statusDesc.setPadding(dp2px(activity, 4f), 0, dp2px(activity, 4f), dp2px(activity, 12f));
+        statusDesc.setPadding(dp2px(activity, 4f), 0, dp2px(activity, 4f), dp2px(activity, 10f));
+        statusDesc.setText("[存储路径] " + stickerPath + " (点击复制)\n"
+                + "[目录规范] stickers/表情包名称/图片文件\n"
+                + "[当前状态] 已识别 " + currentPanels.size() + " 个表情包");
         statusDesc.setOnClickListener(v -> {
             copyToClipboard(activity, stickerPath);
-            ToastHelper.show(activity, "已复制表情包路径");
+            ToastHelper.show(activity, "已复制路径");
         });
         root.addView(statusDesc);
+
+        final List<File> orphanImages = getOrphanImages();
+        if (!orphanImages.isEmpty()) {
+            LinearLayout warnCard = new LinearLayout(activity);
+            warnCard.setOrientation(LinearLayout.VERTICAL);
+            warnCard.setPadding(dp2px(activity, 12f), dp2px(activity, 10f), dp2px(activity, 12f), dp2px(activity, 10f));
+
+            GradientDrawable warnBg = new GradientDrawable();
+            warnBg.setColor(isNight ? Color.parseColor("#2E2415") : Color.parseColor("#FFFBE6"));
+            warnBg.setCornerRadius(dp2px(activity, 10f));
+            warnBg.setStroke(dp2px(activity, 1f), isNight ? Color.parseColor("#59421A") : Color.parseColor("#FFE58F"));
+            warnCard.setBackground(warnBg);
+
+            LinearLayout.LayoutParams warnLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            warnLp.bottomMargin = dp2px(activity, 12f);
+            warnCard.setLayoutParams(warnLp);
+
+            TextView tvWarnTitle = new TextView(activity);
+            tvWarnTitle.setText("发现 " + orphanImages.size() + " 张图片未放入子文件夹");
+            tvWarnTitle.setTextSize(13);
+            tvWarnTitle.getPaint().setFakeBoldText(true);
+            tvWarnTitle.setTextColor(isNight ? Color.parseColor("#E6A23C") : Color.parseColor("#D46B08"));
+            warnCard.addView(tvWarnTitle);
+
+            TextView tvWarnDesc = new TextView(activity);
+            tvWarnDesc.setText("直接位于 stickers 根目录的图片无法被识别。每个表情包需要作为一个独立的子文件夹存放。");
+            tvWarnDesc.setTextSize(11);
+            tvWarnDesc.setTextColor(subTextColor);
+            tvWarnDesc.setPadding(0, dp2px(activity, 3f), 0, dp2px(activity, 8f));
+            warnCard.addView(tvWarnDesc);
+
+            Button btnAutoFix = new Button(activity);
+            btnAutoFix.setText("移动至「默认表情包」文件夹");
+            btnAutoFix.setTextSize(13);
+            btnAutoFix.setTextColor(Color.WHITE);
+            btnAutoFix.setAllCaps(false);
+
+            GradientDrawable fixBg = new GradientDrawable();
+            fixBg.setColor(Color.parseColor("#FA8C16"));
+            fixBg.setCornerRadius(dp2px(activity, 8f));
+            btnAutoFix.setBackground(fixBg);
+
+            LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(activity, 36f));
+            btnAutoFix.setLayoutParams(btnLp);
+            btnAutoFix.setOnClickListener(v -> {
+                int moved = autoCollectOrphanImages();
+                sLastScanTime = 0L;
+                sPanelMap.clear();
+                dialog.dismiss();
+                ToastHelper.show(activity, "已将 " + moved + " 张图片移动至「默认表情包」");
+                if (onSaved != null) onSaved.run();
+            });
+            warnCard.addView(btnAutoFix);
+
+            root.addView(warnCard);
+        }
 
         final int[] tempColumns = new int[]{ getPanelColumns() };
         final boolean[] tempRemoveEmoticons = new boolean[]{ isRemoveQQEmoticons() };
@@ -148,8 +260,8 @@ public class TgStickerModule implements IPatchModule {
 
         View switchRowA = createCapsuleSwitchRow(
                 activity, isNight, textColor, subTextColor,
-                "移除 QQ 商店表情",
-                "隐藏官方商城下载的大表情，仅保留外部贴纸",
+                "移除商城表情",
+                "隐藏官方商城下载的表情，仅保留外部贴纸",
                 tempRemoveEmoticons[0],
                 checked -> tempRemoveEmoticons[0] = checked
         );
@@ -157,8 +269,8 @@ public class TgStickerModule implements IPatchModule {
 
         View switchRowB = createCapsuleSwitchRow(
                 activity, isNight, textColor, subTextColor,
-                "移除 QQ 杂项入口",
-                "隐藏表情商城加号、GIF热图、动效推广等杂项",
+                "移除杂项入口",
+                "隐藏GIF热图、动效推广等杂项",
                 tempRemoveMisc[0],
                 checked -> tempRemoveMisc[0] = checked
         );
@@ -199,7 +311,7 @@ public class TgStickerModule implements IPatchModule {
             sLastScanTime = 0L;
             sPanelMap.clear();
             dialog.dismiss();
-            ToastHelper.show(activity, "已保存配置 (当前设定: " + tempColumns[0] + "列)");
+            ToastHelper.show(activity, "已保存配置 (" + tempColumns[0] + "列)");
             if (onSaved != null) onSaved.run();
         });
         btnRow.addView(saveBtn, saveLp);
@@ -282,7 +394,7 @@ public class TgStickerModule implements IPatchModule {
 
         Runnable updateDisplay = () -> {
             tvVal.setText(tempColumns[0] + " 列");
-            tvDesc.setText("每行排列 " + tempColumns[0] + " 个表情 (范围: 3 ~ 8 列)");
+            tvDesc.setText("每行排列 " + tempColumns[0] + " 个表情 (范围: 3 - 8 列)");
         };
 
         btnMinus.setOnClickListener(v -> {
@@ -463,6 +575,32 @@ public class TgStickerModule implements IPatchModule {
             File noMedia = new File(baseDir, ".nomedia");
             if (!noMedia.exists()) {
                 noMedia.createNewFile();
+            }
+
+            File readme = new File(baseDir, "使用说明.txt");
+            if (!readme.exists()) {
+                try (FileOutputStream fos = new FileOutputStream(readme);
+                     OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
+                    osw.write("Telegram 表情包存放规范说明：\n"
+                            + "请勿直接将图片放置于 stickers 根目录下。\n"
+                            + "每个表情包需单独创建一个子文件夹，并将图片放入对应的子文件夹中。\n\n"
+                            + "目录结构示例：\n"
+                            + "stickers/\n"
+                            + "  ├── 示例表情包/\n"
+                            + "  │     ├── __cover__.png (可选封面)\n"
+                            + "  │     ├── 01.png\n"
+                            + "  │     └── 02.webp\n"
+                            + "  └── 另一个表情包/\n"
+                            + "        ├── a.gif\n"
+                            + "        └── b.jpg\n");
+                    osw.flush();
+                }
+            }
+
+            File sampleDir = new File(baseDir, "示例表情包");
+            File[] subs = baseDir.listFiles(File::isDirectory);
+            if (subs == null || subs.length == 0) {
+                sampleDir.mkdirs();
             }
         } catch (Throwable t) {
             PLog.w(TAG, "创建表情包目录异常: " + t.getMessage());

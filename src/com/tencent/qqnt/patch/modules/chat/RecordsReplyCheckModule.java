@@ -21,7 +21,7 @@ public class RecordsReplyCheckModule implements IPatchModule {
 
     @Override
     public String getSubName() {
-        return "强制查看合并转发或聊天记录回复中包含的图片消息";
+        return "强制查看聊天记录回复中包含的图片消息";
     }
 
     @Override
