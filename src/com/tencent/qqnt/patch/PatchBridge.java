@@ -127,8 +127,8 @@ public class PatchBridge {
     // =========================================================================
     // 语音转发桥梁
     // =========================================================================
-    public static List injectPttMenu(List menuList, Object component) {
-        return com.tencent.qqnt.patch.modules.chat.ForwardPttModule.injectPttMenu(menuList, component);
+    public static List injectPttMenu(List menuList, Object component, String forwardItemClassName) {
+        return com.tencent.qqnt.patch.modules.chat.ForwardPttModule.injectPttMenu(menuList, component, forwardItemClassName);
     }
 
     public static void onStartForwardMsg(Object aioMsgItem) {

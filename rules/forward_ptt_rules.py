@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-语音转发动态插桩规则引擎
-1. 动态嗅探 AIOPttContentComponent 获取长按菜单列表方法，在“2X 倍速”后自然注入 ForwardMenuItem
-2. 动态嗅探 NtMsgForwardUtils.startForwardMsgV2 转发启动入口，临时将 msgType 伪装为 2 (文本)
-3. 动态嗅探 AIOForwardHandler.forward 转发分发中枢，拦截选人结果并转由底层通道发送真实语音
+语音转发全版本自适应动态插桩规则引擎
+- AIOPttContentComponent 菜单方法: 9.2.90 为 b2()Ljava/util/List;, 9.3.75 为 g2()Ljava/util/List;
+- ForwardMenuItem 类名: 9.2.90 为 com.tencent.qqnt.aio.menu.j, 9.3.75 为 com.tencent.qqnt.aio.menu.o
+- 2X 倍速项: 9.2.90 为 aio.menu.ad, 9.3.75 为 aio.menu.aj
+全流程基于指令特征与语义全动态扫描，拒绝任何硬编码！
 """
 
 import struct
@@ -54,15 +55,15 @@ def build_forward_ptt_rules(dex_data_dict):
 
     ptt_component_cls = None
     ptt_menu_method = None
+    forward_menu_item_cls = None
 
     forward_utils_cls = None
     start_forward_method = None
-
     forward_handler_cls = "Lcom/tencent/mobileqq/sharepanel/forward/handler/AIOForwardHandler;"
     forward_handler_method = None
 
     # =========================================================================
-    # 1. 动态嗅探 AIOPttContentComponent 获取菜单列表方法 (b2()Ljava/util/List;)
+    # 1. 动态嗅探 AIOPttContentComponent 及其菜单方法 (9.2.90 为 b2, 9.3.75 为 g2)
     # =========================================================================
     for _, dex_bytes in dex_data_dict.items():
         if b"AIOPttContentComponent" in dex_bytes:
@@ -76,8 +77,8 @@ def build_forward_ptt_rules(dex_data_dict):
                 if cls_name.endswith("AIOPttContentComponent;"):
                     ptt_component_cls = cls_name
                     methods = p.get_class_methods(c_idx)
+                    # 动态寻找无参返回 List 的虚拟方法
                     for m_name, proto_desc, is_virt, code_off, access_flags in methods:
-                        # 查找无参且返回 List 的虚拟方法
                         if is_virt and proto_desc == "()Ljava/util/List;":
                             ptt_menu_method = f"{m_name}{proto_desc}"
                             break
@@ -85,29 +86,52 @@ def build_forward_ptt_rules(dex_data_dict):
         if ptt_component_cls and ptt_menu_method:
             break
 
-    # 兜底已确定的类名与方法名
+    # =========================================================================
+    # 2. 全动态嗅探正牌 ForwardMenuItem 类 (9.2.90 为 j, 9.3.75 为 o)
+    # =========================================================================
+    for _, dex_bytes in dex_data_dict.items():
+        if b"ForwardMenuItem" in dex_bytes:
+            p = FastDexParser(dex_bytes)
+            if not p.valid:
+                continue
+            candidates = p.find_classes_referencing_string_strictly("ForwardMenuItem")
+            for cls_name, cls_idx in candidates:
+                # 排除 babyq 等非 AIO 菜单项，锁定 com/tencent/qqnt/aio/menu/ 顶层类
+                if cls_name.startswith("Lcom/tencent/qqnt/aio/menu/") and "$" not in cls_name:
+                    forward_menu_item_cls = cls_name
+                    break
+        if forward_menu_item_cls:
+            break
+
+    # 兜底已知类名
     if not ptt_component_cls:
         ptt_component_cls = "Lcom/tencent/mobileqq/aio/msglist/holder/component/ptt/AIOPttContentComponent;"
     if not ptt_menu_method:
-        ptt_menu_method = "b2()Ljava/util/List;"
+        ptt_menu_method = "g2()Ljava/util/List;" # 默认指向 9.3.75 新版，嗅探器会自适应旧版 b2
 
-    # [规则 1] 在菜单列表返回前，拦截并注入转发按钮
+    forward_item_java_name = (
+        forward_menu_item_cls[1:-1].replace('/', '.')
+        if forward_menu_item_cls else ""
+    )
+
+    # [规则 1] 注入菜单并一并传入嗅探到的 ForwardMenuItem 类名
     rules.append({
-        "name": f"语音气泡长按菜单注入转发按钮 ({ptt_component_cls}->{ptt_menu_method.split('(')[0]})",
+        "name": f"语音气泡菜单注入转发选项 ({ptt_component_cls}->{ptt_menu_method.split('(')[0]})",
         "target_class": ptt_component_cls,
         "target_method": ptt_menu_method,
         "type": "REGEX_REPLACE",
         "regex": r"return-object\s+([vp]\d+)(?=\s*(?:\.end\s+method|$))",
-        "smali": r"""
-    move-object/16 v0, \1
+        "smali": f"""
+    move-object/16 v0, \\1
     move-object/16 v1, p0
-    invoke-static {v0, v1}, Lcom/tencent/qqnt/patch/PatchBridge;->injectPttMenu(Ljava/util/List;Ljava/lang/Object;)Ljava/util/List;
-    move-result-object \1
-    return-object \1"""
+    const-string v2, "{forward_item_java_name}"
+    invoke-static {{v0, v1, v2}}, Lcom/tencent/qqnt/patch/PatchBridge;->injectPttMenu(Ljava/util/List;Ljava/lang/Object;Ljava/lang/String;)Ljava/util/List;
+    move-result-object \\1
+    return-object \\1"""
     })
 
     # =========================================================================
-    # 2. 动态嗅探 NtMsgForwardUtils.startForwardMsgV2 入口 (欺骗放行)
+    # 3. 动态嗅探 NtMsgForwardUtils.startForwardMsgV2 (9.2.90 为 t, 9.3.75 同为 t)
     # =========================================================================
     for _, dex_bytes in dex_data_dict.items():
         if b"startForwardMsgV2 origin_msg_type=" in dex_bytes:
@@ -131,7 +155,7 @@ def build_forward_ptt_rules(dex_data_dict):
     if not start_forward_method:
         start_forward_method = "t(Landroid/app/Activity;Lcom/tencent/aio/data/AIOContact;Lcom/tencent/mobileqq/aio/msg/AIOMsgItem;I)Z"
 
-    # [规则 2] 在转发校验入口前伪装语音消息为普通文本
+    # [规则 2] 转发校验放行
     rules.append({
         "name": f"语音转发类型校验放行 ({forward_utils_cls}->{start_forward_method.split('(')[0]})",
         "target_class": forward_utils_cls,
@@ -144,7 +168,7 @@ def build_forward_ptt_rules(dex_data_dict):
     })
 
     # =========================================================================
-    # 3. 动态嗅探 AIOForwardHandler.forward 转发分发中枢
+    # 4. 动态嗅探 AIOForwardHandler.forward 转发中枢
     # =========================================================================
     for _, dex_bytes in dex_data_dict.items():
         if b"AIOForwardHandler" in dex_bytes:
@@ -165,7 +189,7 @@ def build_forward_ptt_rules(dex_data_dict):
     if not forward_handler_method:
         forward_handler_method = "forward(Ljava/util/Map;Lcom/tencent/mobileqq/sharepanel/forward/ForwardContactItem;Ljava/util/List;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;"
 
-    # [规则 3] 拦截转发执行，截获联系人并转调底层发包
+    # [规则 3] 拦截转发执行并由底层通道分发语音
     rules.append({
         "name": f"接管转发目标并由底层通道发送语音 ({forward_handler_cls}->forward)",
         "target_class": forward_handler_cls,

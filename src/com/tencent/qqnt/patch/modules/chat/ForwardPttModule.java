@@ -1,6 +1,5 @@
 package com.tencent.qqnt.patch.modules.chat;
 
-import android.app.Activity;
 import android.content.Context;
 import com.tencent.mobileqq.aio.msg.AIOMsgItem;
 import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
@@ -25,13 +24,8 @@ public class ForwardPttModule implements IPatchModule {
     private static final int MSG_TYPE_TEXT = 2;
     private static final int INVALID_TYPE = 114514;
 
-    // 缓存上一次触发语音转发的 AIOMsgItem
     private static volatile AIOMsgItem sPendingPttItem = null;
     private static volatile long sPendingTimestamp = 0L;
-
-    // 缓存探测到的 ForwardMenuItem 构造器
-    private static volatile Constructor<?> sForwardMenuItemCtor = null;
-    private static volatile boolean sCtorResolved = false;
 
     @Override
     public String getId() {
@@ -50,12 +44,12 @@ public class ForwardPttModule implements IPatchModule {
 
     @Override
     public String getSubName() {
-        return "长按菜单中显示转发按钮";
+        return "长按语音气泡在 2X 旁增加转发按钮，支持私聊、群聊与多选";
     }
 
     @Override
     public boolean defaultEnabled() {
-        return false; // 严格遵守默认关闭原则
+        return false;
     }
 
     public static boolean isModuleActive() {
@@ -63,77 +57,77 @@ public class ForwardPttModule implements IPatchModule {
     }
 
     /**
-     * 【步骤 1：菜单构建点】
-     * 在 AIOPttContentComponent.b2() 退出前拦截，将 ForwardMenuItem 插在 2X 倍速后面
+     * 【步骤 1：菜单注入与自然排序】
+     * 9.2.90 为 AIOPttContentComponent->b2()Ljava/util/List;
+     * 9.3.75 为 AIOPttContentComponent->g2()Ljava/util/List;
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    public static List injectPttMenu(List menuList, Object component) {
+    public static List injectPttMenu(List menuList, Object component, String forwardItemClassName) {
         if (!isModuleActive() || menuList == null || component == null) {
             return menuList;
         }
 
         try {
-            // 1. 检查是否已经存在 ForwardMenuItem
+            // 避免重复注入
             for (Object item : menuList) {
-                if (item != null && "ForwardMenuItem".equals(getMenuItemIdentifier(item))) {
+                if (item != null && "ForwardMenuItem".equals(extractMenuItemIdentifier(item))) {
                     return menuList;
                 }
             }
 
-            // 2. 解析 ForwardMenuItem 构造器
-            Constructor<?> ctor = resolveForwardMenuItemCtor(component);
+            // 1. 获取 ForwardMenuItem 类构造器
+            // 9.2.90 为 com.tencent.qqnt.aio.menu.j
+            // 9.3.75 为 com.tencent.qqnt.aio.menu.o
+            Constructor<?> ctor = resolveForwardMenuItemCtor(component, forwardItemClassName);
             if (ctor == null) {
                 PLog.w(TAG, "未定位到 ForwardMenuItem 构造器，放弃注入");
                 return menuList;
             }
 
-            // 3. 获取宿主上下文与消息项
             Context context = resolveComponentContext(component);
             AIOMsgItem msgItem = resolveComponentMsgItem(component);
             if (context == null || msgItem == null) {
                 return menuList;
             }
 
-            // 4. 反射创建 ForwardMenuItem(Context, msgItem, component, null)
+            // 2. 构造菜单实例：(Context, msgItem, component, null)
             Object menuItem = ctor.newInstance(context, msgItem, component, null);
             if (menuItem == null) {
                 return menuList;
             }
 
-            // 5. 【核心自然排序】寻找“2X倍速”或“转文字”项，紧插其后
+            // 3. 【全动态定位】：寻找“2X倍速”或“转文字”的自然位置
+            // 2X倍速项: 9.2.90 为 aio.menu.ad, 9.3.75 为 aio.menu.aj
+            // 转文字项: 9.2.90 为 aio.menu.w/ac, 9.3.75 为 aio.menu.ac/ai
             int targetIndex = -1;
 
-            // 优先查找 2X 倍速项
+            // A. 优先查找 2X 倍速项
             for (int i = 0; i < menuList.size(); i++) {
-                Object item = menuList.get(i);
-                if (item == null) continue;
-                String clsName = item.getClass().getName();
-                if (clsName.contains(".aio.menu.ad") || isSpeedMenuItem(item)) {
-                    targetIndex = i + 1;
+                Object it = menuList.get(i);
+                if (isSpeedMenuItem(it)) {
+                    targetIndex = i + 1; // 放在 2X 后面！
                     break;
                 }
             }
 
-            // 若当前未播放/无倍速，查找“转文字”项
+            // B. 若当前未播放/无倍速项，退而查找“转文字”项
             if (targetIndex == -1) {
                 for (int i = 0; i < menuList.size(); i++) {
-                    Object item = menuList.get(i);
-                    if (item == null) continue;
-                    String clsName = item.getClass().getName();
-                    if (clsName.contains(".aio.menu.w") || clsName.contains(".aio.menu.ac") || isSpeechToTextMenuItem(item)) {
-                        targetIndex = i + 1;
+                    Object it = menuList.get(i);
+                    if (isSpeechToTextMenuItem(it)) {
+                        targetIndex = i + 1; // 放在转文字后面
                         break;
                     }
                 }
             }
 
-            // 兜底插入在操作区前面（index 2，在播放和基础项之后）
+            // C. 兜底放置在 index 2
             if (targetIndex == -1) {
                 targetIndex = Math.min(2, menuList.size());
             }
 
             menuList.add(targetIndex, menuItem);
-            PLog.i(TAG, "已成功在原生自然位置 (index " + targetIndex + ") 注入语音转发选项");
+            PLog.i(TAG, "已成功在自然位置 (index " + targetIndex + ") 注入语音转发选项");
 
         } catch (Throwable t) {
             PLog.e(TAG, "injectPttMenu 异常", t);
@@ -144,7 +138,7 @@ public class ForwardPttModule implements IPatchModule {
 
     /**
      * 【步骤 2：转发启动放行点】
-     * 在 NtMsgForwardUtils.startForwardMsgV2 前，将 msgType 临时伪装为文本
+     * 9.2.90 / 9.3.75 均为 NtMsgForwardUtils->t(...)
      */
     public static void onStartForwardMsg(Object aioMsgItemObj) {
         if (!isModuleActive() || !(aioMsgItemObj instanceof AIOMsgItem)) {
@@ -157,10 +151,10 @@ public class ForwardPttModule implements IPatchModule {
             if (record == null) return;
 
             if (record.msgType == MSG_TYPE_PTT) {
-                record.msgType = MSG_TYPE_TEXT; // 核心伪装：假冒为文本通过校验
+                record.msgType = MSG_TYPE_TEXT; // 假冒文本绕过 e 表检查
                 sPendingPttItem = aioMsgItem;
                 sPendingTimestamp = System.currentTimeMillis();
-                PLog.i(TAG, "已捕获语音转发请求，成功伪装为文本放行启动 (msgId=" + record.msgId + ")");
+                PLog.i(TAG, "捕获语音转发请求，成功伪装为文本放行启动 (msgId=" + record.msgId + ")");
             }
         } catch (Throwable t) {
             PLog.e(TAG, "onStartForwardMsg 异常", t);
@@ -169,14 +163,14 @@ public class ForwardPttModule implements IPatchModule {
 
     /**
      * 【步骤 3：转发分发中枢】
-     * 在 AIOForwardHandler.forward 入口拦截选人结果，破坏假文本发送并转调底层通道
+     * 9.2.90 / 9.3.75 均为 AIOForwardHandler->forward(...)
      */
     public static void onHandleAIOForward(Object allDataObj, Object targetContactsObj, String comment) {
         if (!isModuleActive() || sPendingPttItem == null) {
             return;
         }
 
-        // 超时保护（超过 3 分钟未转发则视为失效废弃）
+        // 超时保护（3 分钟内未转发则丢弃）
         if (System.currentTimeMillis() - sPendingTimestamp > 180000L) {
             sPendingPttItem = null;
             return;
@@ -200,13 +194,13 @@ public class ForwardPttModule implements IPatchModule {
                 return;
             }
 
-            // 1. 恢复原始类型，保护本地状态
+            // 1. 恢复原始语音类型
             record.msgType = MSG_TYPE_PTT;
 
-            // 2. 拷贝一份纯净的原始 elements（包含 PttElement）
+            // 2. 提取并保留原始语音 elements
             final ArrayList<MsgElement> elements = new ArrayList<>(record.elements);
 
-            // 3. 解析所有选中的联系人目标，并破坏官方 contact 避免重复发送假文本
+            // 3. 解析目标联系人，并将官方 contact 的 peerType 置为无效，避免重复发送假文本
             final List<DestTarget> destList = new ArrayList<>();
             for (Object contactItem : contactList) {
                 if (contactItem == null) continue;
@@ -220,23 +214,22 @@ public class ForwardPttModule implements IPatchModule {
                 return;
             }
 
-            PLog.i(TAG, "成功拦截语音转发，准备向 " + destList.size() + " 个目标分发语音...");
+            PLog.i(TAG, "拦截语音转发成功，正在向 " + destList.size() + " 个目标分发语音");
 
-            // 4. 异步线程执行底层逐一发包
+            // 4. 异步逐一底层发包
             new Thread(() -> {
                 for (DestTarget dest : destList) {
                     try {
-                        Thread.sleep(350); // 间隔防风控
+                        Thread.sleep(350); // 间隔防频控
                         Contact contact = MsgSender.makeContact(dest.peerUin, dest.peerType);
                         MsgSender.sendRawElements(contact, elements);
-                        PLog.i(TAG, "已向目标 [" + dest.peerUin + "](type=" + dest.peerType + ") 发送语音");
+                        PLog.i(TAG, "已成功发送语音至目标: " + dest.peerUin + " (type=" + dest.peerType + ")");
 
-                        // 如果附带了留言，顺带发送一条文字留言
                         if (comment != null && !comment.trim().isEmpty()) {
                             MsgSender.sendMsg(contact, comment.trim());
                         }
                     } catch (Throwable t) {
-                        PLog.e(TAG, "发送语音给目标 [" + dest.peerUin + "] 失败", t);
+                        PLog.e(TAG, "向目标 [" + dest.peerUin + "] 发送语音失败", t);
                     }
                 }
             }).start();
@@ -261,8 +254,7 @@ public class ForwardPttModule implements IPatchModule {
             String uin = (String) getUinM.invoke(contactItem);
             int type = (Integer) getTypeM.invoke(contactItem);
 
-            // 核心破坏机制：将官方 contact 对象的 peerType 字段反射置为 INVALID_TYPE
-            // 使得官方协程执行到 native 发送时因为非法 chatType 被直接忽略，绝不会发出垃圾假文本！
+            // 破坏 peerType 使官方后续发包跳过该联系人
             for (Field f : clz.getDeclaredFields()) {
                 if ("peerType".equals(f.getName()) || (f.getType() == int.class && !java.lang.reflect.Modifier.isStatic(f.getModifiers()))) {
                     f.setAccessible(true);
@@ -280,65 +272,114 @@ public class ForwardPttModule implements IPatchModule {
         return null;
     }
 
+    /**
+     * 全动态文案匹配：判断是否为 2X 倍速项 (不依赖类名是 ad 还是 aj)
+     */
     private static boolean isSpeedMenuItem(Object item) {
-        try {
-            Method fMethod = item.getClass().getMethod("f");
-            Object name = fMethod.invoke(item);
-            if (name != null) {
-                String s = name.toString();
-                return s.contains("倍速") || s.contains("2X") || s.contains("2x") || s.contains("1X") || s.contains("1x");
-            }
-        } catch (Throwable ignored) {}
+        if (item == null) return false;
+        String text = extractMenuItemTitle(item);
+        if (text != null && !text.isEmpty()) {
+            return text.contains("倍速") || text.contains("2X") || text.contains("2x")
+                    || text.contains("1X") || text.contains("1x") || text.contains("1.5X");
+        }
         return false;
     }
 
+    /**
+     * 全动态文案匹配：判断是否为转文字项 (不依赖类名是 w/ac 还是 ac/ai)
+     */
     private static boolean isSpeechToTextMenuItem(Object item) {
-        try {
-            Method fMethod = item.getClass().getMethod("f");
-            Object name = fMethod.invoke(item);
-            if (name != null) {
-                String s = name.toString();
-                return s.contains("转文字") || s.contains("文字");
-            }
-        } catch (Throwable ignored) {}
+        if (item == null) return false;
+        String text = extractMenuItemTitle(item);
+        if (text != null && !text.isEmpty()) {
+            return text.contains("转文字") || text.contains("隐藏文字");
+        }
         return false;
     }
 
-    private static String getMenuItemIdentifier(Object item) {
-        try {
-            Method eMethod = item.getClass().getMethod("e");
-            Object id = eMethod.invoke(item);
-            return id != null ? id.toString() : "";
-        } catch (Throwable ignored) {}
+    /**
+     * 全动态反射获取菜单标题文字（9.2.90 为 f(), 9.3.75 为 h()）
+     */
+    private static String extractMenuItemTitle(Object item) {
+        if (item == null) return "";
+        Class<?> clz = item.getClass();
+
+        // 1. 遍历所有无参返回 CharSequence/String 的方法
+        for (Method m : clz.getMethods()) {
+            if (m.getParameterTypes().length == 0 && CharSequence.class.isAssignableFrom(m.getReturnType())) {
+                try {
+                    m.setAccessible(true);
+                    Object res = m.invoke(item);
+                    if (res != null) {
+                        String s = res.toString().trim();
+                        if (!s.isEmpty() && !s.contains("MenuItem")) {
+                            return s;
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+        }
+
+        // 2. 遍历自身声明的 String 属性
+        for (Field f : clz.getDeclaredFields()) {
+            if (f.getType() == String.class && !java.lang.reflect.Modifier.isStatic(f.getModifiers())) {
+                try {
+                    f.setAccessible(true);
+                    Object val = f.get(item);
+                    if (val != null) return val.toString();
+                } catch (Throwable ignored) {}
+            }
+        }
         return "";
     }
 
-    private static synchronized Constructor<?> resolveForwardMenuItemCtor(Object component) {
-        if (sCtorResolved) return sForwardMenuItemCtor;
+    /**
+     * 全动态反射获取标识符（9.2.90 为 e(), 9.3.75 为 g()）
+     */
+    private static String extractMenuItemIdentifier(Object item) {
+        if (item == null) return "";
+        Class<?> clz = item.getClass();
+        for (Method m : clz.getMethods()) {
+            if (m.getParameterTypes().length == 0 && m.getReturnType() == String.class) {
+                try {
+                    m.setAccessible(true);
+                    Object res = m.invoke(item);
+                    if (res != null) {
+                        String s = res.toString();
+                        if (s.endsWith("MenuItem")) return s;
+                    }
+                } catch (Throwable ignored) {}
+            }
+        }
+        return "";
+    }
+
+    private static synchronized Constructor<?> resolveForwardMenuItemCtor(Object component, String targetClassName) {
         try {
             ClassLoader cl = component.getClass().getClassLoader();
             if (cl == null) cl = AppContext.get().getClassLoader();
 
-            // 优先尝试标准类名 com.tencent.qqnt.aio.menu.j
             Class<?> targetClz = null;
-            try {
-                targetClz = cl.loadClass("com.tencent.qqnt.aio.menu.j");
-            } catch (Throwable ignored) {}
 
-            // 若类名混淆，遍历寻找 e() == "ForwardMenuItem" 的类
+            // 1. 优先使用 Python 规则直接嗅探到的类名 (9.2.90=j, 9.3.75=o)
+            if (targetClassName != null && !targetClassName.isEmpty()) {
+                try {
+                    targetClz = cl.loadClass(targetClassName);
+                } catch (Throwable ignored) {}
+            }
+
+            // 2. 兜底扫描 com.tencent.qqnt.aio.menu. 下的类
             if (targetClz == null) {
-                for (char c = 'a'; c <= 'z'; c++) {
+                String[] fallbacks = new String[]{
+                        "com.tencent.qqnt.aio.menu.o", // 9.3.75
+                        "com.tencent.qqnt.aio.menu.j", // 9.2.90
+                        "com.tencent.qqnt.aio.menu.k",
+                        "com.tencent.qqnt.aio.menu.l",
+                        "com.tencent.qqnt.aio.menu.n"
+                };
+                for (String fb : fallbacks) {
                     try {
-                        Class<?> candidate = cl.loadClass("com.tencent.qqnt.aio.menu." + c);
-                        for (Method m : candidate.getDeclaredMethods()) {
-                            if ("e".equals(m.getName()) && m.getParameterTypes().length == 0 && m.getReturnType() == String.class) {
-                                m.setAccessible(true);
-                                // 静态探测
-                                if (java.lang.reflect.Modifier.isStatic(m.getModifiers())) {
-                                    if ("ForwardMenuItem".equals(m.invoke(null))) { targetClz = candidate; break; }
-                                }
-                            }
-                        }
+                        targetClz = cl.loadClass(fb);
                         if (targetClz != null) break;
                     } catch (Throwable ignored) {}
                 }
@@ -348,14 +389,12 @@ public class ForwardPttModule implements IPatchModule {
                 for (Constructor<?> c : targetClz.getConstructors()) {
                     if (c.getParameterTypes().length == 4) {
                         c.setAccessible(true);
-                        sForwardMenuItemCtor = c;
-                        break;
+                        return c;
                     }
                 }
             }
         } catch (Throwable ignored) {}
-        sCtorResolved = true;
-        return sForwardMenuItemCtor;
+        return null;
     }
 
     private static Context resolveComponentContext(Object component) {
@@ -368,13 +407,17 @@ public class ForwardPttModule implements IPatchModule {
     }
 
     private static AIOMsgItem resolveComponentMsgItem(Object component) {
-        try {
-            Method getA2 = component.getClass().getMethod("a2");
-            Object item = getA2.invoke(component);
-            if (item instanceof AIOMsgItem) return (AIOMsgItem) item;
-        } catch (Throwable ignored) {}
+        // 9.2.90 为 a2(), 9.3.75 为 f2()
+        String[] candidateMethods = new String[]{"f2", "a2", "getMsgItem"};
+        for (String mName : candidateMethods) {
+            try {
+                Method m = component.getClass().getMethod(mName);
+                Object item = m.invoke(component);
+                if (item instanceof AIOMsgItem) return (AIOMsgItem) item;
+            } catch (Throwable ignored) {}
+        }
 
-        // 反射查找父类中类型为 AIOMsgItem 的字段
+        // 递归扫描父类
         Class<?> cur = component.getClass();
         while (cur != null && cur != Object.class) {
             for (Field f : cur.getDeclaredFields()) {
