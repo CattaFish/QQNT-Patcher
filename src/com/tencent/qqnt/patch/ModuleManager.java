@@ -39,6 +39,7 @@ public class ModuleManager {
         MOD_TO_FEATURE.put("qq_version", "qq_version");
         MOD_TO_FEATURE.put("double_tap_repeat", "double_tap_repeat");
         MOD_TO_FEATURE.put("unlock_swipe_reply", "unlock_swipe_reply");
+        MOD_TO_FEATURE.put("records_reply_check", "records_reply_check");
     }
 
     static {
@@ -58,6 +59,7 @@ public class ModuleManager {
         register(new QQVersionModule());
         register(new DoubleTapRepeatModule());
         register(new UnlockSwipeReplyModule());
+        register(new RecordsReplyCheckModule());
     }
 
     public static void register(IPatchModule module) {

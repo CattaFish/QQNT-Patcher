@@ -31,6 +31,7 @@ ALL_FEATURES = {
     "qq_version": "发送者 QQ 版本识别",
     "double_tap_repeat": "消息复读 (左滑/+1)",
     "unlock_swipe_reply": "解除左滑回复限制",
+    "records_reply_check": "查看聊天记录回复图片",
 }
 
 FEATURE_ALIASES = {
@@ -77,6 +78,7 @@ FEATURE_ALIASES = {
     "聊天记录": "chat_history", "历史记录": "chat_history",
     # qq_version
     "qq_version": "qq_version", "version": "qq_version", "版本": "qq_version", "qq版本": "qq_version",
+    
     # double_tap_repeat
     "double_tap_repeat": "double_tap_repeat",
     "repeat": "double_tap_repeat",
@@ -96,6 +98,13 @@ FEATURE_ALIASES = {
     "解除左滑回复": "unlock_swipe_reply",
     "回复限制": "unlock_swipe_reply",
     "swipe_reply": "unlock_swipe_reply",
+    
+    # records_reply_check
+    "records_reply_check": "records_reply_check",
+    "records_reply": "records_reply_check",
+    "聊天记录回复": "records_reply_check",
+    "回复图片": "records_reply_check",
+    "合并转发回复": "records_reply_check",
 }
 
 BUS_DEPENDENCIES = {

@@ -27,6 +27,10 @@ public class PatchBridge {
         sCurrentFileItem.set(fileItem);
     }
     
+    public static boolean isRecordsReplyCheckEnabled() {
+        return ConfigManager.isModuleEnabled("records_reply_check", false);
+    }
+    
     public static boolean isUnlockSwipeReplyEnabled() {
         return ConfigManager.isModuleEnabled("unlock_swipe_reply", false);
     }
