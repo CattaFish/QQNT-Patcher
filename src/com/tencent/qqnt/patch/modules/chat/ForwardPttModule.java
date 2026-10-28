@@ -50,7 +50,7 @@ public class ForwardPttModule implements IPatchModule {
 
     @Override
     public String getSubName() {
-        return "语音长按菜单中出现转发按钮，支持私聊、群聊与多选";
+        return "长按菜单中显示转发按钮";
     }
 
     @Override
