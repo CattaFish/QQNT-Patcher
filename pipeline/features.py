@@ -33,6 +33,7 @@ ALL_FEATURES = {
     "unlock_swipe_reply": "解除左滑回复限制",
     "records_reply_check": "查看聊天记录回复图片",
     "remove_reply_at": "去除回复自动艾特",
+    "forward_ptt": "语音转发",
 }
 
 FEATURE_ALIASES = {
@@ -115,6 +116,13 @@ FEATURE_ALIASES = {
     "去除回复自动艾特": "remove_reply_at",
     "回复不艾特": "remove_reply_at",
     "去艾特": "remove_reply_at",
+    
+    # forward_ptt
+    "forward_ptt": "forward_ptt",
+    "ptt_forward": "forward_ptt",
+    "语音转发": "forward_ptt",
+    "转发语音": "forward_ptt",
+    "语音": "forward_ptt",
 }
 
 BUS_DEPENDENCIES = {

@@ -196,6 +196,7 @@ def is_rule_active(rule: dict, plugin_id: str, active_features: set) -> bool:
         "unlock_swipe_reply": "unlock_swipe_reply",
         "records_reply_check": "records_reply_check",
         "remove_reply_at": "remove_reply_at",
+        "forward_ptt": "forward_ptt",
     }
     feature_id = id_map.get(plugin_id, plugin_id)
     return feature_id in active_features

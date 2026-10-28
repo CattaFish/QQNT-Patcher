@@ -41,6 +41,7 @@ public class ModuleManager {
         MOD_TO_FEATURE.put("unlock_swipe_reply", "unlock_swipe_reply");
         MOD_TO_FEATURE.put("records_reply_check", "records_reply_check");
         MOD_TO_FEATURE.put("remove_reply_at", "remove_reply_at");
+        MOD_TO_FEATURE.put("forward_ptt", "forward_ptt");
     }
 
     static {
@@ -62,6 +63,7 @@ public class ModuleManager {
         register(new UnlockSwipeReplyModule());
         register(new RecordsReplyCheckModule());
         register(new RemoveReplyAtModule());
+        register(new ForwardPttModule());
     }
 
     public static void register(IPatchModule module) {

@@ -123,6 +123,21 @@ public class PatchBridge {
     public static void onMemberSettingGroups(Object fragment, Object groupsList) {
         com.tencent.qqnt.patch.ui.ProfileSettingInjector.injectMemberSettingGroups(fragment, groupsList);
     }
+    
+    // =========================================================================
+    // 语音转发桥梁
+    // =========================================================================
+    public static List injectPttMenu(List menuList, Object component) {
+        return com.tencent.qqnt.patch.modules.chat.ForwardPttModule.injectPttMenu(menuList, component);
+    }
+
+    public static void onStartForwardMsg(Object aioMsgItem) {
+        com.tencent.qqnt.patch.modules.chat.ForwardPttModule.onStartForwardMsg(aioMsgItem);
+    }
+
+    public static void onHandleAIOForward(Object allDataObj, Object targetContactsObj, String comment) {
+        com.tencent.qqnt.patch.modules.chat.ForwardPttModule.onHandleAIOForward(allDataObj, targetContactsObj, comment);
+    }
 
     @SuppressWarnings("unchecked")
     public static void handleSendMsg(ArrayList elements) {
