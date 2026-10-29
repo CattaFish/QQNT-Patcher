@@ -1,15 +1,11 @@
 # -*- coding: utf-8 -*-
-"""
-Tinker 去签 + 热修复禁用规则插件
-
-- 去签（仅 provider=killer）: TinkerApplication.super -> killer_app_desc
-- 热修复禁用（始终生效）  : getTinkerFlags() 返回 0
-"""
+"""Tinker 去签 + 热修复禁用规则插件"""
 
 RULE_ID = "tinker"
-RULE_NAME = "Tinker 去签与热修复禁用"
+RULE_NAME = "禁用 Tinker 热修复载入"
+RULE_DESC = "禁用 Tinker 热修复载入"
+RULE_ALIASES = ["热修", "热修复", "tinker_disable"]
 RULE_ENABLED = True
-
 
 def _load_cfg():
     try:
@@ -17,7 +13,6 @@ def _load_cfg():
         return KC
     except Exception:
         return None
-
 
 def build_tinker_rules(dex_data_dict, meta):
     KC = _load_cfg()
@@ -30,7 +25,6 @@ def build_tinker_rules(dex_data_dict, meta):
 
     rules = []
 
-    # 1) super 替换：仅 killer 模式注入
     if provider == "killer" and killer_desc:
         rules.append({
             "name": "去签: TinkerApplication.super -> " + killer_desc,
@@ -41,7 +35,6 @@ def build_tinker_rules(dex_data_dict, meta):
             "smali": killer_desc,
         })
 
-    # 2) 禁用 Tinker 热修复：始终生效
     rules.append({
         "name": "禁用 Tinker 热修复 (getTinkerFlags -> 0)",
         "target_class": tinker_cls,
@@ -59,7 +52,6 @@ def build_tinker_rules(dex_data_dict, meta):
     })
 
     return rules
-
 
 def resolve_rules(dex_data_dict, meta=None):
     return build_tinker_rules(dex_data_dict, meta)

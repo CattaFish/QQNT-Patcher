@@ -1,19 +1,8 @@
 package com.tencent.qqnt.patch.modules.chat;
 
 import android.app.Activity;
-import android.app.Dialog;
 import android.content.Context;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.GradientDrawable;
 import android.os.SystemClock;
-import android.view.Gravity;
-import android.view.View;
-import android.view.ViewGroup;
-import android.view.Window;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import com.tencent.mobileqq.aio.msg.AIOMsgItem;
 import com.tencent.qqnt.kernel.nativeinterface.IKernelMsgService;
@@ -26,14 +15,15 @@ import com.tencent.qqnt.patch.IPatchModule;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.plugin.MsgSender;
 import com.tencent.qqnt.patch.ui.NativeSettingHelper;
+import com.tencent.qqnt.patch.ui.SettingDialogBuilder;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.qqnt.patch.util.ToastHelper;
-import me.yxp.qfun.utils.ui.ThemeHelper;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class DoubleTapRepeatModule implements IPatchModule {
@@ -120,9 +110,6 @@ public class DoubleTapRepeatModule implements IPatchModule {
         return 80;
     }
 
-    /**
-     * 【方案 1：左滑松手触发入口】
-     */
     public static boolean onLeftSwipeTrigger(Object componentObj, int scrollX) {
         if (!isSwipeModeActive() || componentObj == null) {
             return false;
@@ -137,7 +124,7 @@ public class DoubleTapRepeatModule implements IPatchModule {
             Object msgItem = resolveMsgItemFromComponent(componentObj);
             if (msgItem != null) {
                 performRepeat(msgItem);
-                return true; // 成功发包并拦截回复框
+                return true;
             }
         } catch (Throwable t) {
             PLog.e(TAG, "左滑复读异常", t);
@@ -146,9 +133,6 @@ public class DoubleTapRepeatModule implements IPatchModule {
         return false;
     }
 
-    /**
-     * 【方案 2 核心：官方原生监听器 a.onClick 点击拦截】
-     */
     public static boolean onFollowIconClick(Object listenerObj) {
         if (!isPlusOneModeActive() || listenerObj == null) {
             return false;
@@ -170,19 +154,14 @@ public class DoubleTapRepeatModule implements IPatchModule {
         return false;
     }
 
-    /**
-     * 动态从组件中提取消息数据项（多重保险，自适应超类声明与具体实例）
-     */
     private static Object resolveMsgItemFromComponent(Object componentObj) {
         if (componentObj == null) return null;
 
-        // 1. 优先检查已知字段 "i" 或 "h"
         Object direct = getFieldRecursive(componentObj, "i");
         if (direct != null && extractMsgRecord(direct) != null) return direct;
         direct = getFieldRecursive(componentObj, "h");
         if (direct != null && extractMsgRecord(direct) != null) return direct;
 
-        // 2. 遍历字段，检查运行时实际对象是否包含有效 MsgRecord
         Class<?> clz = componentObj.getClass();
         while (clz != null && clz != Object.class) {
             for (Field f : clz.getDeclaredFields()) {
@@ -197,13 +176,9 @@ public class DoubleTapRepeatModule implements IPatchModule {
             clz = clz.getSuperclass();
         }
 
-        // 3. 兜底扫描方法
         return invokeMethodReturningType(componentObj, "AIOMsgItem");
     }
 
-    /**
-     * 【复读发包核心实现（支持纯文本直发，图片/视频转发通道）】
-     */
     public static boolean performRepeat(Object msgItemOrRecord) {
         if (msgItemOrRecord == null) return false;
 
@@ -222,13 +197,11 @@ public class DoubleTapRepeatModule implements IPatchModule {
                     : String.valueOf(record.peerUin);
             Contact contact = new Contact(record.chatType, targetPeer, "");
 
-            // 富媒体（图片/视频/大表情/文件）走 forwardMsg 转发通道
             if (isNeedForward(record)) {
                 boolean sent = forwardSend(contact, record);
                 if (sent) return true;
             }
 
-            // 纯文本走 directSend 直发
             return directSend(contact, record);
         } catch (Throwable t) {
             PLog.e(TAG, "performRepeat 异常", t);
@@ -369,173 +342,25 @@ public class DoubleTapRepeatModule implements IPatchModule {
         return null;
     }
 
-    /**
-     * 【设置弹窗】
-     */
     @Override
     public void onConfigClick(Activity activity, Runnable onSaved) {
         if (activity == null || activity.isFinishing()) return;
 
-        boolean isNight = ThemeHelper.INSTANCE.isNightMode();
+        final int[] selected = new int[]{ getRepeatMode() };
 
-        int bgColor = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
-        int textColor = isNight ? Color.WHITE : Color.parseColor("#1D1D1F");
-        int subTextColor = isNight ? Color.parseColor("#8E8E93") : Color.parseColor("#666666");
-        int cardBgColor = isNight ? Color.parseColor("#2C2C2E") : Color.parseColor("#F2F2F7");
-
-        Dialog dialog = new Dialog(activity);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        }
-
-        int pad = dp2px(activity, 20f);
-        LinearLayout root = new LinearLayout(activity);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, pad, pad, pad);
-
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(bgColor);
-        bg.setCornerRadius(dp2px(activity, 18f));
-        root.setBackground(bg);
-
-        TextView title = new TextView(activity);
-        title.setText("消息复读设置");
-        title.setTextSize(17);
-        title.getPaint().setFakeBoldText(true);
-        title.setTextColor(textColor);
-        title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 0, 0, dp2px(activity, 14f));
-        root.addView(title);
-
-        final int[] selectedMode = new int[]{ getRepeatMode() };
-
-        // 方案 1 卡片
-        LinearLayout option1 = createOptionCard(
-                activity, isNight, textColor, subTextColor, cardBgColor,
-                "方案一：左滑消息复读",
-                "向左滑动任意消息复读发送，替代消息回复",
-                selectedMode[0] == MODE_SWIPE
-        );
-        root.addView(option1);
-
-        // 方案 2 卡片
-        LinearLayout option2 = createOptionCard(
-                activity, isNight, textColor, subTextColor, cardBgColor,
-                "方案二：气泡旁显示 +1 图标",
-                "在每条消息气泡旁边显示 +1 复读图标",
-                selectedMode[0] == MODE_PLUS_ONE
-        );
-        root.addView(option2);
-
-        Runnable refreshSelection = () -> {
-            updateOptionCard(option1, selectedMode[0] == MODE_SWIPE, isNight, cardBgColor);
-            updateOptionCard(option2, selectedMode[0] == MODE_PLUS_ONE, isNight, cardBgColor);
-        };
-
-        option1.setOnClickListener(v -> {
-            selectedMode[0] = MODE_SWIPE;
-            refreshSelection.run();
-        });
-
-        option2.setOnClickListener(v -> {
-            selectedMode[0] = MODE_PLUS_ONE;
-            refreshSelection.run();
-        });
-
-        LinearLayout btnRow = new LinearLayout(activity);
-        btnRow.setOrientation(LinearLayout.HORIZONTAL);
-        btnRow.setPadding(0, dp2px(activity, 16f), 0, 0);
-
-        Button cancelBtn = new Button(activity);
-        cancelBtn.setText("取消");
-        cancelBtn.setTextSize(14);
-        cancelBtn.setTextColor(subTextColor);
-        cancelBtn.setAllCaps(false);
-        GradientDrawable cancelBg = new GradientDrawable();
-        cancelBg.setColor(cardBgColor);
-        cancelBg.setCornerRadius(dp2px(activity, 10f));
-        cancelBtn.setBackground(cancelBg);
-        LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
-        cancelLp.rightMargin = dp2px(activity, 8f);
-        cancelBtn.setOnClickListener(v -> dialog.dismiss());
-        btnRow.addView(cancelBtn, cancelLp);
-
-        Button saveBtn = new Button(activity);
-        saveBtn.setText("保存并应用");
-        saveBtn.setTextSize(14);
-        saveBtn.setTextColor(Color.WHITE);
-        saveBtn.setAllCaps(false);
-        GradientDrawable saveBg = new GradientDrawable();
-        saveBg.setColor(Color.parseColor("#007AFF"));
-        saveBg.setCornerRadius(dp2px(activity, 10f));
-        saveBtn.setBackground(saveBg);
-        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
-        saveBtn.setOnClickListener(v -> {
-            setRepeatMode(selectedMode[0]);
-            setEnabled(true);
-            dialog.dismiss();
-            ToastHelper.show(activity, "已保存消息复读配置");
-            if (onSaved != null) onSaved.run();
-        });
-        btnRow.addView(saveBtn, saveLp);
-
-        root.addView(btnRow);
-
-        dialog.setContentView(root);
-        dialog.show();
-
-        if (dialog.getWindow() != null) {
-            int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.88);
-            dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
-        }
-    }
-
-    private static LinearLayout createOptionCard(Context context, boolean isNight, int textColor, int subTextColor,
-                                                  int cardBgColor, String title, String desc, boolean isSelected) {
-        LinearLayout card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp2px(context, 14f), dp2px(context, 12f), dp2px(context, 14f), dp2px(context, 12f));
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.bottomMargin = dp2px(context, 10f);
-        card.setLayoutParams(lp);
-
-        TextView tvTitle = new TextView(context);
-        tvTitle.setText(title);
-        tvTitle.setTextSize(15);
-        tvTitle.getPaint().setFakeBoldText(true);
-        tvTitle.setTextColor(textColor);
-        card.addView(tvTitle);
-
-        TextView tvDesc = new TextView(context);
-        tvDesc.setText(desc);
-        tvDesc.setTextSize(12);
-        tvDesc.setTextColor(subTextColor);
-        tvDesc.setLineSpacing(dp2px(context, 2f), 1f);
-        tvDesc.setPadding(0, dp2px(context, 4f), 0, 0);
-        card.addView(tvDesc);
-
-        updateOptionCard(card, isSelected, isNight, cardBgColor);
-        return card;
-    }
-
-    private static void updateOptionCard(LinearLayout card, boolean isSelected, boolean isNight, int defaultBg) {
-        GradientDrawable gd = new GradientDrawable();
-        gd.setCornerRadius(dp2px(card.getContext(), 12f));
-        if (isSelected) {
-            gd.setColor(isNight ? Color.parseColor("#1A3B66") : Color.parseColor("#EBF3FF"));
-            gd.setStroke(dp2px(card.getContext(), 1.5f), Color.parseColor("#007AFF"));
-        } else {
-            gd.setColor(defaultBg);
-            gd.setStroke(0, Color.TRANSPARENT);
-        }
-        card.setBackground(gd);
-    }
-
-    private static int dp2px(Context c, float dp) {
-        if (c == null || c.getResources() == null) return (int) (dp * 2f + 0.5f);
-        return (int) (dp * c.getResources().getDisplayMetrics().density + 0.5f);
+        SettingDialogBuilder.build(activity, "消息复读设置")
+                .addRadioCards(Arrays.asList(
+                        new SettingDialogBuilder.OptionCard("方案一：左滑消息复读", "向左滑动任意消息复读发送，替代消息回复"),
+                        new SettingDialogBuilder.OptionCard("方案二：气泡旁显示 +1 图标", "在每条消息气泡旁边显示 +1 复读图标")
+                ), selected[0], idx -> selected[0] = idx)
+                .setPositiveButton("保存并应用", dialog -> {
+                    setRepeatMode(selected[0]);
+                    setEnabled(true);
+                    dialog.dismiss();
+                    ToastHelper.show(activity, "已保存消息复读配置");
+                    if (onSaved != null) onSaved.run();
+                })
+                .show();
     }
 
     private static Object getFieldRecursive(Object obj, String fieldName) {

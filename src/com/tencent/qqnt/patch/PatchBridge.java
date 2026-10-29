@@ -1,7 +1,5 @@
 package com.tencent.qqnt.patch;
 
-import android.app.Activity;
-import android.os.Build;
 import android.view.View;
 import com.tencent.qqnt.kernel.nativeinterface.IKernelMsgListener;
 import com.tencent.qqnt.kernel.nativeinterface.IQQNTWrapperSession;
@@ -26,15 +24,18 @@ public class PatchBridge {
     public static void setCurrentFileItem(Object fileItem) {
         sCurrentFileItem.set(fileItem);
     }
-    
-    public static boolean isRecordsReplyCheckEnabled() {
-        return ConfigManager.isModuleEnabled("records_reply_check", false);
+
+    public static boolean isEnabled(String featureId) {
+        return ConfigManager.isModuleEnabled(featureId, false);
     }
-    
-    public static boolean isUnlockSwipeReplyEnabled() {
-        return ConfigManager.isModuleEnabled("unlock_swipe_reply", false);
-    }
-    
+
+    public static boolean isRecordsReplyCheckEnabled() { return isEnabled("records_reply_check"); }
+    public static boolean isUnlockSwipeReplyEnabled() { return isEnabled("unlock_swipe_reply"); }
+    public static boolean isDisableUpgradeEnabled() { return isEnabled("disable_upgrade"); }
+    public static boolean isTabletModeEnabled() { return isEnabled("tablet"); }
+    public static boolean isDisableSplitScreenLimit() { return isEnabled("multi_window"); }
+    public static boolean isRemoveReplyAtEnabled() { return isEnabled("remove_reply_at"); }
+
     public static boolean isSwipeRepeatEnabled() {
         return DoubleTapRepeatModule.isSwipeModeActive();
     }
@@ -51,26 +52,10 @@ public class PatchBridge {
         return DoubleTapRepeatModule.onFollowIconClick(listenerObj);
     }
     
-    public static boolean isDisableUpgradeEnabled() {
-        return ConfigManager.isModuleEnabled("disable_upgrade", false);
-    }
-
-    public static boolean isTabletModeEnabled() {
-        return ConfigManager.isModuleEnabled("tablet_mode", false);
-    }
-
-    public static boolean isDisableSplitScreenLimit() {
-        return ConfigManager.isModuleEnabled("disable_split_screen_limit", false);
-    }
-    
     public static void handleWebSecurityCallback(Object bundleObj) {
         if (bundleObj instanceof android.os.Bundle) {
             BrowserMitigationModule.handleWebSecurityCallback((android.os.Bundle) bundleObj);
         }
-    }
-    
-    public static boolean isRemoveReplyAtEnabled() {
-        return com.tencent.qqnt.patch.modules.chat.RemoveReplyAtModule.isModuleActive();
     }
 
     public static boolean shouldDropTroopToDo() {
@@ -124,9 +109,6 @@ public class PatchBridge {
         com.tencent.qqnt.patch.ui.ProfileSettingInjector.injectMemberSettingGroups(fragment, groupsList);
     }
     
-    // =========================================================================
-    // 语音转发桥梁
-    // =========================================================================
     public static List injectPttMenu(List menuList, Object component, String forwardItemClassName) {
         return com.tencent.qqnt.patch.modules.chat.ForwardPttModule.injectPttMenu(menuList, component, forwardItemClassName);
     }

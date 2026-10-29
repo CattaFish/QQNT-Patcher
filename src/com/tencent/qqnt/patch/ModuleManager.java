@@ -6,14 +6,15 @@ import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
 import com.tencent.qqnt.patch.config.FeatureConfig;
 import com.tencent.qqnt.patch.util.PLog;
-import com.tencent.qqnt.patch.modules.chat.*;
-import com.tencent.qqnt.patch.modules.purify.*;
+import com.tencent.qqnt.patch.util.PatchAssetHelper;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ModuleManager {
@@ -21,60 +22,14 @@ public class ModuleManager {
     private static final List<IPatchModule> sModules = new CopyOnWriteArrayList<>();
     private static volatile boolean sInitialized = false;
 
-    private static final Map<String, String> MOD_TO_FEATURE = new HashMap<>();
-    static {
-        MOD_TO_FEATURE.put("anti_revoke", "anti_revoke");
-        MOD_TO_FEATURE.put("flash_pic", "flash_pic");
-        MOD_TO_FEATURE.put("meow_helper", "meow");
-        MOD_TO_FEATURE.put("floating_ball", "floating_ball");
-        MOD_TO_FEATURE.put("tablet_mode", "tablet");
-        MOD_TO_FEATURE.put("block_at_all_notify", "block_at_all");
-        MOD_TO_FEATURE.put("auto_remark_apk", "auto_remark_apk");
-        MOD_TO_FEATURE.put("show_file_download_count", "group_file");
-        MOD_TO_FEATURE.put("modify_pic_summary", "modify_pic_summary");
-        MOD_TO_FEATURE.put("disable_split_screen_limit", "multi_window");
-        MOD_TO_FEATURE.put("tg_stickers", "tg_stickers");
-        MOD_TO_FEATURE.put("browser_mitigation", "browser");
-        MOD_TO_FEATURE.put("disable_upgrade", "disable_upgrade");
-        MOD_TO_FEATURE.put("qq_version", "qq_version");
-        MOD_TO_FEATURE.put("double_tap_repeat", "double_tap_repeat");
-        MOD_TO_FEATURE.put("unlock_swipe_reply", "unlock_swipe_reply");
-        MOD_TO_FEATURE.put("records_reply_check", "records_reply_check");
-        MOD_TO_FEATURE.put("remove_reply_at", "remove_reply_at");
-        MOD_TO_FEATURE.put("forward_ptt", "forward_ptt");
-    }
-
-    static {
-        register(new AntiRevokeModule());
-        register(new FlashPicModule());
-        register(new MeowModule());
-        register(new FloatingBallModule());
-        register(new TabletModeModule());
-        register(new AtAllNotifyBlockModule());
-        register(new AutoRemarkApkModule());
-        register(new ShowDownloadTimesModule());
-        register(new ModifyPicSummaryModule());
-        register(new DisableSplitScreenLimitModule());
-        register(new TgStickerModule());
-        register(new BrowserMitigationModule());
-        register(new DisableUpgradeModule());
-        register(new QQVersionModule());
-        register(new DoubleTapRepeatModule());
-        register(new UnlockSwipeReplyModule());
-        register(new RecordsReplyCheckModule());
-        register(new RemoveReplyAtModule());
-        register(new ForwardPttModule());
-    }
-
     public static void register(IPatchModule module) {
         if (module == null) return;
-        String fId = MOD_TO_FEATURE.get(module.getId());
-        if (fId != null && !FeatureConfig.has(fId)) {
+        if (!FeatureConfig.has(module.getId())) {
             return;
         }
         if (!sModules.contains(module)) {
             sModules.add(module);
-            PLog.d(TAG, "注册模块 -> [" + module.getName() + "]");
+            PLog.d(TAG, "注册模块 -> [" + module.getName() + "] (ID: " + module.getId() + ")");
         }
     }
 
@@ -82,9 +37,65 @@ public class ModuleManager {
         return Collections.unmodifiableList(sModules);
     }
 
+    private static void autoAssembleModules(Context context) {
+        if (!sModules.isEmpty()) return;
+
+        try (InputStream is = PatchAssetHelper.openStream(context, "zzz_modules.list")) {
+            if (is != null) {
+                BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+                String line;
+                ClassLoader cl = context.getClassLoader();
+                while ((line = br.readLine()) != null) {
+                    line = line.trim();
+                    if (line.isEmpty() || line.startsWith("#")) continue;
+                    try {
+                        Class<?> clz = cl.loadClass(line);
+                        if (IPatchModule.class.isAssignableFrom(clz)) {
+                            IPatchModule inst = (IPatchModule) clz.getDeclaredConstructor().newInstance();
+                            register(inst);
+                        }
+                    } catch (Throwable t) {
+                        PLog.w(TAG, "反射加载模块失败 [" + line + "]: " + t.getMessage());
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            PLog.w(TAG, "读取 zzz_modules.list 异常: " + t.getMessage());
+        }
+
+        if (sModules.isEmpty()) {
+            registerFallbackBuiltinModules();
+        }
+    }
+
+    private static void registerFallbackBuiltinModules() {
+        register(new com.tencent.qqnt.patch.modules.chat.AntiRevokeModule());
+        register(new com.tencent.qqnt.patch.modules.chat.FlashPicModule());
+        register(new com.tencent.qqnt.patch.modules.chat.MeowModule());
+        register(new com.tencent.qqnt.patch.modules.chat.FloatingBallModule());
+        register(new com.tencent.qqnt.patch.modules.purify.TabletModeModule());
+        register(new com.tencent.qqnt.patch.modules.purify.AtAllNotifyBlockModule());
+        register(new com.tencent.qqnt.patch.modules.chat.AutoRemarkApkModule());
+        register(new com.tencent.qqnt.patch.modules.chat.ShowDownloadTimesModule());
+        register(new com.tencent.qqnt.patch.modules.chat.ModifyPicSummaryModule());
+        register(new com.tencent.qqnt.patch.modules.purify.DisableSplitScreenLimitModule());
+        register(new com.tencent.qqnt.patch.modules.chat.TgStickerModule());
+        register(new com.tencent.qqnt.patch.modules.purify.BrowserMitigationModule());
+        register(new com.tencent.qqnt.patch.modules.purify.DisableUpgradeModule());
+        register(new com.tencent.qqnt.patch.modules.chat.QQVersionModule());
+        register(new com.tencent.qqnt.patch.modules.chat.DoubleTapRepeatModule());
+        register(new com.tencent.qqnt.patch.modules.chat.UnlockSwipeReplyModule());
+        register(new com.tencent.qqnt.patch.modules.chat.RecordsReplyCheckModule());
+        register(new com.tencent.qqnt.patch.modules.chat.RemoveReplyAtModule());
+        register(new com.tencent.qqnt.patch.modules.chat.ForwardPttModule());
+    }
+
     public static void initAll(Context context) {
         if (sInitialized || context == null) return;
         sInitialized = true;
+
+        autoAssembleModules(context);
+
         PLog.i(TAG, "挂载核心模块，共 " + sModules.size() + " 个模块就绪");
         for (IPatchModule m : sModules) {
             try {

@@ -9,14 +9,14 @@ import com.tencent.qqnt.patch.util.PLog;
 public class BrowserMitigationModule implements IPatchModule {
     private static final String TAG = "BrowserSecurity";
 
-    @Override public String getId() { return "browser_mitigation"; }
+    @Override public String getId() { return "browser"; }
     @Override public String getName() { return "禁用内置浏览器网页拦截"; }
     @Override public String getCategory() { return CATEGORY_PURIFY; }
     @Override public String getSubName() { return "允许在内置浏览器直接访问非官方/第三方网页"; }
     @Override public boolean defaultEnabled() { return false; }
 
     public static void handleWebSecurityCallback(Bundle bundle) {
-        if (!ConfigManager.isModuleEnabled("browser_mitigation", false) || bundle == null) {
+        if (!ConfigManager.isModuleEnabled("browser", false) || bundle == null) {
             return;
         }
 

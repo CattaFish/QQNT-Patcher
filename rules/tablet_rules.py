@@ -3,8 +3,13 @@
 
 from .parser import FastDexParser
 
+RULE_ID = "tablet"
+RULE_NAME = "强制平板模式"
+RULE_DESC = "强制平板模式"
+RULE_ALIASES = ["pad", "平板", "平板模式"]
+RULE_ENABLED = True
+
 def build_tablet_rule(dex_data_dict):
-    """全动态嗅探 PadUtil 设备类型判断类与方法"""
     for _, dex_bytes in dex_data_dict.items():
         if b"initDeviceType type = " in dex_bytes or b"key_common_split_switch" in dex_bytes:
             p = FastDexParser(dex_bytes)
@@ -28,7 +33,8 @@ def build_tablet_rule(dex_data_dict):
                             "target_method": target_method,
                             "type": "INSERT_BEFORE",
                             "smali": f"""
-    invoke-static {{}}, Lcom/tencent/qqnt/patch/PatchBridge;->isTabletModeEnabled()Z
+    const-string v0, "tablet"
+    invoke-static {{v0}}, Lcom/tencent/qqnt/patch/PatchBridge;->isEnabled(Ljava/lang/String;)Z
     move-result v0
     if-eqz v0, :cond_tablet_pass
     sget-object v0, {return_type}->TABLET:{return_type}
@@ -37,10 +43,6 @@ def build_tablet_rule(dex_data_dict):
 """
                         }
     return None
-# === 规则插件契约 ===
-RULE_ID = "tablet"
-RULE_NAME = "平板模式动态穿透"
-RULE_ENABLED = True
 
 def resolve_rules(dex_data_dict, meta=None):
     r = build_tablet_rule(dex_data_dict)

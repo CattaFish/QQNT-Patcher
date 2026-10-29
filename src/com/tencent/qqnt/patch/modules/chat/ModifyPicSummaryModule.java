@@ -1,30 +1,19 @@
 package com.tencent.qqnt.patch.modules.chat;
 
 import android.app.Activity;
-import android.app.Dialog;
 import android.content.Context;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Environment;
-import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
-import android.view.Window;
-import android.widget.Button;
 import android.widget.EditText;
-import android.widget.FrameLayout;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.IPatchModule;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.ui.NativeSettingHelper;
+import com.tencent.qqnt.patch.ui.SettingDialogBuilder;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.qqnt.patch.util.ToastHelper;
-import me.yxp.qfun.utils.ui.ThemeHelper;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -299,203 +288,54 @@ public class ModifyPicSummaryModule implements IPatchModule {
     public void onConfigClick(Activity activity, Runnable onSaved) {
         if (activity == null || activity.isFinishing()) return;
 
-        boolean isNight = ThemeHelper.INSTANCE.isNightMode();
-
-        int bgColor = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
-        int textColor = isNight ? Color.WHITE : Color.parseColor("#1D1D1F");
-        int subTextColor = isNight ? Color.parseColor("#8E8E93") : Color.parseColor("#666666");
-        int inputBgColor = isNight ? Color.parseColor("#2C2C2E") : Color.parseColor("#F2F2F7");
-
-        Dialog dialog = new Dialog(activity);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        }
-
-        int pad = dp2px(activity, 20f);
-        LinearLayout root = new LinearLayout(activity);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, pad, pad, pad);
-
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(bgColor);
-        bg.setCornerRadius(dp2px(activity, 18f));
-        root.setBackground(bg);
-
-        TextView title = new TextView(activity);
-        title.setText("设置图片外显");
-        title.setTextSize(17);
-        title.getPaint().setFakeBoldText(true);
-        title.setTextColor(textColor);
-        title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 0, 0, dp2px(activity, 14f));
-        root.addView(title);
-
-        LinearLayout modeRow = new LinearLayout(activity);
-        modeRow.setOrientation(LinearLayout.HORIZONTAL);
-        modeRow.setGravity(Gravity.CENTER_VERTICAL);
-        modeRow.setPadding(dp2px(activity, 4f), 0, dp2px(activity, 4f), dp2px(activity, 12f));
-
-        LinearLayout modeTextCol = new LinearLayout(activity);
-        modeTextCol.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams mtLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-
-        TextView modeTitle = new TextView(activity);
-        modeTitle.setText("使用本地词库模式");
-        modeTitle.setTextSize(15);
-        modeTitle.getPaint().setFakeBoldText(true);
-        modeTitle.setTextColor(textColor);
-
-        TextView modeDesc = new TextView(activity);
-        modeDesc.setTextSize(12);
-        modeDesc.setTextColor(subTextColor);
-
-        modeTextCol.addView(modeTitle);
-        modeTextCol.addView(modeDesc);
-        modeRow.addView(modeTextCol, mtLp);
-
-        int trackW = dp2px(activity, 52f);
-        int trackH = dp2px(activity, 30f);
-        int thumbSize = dp2px(activity, 24f);
-        int thumbMargin = dp2px(activity, 3f);
-
-        LinearLayout switchContainer = new LinearLayout(activity);
-        switchContainer.setOrientation(LinearLayout.HORIZONTAL);
-        switchContainer.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView tvStatus = new TextView(activity);
-        tvStatus.setTextSize(13);
-        tvStatus.getPaint().setFakeBoldText(true);
-        tvStatus.setPadding(0, 0, dp2px(activity, 8f), 0);
-        switchContainer.addView(tvStatus);
-
-        FrameLayout switchTrack = new FrameLayout(activity);
-        GradientDrawable trackBg = new GradientDrawable();
-        trackBg.setCornerRadius(trackH / 2f);
-        switchTrack.setBackground(trackBg);
-
-        View switchThumb = new View(activity);
-        GradientDrawable thumbBg = new GradientDrawable();
-        thumbBg.setShape(GradientDrawable.OVAL);
-        thumbBg.setColor(Color.WHITE);
-        switchThumb.setBackground(thumbBg);
-
-        FrameLayout.LayoutParams thumbLp = new FrameLayout.LayoutParams(thumbSize, thumbSize);
-        thumbLp.gravity = Gravity.CENTER_VERTICAL;
-        switchTrack.addView(switchThumb, thumbLp);
-
-        switchContainer.addView(switchTrack, new LinearLayout.LayoutParams(trackW, trackH));
-        modeRow.addView(switchContainer);
-        root.addView(modeRow);
-
-        TextView statusDesc = new TextView(activity);
-        statusDesc.setTextSize(12);
-        statusDesc.setPadding(0, 0, 0, dp2px(activity, 12f));
-        root.addView(statusDesc);
-
-        EditText etUrl = createStyledEditText(activity, inputBgColor, textColor, subTextColor, "", ConfigManager.getPicSummaryUrl());
-        LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(activity, 44f));
-        lp1.bottomMargin = dp2px(activity, 10f);
-        root.addView(etUrl, lp1);
-
-        EditText etKey = createStyledEditText(activity, inputBgColor, textColor, subTextColor, "JSON 提取 Key (仅 API 模式生效，支持深度查找)", ConfigManager.getPicSummaryKey());
-        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(activity, 44f));
-        lp2.bottomMargin = dp2px(activity, 16f);
-        root.addView(etKey, lp2);
-
         final boolean[] isLocalMode = new boolean[]{ ConfigManager.isPicSummaryUseLocal() };
 
-        Runnable updateUIState = () -> {
-            boolean isLocal = isLocalMode[0];
-            if (isLocal) {
-                tvStatus.setText("已开启");
-                tvStatus.setTextColor(Color.parseColor("#34C759"));
-                trackBg.setColor(Color.parseColor("#34C759"));
-                thumbLp.leftMargin = trackW - thumbSize - thumbMargin;
+        SettingDialogBuilder builder = SettingDialogBuilder.build(activity, "设置图片外显");
 
-                modeDesc.setText("开启：从本地 .txt 词库中随机抽取");
-                File f = resolveLocalTxtFile(etUrl.getText().toString());
-                if (f != null && f.exists()) {
-                    statusDesc.setText("[已关联词库] " + f.getName());
-                    statusDesc.setTextColor(Color.parseColor("#34C759"));
-                } else {
-                    statusDesc.setText("[提示] 留空默认读取 /zzz/ 目录下的 .txt 词库");
-                    statusDesc.setTextColor(subTextColor);
-                }
-                etUrl.setHint("自定义本地.txt绝对路径 (留空默认读 zzz/*.txt)");
-                etKey.setVisibility(View.GONE);
-            } else {
-                tvStatus.setText("已关闭");
-                tvStatus.setTextColor(subTextColor);
-                trackBg.setColor(isNight ? Color.parseColor("#3A3A3C") : Color.parseColor("#D1D1D6"));
-                thumbLp.leftMargin = thumbMargin;
-
-                modeDesc.setText("关闭：使用下方填写的固定文本或 API 接口");
-                statusDesc.setText("[提示] 支持输入固定外显文本(<=30字)或 API 网络接口");
-                statusDesc.setTextColor(subTextColor);
-                etUrl.setHint("普通外显文本 或 http(s):// API 接口");
-                etKey.setVisibility(View.VISIBLE);
+        builder.addSwitch("使用本地词库模式", "开启：从本地 .txt 词库中随机抽取", isLocalMode[0], checked -> {
+            isLocalMode[0] = checked;
+            EditText etKey = builder.getInputField(1);
+            if (etKey != null) {
+                etKey.setVisibility(checked ? View.GONE : View.VISIBLE);
             }
-            switchThumb.setLayoutParams(thumbLp);
-        };
-
-        modeRow.setOnClickListener(v -> {
-            isLocalMode[0] = !isLocalMode[0];
-            updateUIState.run();
+            EditText etUrl = builder.getInputField(0);
+            if (etUrl != null) {
+                etUrl.setHint(checked ? "自定义本地.txt绝对路径 (留空默认读 zzz/*.txt)" : "普通外显文本 或 http(s):// API 接口");
+            }
         });
-        updateUIState.run();
 
-        LinearLayout btnRow = new LinearLayout(activity);
-        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+        builder.addInput(
+                isLocalMode[0] ? "自定义本地.txt绝对路径 (留空默认读 zzz/*.txt)" : "普通外显文本 或 http(s):// API 接口",
+                ConfigManager.getPicSummaryUrl(),
+                true, false, null
+        );
 
-        Button cancelBtn = new Button(activity);
-        cancelBtn.setText("取消");
-        cancelBtn.setTextSize(14);
-        cancelBtn.setTextColor(subTextColor);
-        cancelBtn.setAllCaps(false);
-        GradientDrawable cancelBg = new GradientDrawable();
-        cancelBg.setColor(inputBgColor);
-        cancelBg.setCornerRadius(dp2px(activity, 10f));
-        cancelBtn.setBackground(cancelBg);
-        LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
-        cancelLp.rightMargin = dp2px(activity, 8f);
-        cancelBtn.setOnClickListener(v -> dialog.dismiss());
-        btnRow.addView(cancelBtn, cancelLp);
+        builder.addInput(
+                "JSON 提取 Key (仅 API 模式生效，支持嵌套查找)",
+                ConfigManager.getPicSummaryKey(),
+                true, false, null
+        );
 
-        Button saveBtn = new Button(activity);
-        saveBtn.setText("保存并更新");
-        saveBtn.setTextSize(14);
-        saveBtn.setTextColor(Color.WHITE);
-        saveBtn.setAllCaps(false);
-        GradientDrawable saveBg = new GradientDrawable();
-        saveBg.setColor(Color.parseColor("#007AFF"));
-        saveBg.setCornerRadius(dp2px(activity, 10f));
-        saveBtn.setBackground(saveBg);
-        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
-        saveBtn.setOnClickListener(v -> {
+        EditText etKey = builder.getInputField(1);
+        if (etKey != null && isLocalMode[0]) {
+            etKey.setVisibility(View.GONE);
+        }
+
+        builder.setPositiveButton("保存并更新", dialog -> {
             boolean useLocal = isLocalMode[0];
-            String newUrl = etUrl.getText() != null ? etUrl.getText().toString().trim() : "";
-            String newKey = etKey.getText() != null ? etKey.getText().toString().trim() : "";
+            String newUrl = builder.getInputValue(0);
+            String newKey = builder.getInputValue(1);
+
             ConfigManager.setPicSummaryUseLocal(useLocal);
             ConfigManager.setPicSummaryUrl(newUrl);
             ConfigManager.setPicSummaryKey(newKey);
             sLocalFileLastModified = -1L;
             fetchNextSummary();
+
             dialog.dismiss();
             ToastHelper.show(activity, "已保存图片外显配置");
             if (onSaved != null) onSaved.run();
-        });
-        btnRow.addView(saveBtn, saveLp);
-
-        root.addView(btnRow);
-
-        dialog.setContentView(root);
-        dialog.show();
-
-        if (dialog.getWindow() != null) {
-            int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.88);
-            dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
-        }
+        }).show();
     }
 
     private static File getZzzBaseDir() {
@@ -517,28 +357,5 @@ public class ModifyPicSummaryModule implements IPatchModule {
         File zzzDir = new File(mediaDir, "zzz");
         if (!zzzDir.exists()) zzzDir.mkdirs();
         return zzzDir;
-    }
-
-    private static EditText createStyledEditText(Context context, int bgCol, int textCol, int hintCol, String hint, String initialText) {
-        EditText et = new EditText(context);
-        et.setText(initialText != null ? initialText : "");
-        et.setHint(hint);
-        et.setHintTextColor(hintCol);
-        et.setTextColor(textCol);
-        et.setTextSize(13);
-        et.setSingleLine(true);
-        et.setPadding(dp2px(context, 12f), 0, dp2px(context, 12f), 0);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(bgCol);
-        bg.setCornerRadius(dp2px(context, 10f));
-        et.setBackground(bg);
-        return et;
-    }
-
-    private static int dp2px(Context c, float dp) {
-        if (c == null || c.getResources() == null || c.getResources().getDisplayMetrics() == null) {
-            return (int) (dp * 2f + 0.5f);
-        }
-        return (int) (dp * c.getResources().getDisplayMetrics().density + 0.5f);
     }
 }

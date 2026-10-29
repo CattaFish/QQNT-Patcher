@@ -1,128 +1,53 @@
 # -*- coding: utf-8 -*-
 """
 Feature 调度与依赖决议中心
-支持细粒度控制任意功能的开启与跳过
+已实现全动态自描述聚合：独立规则插件自声明元数据，无需在此手动硬编码！
 """
 
-ALL_FEATURES = {
-    # 基础设施与安全底座 (支持自由 skip/only 测试)
-    "killer": "去签核心入口注入",
-    "security": "安全风控与查签致盲",
-    "tinker": "禁用 Tinker 热修复载入",
+import os
+import sys
 
-    # 业务扩展功能
-    "anti_revoke": "消息防撤回",
-    "flash_pic": "闪照破解与画廊放行",
-    "script": "动态脚本生态 (BeanShell 引擎与菜单)",
-    "setting": "原生设置中心与搜索索引",
-    "tablet": "强制平板模式",
-    "multi_window": "伪装非多窗口模式 (解除分屏限制)",
-    "group_file": "群文件显示下载次数",
-    "troop_todo": "静默群待办强提醒",
-    "block_at_all": "静默 @全体 实时通知",
-    "auto_remark_apk": "发送 APK 自动重命名",
-    "modify_pic_summary": "修改图片与表情外显",
-    "tg_stickers": "Telegram 外部表情包",
-    "browser": "禁用内置浏览器网页拦截",
-    "disable_upgrade": "禁用检查更新与去除提示",
-    "meow": "喵喵助手",
-    "floating_ball": "会话悬浮球快捷入口",
-    "chat_history": "查看本地聊天记录 (私聊/群聊)",
-    "qq_version": "发送者 QQ 版本识别",
-    "double_tap_repeat": "消息复读 (左滑/+1)",
-    "unlock_swipe_reply": "解除左滑回复限制",
-    "records_reply_check": "查看聊天记录回复图片",
-    "remove_reply_at": "去除回复自动艾特",
-    "forward_ptt": "语音转发",
-}
+_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
 
-FEATURE_ALIASES = {
-    # killer
-    "killer": "killer", "去签": "killer", "签名": "killer", "sign_killer": "killer",
-    # security
-    "security": "security", "sec": "security", "安全": "security", "查签": "security", "风控": "security",
-    # tinker
-    "tinker": "tinker", "热修": "tinker", "热修复": "tinker", "tinker_disable": "tinker",
-    # anti_revoke
-    "anti_revoke": "anti_revoke", "revoke": "anti_revoke", "防撤回": "anti_revoke", "撤回": "anti_revoke",
-    # flash_pic
-    "flash_pic": "flash_pic", "flash": "flash_pic", "闪照": "flash_pic", "闪照破解": "flash_pic",
-    # script
-    "script": "script", "scripts": "script", "脚本": "script", "动态脚本": "script", "bsh": "script", "qfun": "script", "plugin": "script", "plugins": "script",
-    # setting
-    "setting": "setting", "settings": "setting", "设置": "setting", "设置中心": "setting", "zzz": "setting",
-    # tablet
-    "tablet": "tablet", "pad": "tablet", "平板": "tablet", "平板模式": "tablet",
-    # multi_window
-    "multi_window": "multi_window", "split": "multi_window", "分屏": "multi_window", "多窗口": "multi_window",
-    # group_file
-    "group_file": "group_file", "群文件": "group_file", "下载次数": "group_file",
-    # troop_todo
-    "troop_todo": "troop_todo", "todo": "troop_todo", "群待办": "troop_todo",
-    # block_at_all
-    "block_at_all": "block_at_all", "at_all": "block_at_all", "全体": "block_at_all", "@全体": "block_at_all",
-    # auto_remark_apk
-    "auto_remark_apk": "auto_remark_apk", "apk": "auto_remark_apk", "apk重命名": "auto_remark_apk",
-    # modify_pic_summary
-    "modify_pic_summary": "modify_pic_summary", "pic_summary": "modify_pic_summary", "外显": "modify_pic_summary", "图片外显": "modify_pic_summary",
-    # tg_stickers
-    "tg_stickers": "tg_stickers", "sticker": "tg_stickers", "stickers": "tg_stickers", "表情包": "tg_stickers", "tg表情": "tg_stickers",
-    # browser
-    "browser": "browser", "网页拦截": "browser", "浏览器": "browser",
-    # disable_upgrade
-    "disable_upgrade": "disable_upgrade", "upgrade": "disable_upgrade", "update": "disable_upgrade", "更新": "disable_upgrade", "去更新": "disable_upgrade", "禁用更新": "disable_upgrade", "升级": "disable_upgrade", "强更": "disable_upgrade",
-    # meow
-    "meow": "meow", "喵喵": "meow", "喵喵助手": "meow",
-    # floating_ball
-    "floating_ball": "floating_ball", "ball": "floating_ball", "悬浮球": "floating_ball",
-    # chat_history
-    "chat_history": "chat_history", "history": "chat_history", 
-    "聊天记录": "chat_history", "历史记录": "chat_history",
-    # qq_version
-    "qq_version": "qq_version", "version": "qq_version", "版本": "qq_version", "qq版本": "qq_version",
-    
-    # double_tap_repeat
-    "double_tap_repeat": "double_tap_repeat",
-    "repeat": "double_tap_repeat",
-    "复读": "double_tap_repeat",
-    "消息复读": "double_tap_repeat",      # ← 新增准确别名
-    "快捷复读": "double_tap_repeat",      # ← 新增准确别名
-    "左滑复读": "double_tap_repeat",
-    "+1": "double_tap_repeat",           # ← 新增 +1 别名
-    "+1复读": "double_tap_repeat",
-    "双击": "double_tap_repeat",          # 保留旧习惯兼容
-    "双击复读": "double_tap_repeat",
-    
-    # unlock_swipe_reply
-    "unlock_swipe_reply": "unlock_swipe_reply",
-    "unlock_swipe": "unlock_swipe_reply",
-    "左滑回复": "unlock_swipe_reply",
-    "解除左滑回复": "unlock_swipe_reply",
-    "回复限制": "unlock_swipe_reply",
-    "swipe_reply": "unlock_swipe_reply",
-    
-    # records_reply_check
-    "records_reply_check": "records_reply_check",
-    "records_reply": "records_reply_check",
-    "聊天记录回复": "records_reply_check",
-    "回复图片": "records_reply_check",
-    "合并转发回复": "records_reply_check",
-    
-    # remove_reply_at
-    "remove_reply_at": "remove_reply_at",
-    "no_reply_at": "remove_reply_at",
-    "去除回复艾特": "remove_reply_at",
-    "去除回复@": "remove_reply_at",
-    "去除回复自动艾特": "remove_reply_at",
-    "回复不艾特": "remove_reply_at",
-    "去艾特": "remove_reply_at",
-    
-    # forward_ptt
-    "forward_ptt": "forward_ptt",
-    "ptt_forward": "forward_ptt",
-    "语音转发": "forward_ptt",
-    "转发语音": "forward_ptt",
-    "语音": "forward_ptt",
+BUILTIN_FEATURES = {
+    "killer": {
+        "desc": "去签核心入口注入",
+        "aliases": ["killer", "去签", "签名", "sign_killer"],
+    },
+    "anti_revoke": {
+        "desc": "消息防撤回",
+        "aliases": ["anti_revoke", "revoke", "防撤回", "撤回"],
+    },
+    "flash_pic": {
+        "desc": "闪照破解与画廊放行",
+        "aliases": ["flash_pic", "flash", "闪照", "闪照破解"],
+    },
+    "script": {
+        "desc": "动态脚本生态 (BeanShell 引擎与菜单)",
+        "aliases": ["script", "scripts", "脚本", "动态脚本", "bsh", "qfun", "plugin", "plugins"],
+    },
+    "auto_remark_apk": {
+        "desc": "发送 APK 自动重命名",
+        "aliases": ["auto_remark_apk", "apk", "apk重命名"],
+    },
+    "modify_pic_summary": {
+        "desc": "修改图片与表情外显",
+        "aliases": ["modify_pic_summary", "pic_summary", "外显", "图片外显"],
+    },
+    "meow": {
+        "desc": "喵喵助手",
+        "aliases": ["meow", "喵喵", "喵喵助手"],
+    },
+    "floating_ball": {
+        "desc": "会话悬浮球快捷入口",
+        "aliases": ["floating_ball", "ball", "悬浮球"],
+    },
+    "chat_history": {
+        "desc": "查看本地聊天记录 (私聊/群聊)",
+        "aliases": ["chat_history", "history", "聊天记录", "历史记录"],
+    },
 }
 
 BUS_DEPENDENCIES = {
@@ -135,6 +60,35 @@ BUS_DEPENDENCIES = {
     "bus_setting": {"setting"},
     "bus_troop_member": {"script"},
 }
+
+def _collect_all_features():
+    all_features = {}
+    feature_aliases = {}
+
+    for fid, meta in BUILTIN_FEATURES.items():
+        all_features[fid] = meta.get("desc", fid)
+        feature_aliases[fid.lower()] = fid
+        for alias in meta.get("aliases", []):
+            feature_aliases[alias.lower()] = fid
+
+    try:
+        from rules.engine import discover_rule_plugins
+        plugins = discover_rule_plugins()
+        for p in plugins:
+            if not p.plugin_id or p.plugin_id == "base":
+                continue
+            fid = p.plugin_id
+            all_features[fid] = p.desc or p.name
+            feature_aliases[fid.lower()] = fid
+            feature_aliases[p.name.lower()] = fid
+            for alias in p.aliases:
+                feature_aliases[alias.lower()] = fid
+    except Exception as e:
+        print(f" \033[1;33m[WARN]\033[0m 自动聚合规则特征失败: {e}")
+
+    return all_features, feature_aliases
+
+ALL_FEATURES, FEATURE_ALIASES = _collect_all_features()
 
 def resolve_feature_id(name_or_alias: str):
     k = name_or_alias.strip().lower()

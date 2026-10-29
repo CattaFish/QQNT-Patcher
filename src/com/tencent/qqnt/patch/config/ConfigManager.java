@@ -8,6 +8,7 @@ import com.tencent.qqnt.patch.plugin.PluginManager;
 import com.tencent.qqnt.patch.util.PLog;
 
 import java.io.File;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,6 +33,22 @@ public class ConfigManager {
     private static final Map<String, Boolean> sFlagCache = new ConcurrentHashMap<>();
     private static volatile boolean sCacheLoaded = false;
     private static boolean sColdStartChecked = false;
+
+    private static final Map<String, String> ID_ALIASES = new HashMap<>();
+    static {
+        ID_ALIASES.put("tablet", "tablet_mode");
+        ID_ALIASES.put("tablet_mode", "tablet");
+        ID_ALIASES.put("multi_window", "disable_split_screen_limit");
+        ID_ALIASES.put("disable_split_screen_limit", "multi_window");
+        ID_ALIASES.put("browser", "browser_mitigation");
+        ID_ALIASES.put("browser_mitigation", "browser");
+        ID_ALIASES.put("meow", "meow_helper");
+        ID_ALIASES.put("meow_helper", "meow");
+        ID_ALIASES.put("block_at_all", "block_at_all_notify");
+        ID_ALIASES.put("block_at_all_notify", "block_at_all");
+        ID_ALIASES.put("group_file", "show_file_download_count");
+        ID_ALIASES.put("show_file_download_count", "group_file");
+    }
 
     private static SharedPreferences getPreferences() {
         Context ctx = AppContext.get();
@@ -118,50 +135,38 @@ public class ConfigManager {
     public static boolean isModuleEnabled(String moduleId, boolean defValue) {
         String flagOff = "zzz_mod_off_" + moduleId;
         String flagOn = "zzz_mod_on_" + moduleId;
+        String alias = ID_ALIASES.get(moduleId);
+
         if (defValue) {
-            return !hasFlag(flagOff);
+            if (hasFlag(flagOff)) return false;
+            if (alias != null && hasFlag("zzz_mod_off_" + alias)) return false;
+            return true;
         } else {
-            return hasFlag(flagOn);
+            if (hasFlag(flagOn)) return true;
+            if (alias != null && hasFlag("zzz_mod_on_" + alias)) return true;
+            return false;
         }
     }
 
     public static void setModuleEnabled(String moduleId, boolean enabled) {
         setFlag("zzz_mod_off_" + moduleId, !enabled);
         setFlag("zzz_mod_on_" + moduleId, enabled);
+        String alias = ID_ALIASES.get(moduleId);
+        if (alias != null) {
+            setFlag("zzz_mod_off_" + alias, !enabled);
+            setFlag("zzz_mod_on_" + alias, enabled);
+        }
         PLog.i("Config", "模块 [" + moduleId + "] 状态更新为: " + (enabled ? "开启" : "关闭"));
     }
 
-    public static boolean isFloatingBallEnabled() {
-        return isModuleEnabled("floating_ball", false);
-    }
-
-    public static void setFloatingBallEnabled(boolean enabled) {
-        setModuleEnabled("floating_ball", enabled);
-    }
-
-    public static boolean isAntiRevokeEnabled() {
-        return isModuleEnabled("anti_revoke", false);
-    }
-
-    public static void setAntiRevokeEnabled(boolean enabled) {
-        setModuleEnabled("anti_revoke", enabled);
-    }
-
-    public static boolean isFlashPicDecryptEnabled() {
-        return isModuleEnabled("flash_pic", false);
-    }
-
-    public static void setFlashPicDecryptEnabled(boolean enabled) {
-        setModuleEnabled("flash_pic", enabled);
-    }
-
-    public static boolean isMeowEnabled() {
-        return isModuleEnabled("meow_helper", false);
-    }
-
-    public static void setMeowEnabled(boolean enabled) {
-        setModuleEnabled("meow_helper", enabled);
-    }
+    public static boolean isFloatingBallEnabled() { return isModuleEnabled("floating_ball", false); }
+    public static void setFloatingBallEnabled(boolean enabled) { setModuleEnabled("floating_ball", enabled); }
+    public static boolean isAntiRevokeEnabled() { return isModuleEnabled("anti_revoke", false); }
+    public static void setAntiRevokeEnabled(boolean enabled) { setModuleEnabled("anti_revoke", enabled); }
+    public static boolean isFlashPicDecryptEnabled() { return isModuleEnabled("flash_pic", false); }
+    public static void setFlashPicDecryptEnabled(boolean enabled) { setModuleEnabled("flash_pic", enabled); }
+    public static boolean isMeowEnabled() { return isModuleEnabled("meow", false); }
+    public static void setMeowEnabled(boolean enabled) { setModuleEnabled("meow", enabled); }
 
     public static boolean isPluginEnabled(String pluginId) {
         if (pluginId == null || pluginId.isEmpty()) return false;
@@ -173,18 +178,9 @@ public class ConfigManager {
         setFlag(PREFIX_PLUGIN_ON + pluginId, enabled);
     }
 
-    public static boolean hasNewVersion() {
-        return hasFlag(FLAG_HAS_NEW_VERSION);
-    }
-
-    public static void setHasNewVersion(boolean hasNew) {
-        setFlag(FLAG_HAS_NEW_VERSION, hasNew);
-    }
-
-    public static boolean isDebugLogEnabled() {
-        return hasFlag(FLAG_DEBUG_LOG_ON);
-    }
-
+    public static boolean hasNewVersion() { return hasFlag(FLAG_HAS_NEW_VERSION); }
+    public static void setHasNewVersion(boolean hasNew) { setFlag(FLAG_HAS_NEW_VERSION, hasNew); }
+    public static boolean isDebugLogEnabled() { return hasFlag(FLAG_DEBUG_LOG_ON); }
     public static void setDebugLogEnabled(boolean enabled) {
         setFlag(FLAG_DEBUG_LOG_ON, enabled);
         PLog.i("Config", "调试日志输出已" + (enabled ? "开启" : "关闭"));
@@ -222,27 +218,10 @@ public class ConfigManager {
         }
     }
 
-    public static String getPicSummaryUrl() {
-        return getString(KEY_PIC_SUMMARY_URL, "");
-    }
-
-    public static void setPicSummaryUrl(String url) {
-        setString(KEY_PIC_SUMMARY_URL, url);
-    }
-
-    public static String getPicSummaryKey() {
-        return getString(KEY_PIC_SUMMARY_KEY, "");
-    }
-
-    public static void setPicSummaryKey(String key) {
-        setString(KEY_PIC_SUMMARY_KEY, key);
-    }
-
-    public static boolean isPicSummaryUseLocal() {
-        return hasFlag(KEY_PIC_SUMMARY_USE_LOCAL);
-    }
-
-    public static void setPicSummaryUseLocal(boolean useLocal) {
-        setFlag(KEY_PIC_SUMMARY_USE_LOCAL, useLocal);
-    }
+    public static String getPicSummaryUrl() { return getString(KEY_PIC_SUMMARY_URL, ""); }
+    public static void setPicSummaryUrl(String url) { setString(KEY_PIC_SUMMARY_URL, url); }
+    public static String getPicSummaryKey() { return getString(KEY_PIC_SUMMARY_KEY, ""); }
+    public static void setPicSummaryKey(String key) { setString(KEY_PIC_SUMMARY_KEY, key); }
+    public static boolean isPicSummaryUseLocal() { return hasFlag(KEY_PIC_SUMMARY_USE_LOCAL); }
+    public static void setPicSummaryUseLocal(boolean useLocal) { setFlag(KEY_PIC_SUMMARY_USE_LOCAL, useLocal); }
 }

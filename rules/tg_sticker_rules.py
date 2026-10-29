@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
-"""Telegram 外部贴纸包静态插桩规则 (自适应 9.2.90)"""
+"""Telegram 外部贴纸包静态插桩规则"""
 
 RULE_ID = "tg_stickers"
 RULE_NAME = "Telegram 表情包集"
+RULE_DESC = "Telegram 外部表情包"
+RULE_ALIASES = ["sticker", "stickers", "表情包", "tg表情"]
 RULE_ENABLED = True
 
 def build_tg_sticker_rules(dex_data_dict):
     rules = []
-
     controller_cls = "Lcom/tencent/mobileqq/emoticonview/EmoticonPanelController;"
     adapter_cls = "Lcom/tencent/mobileqq/emoticonview/EmotionPanelViewPagerAdapter;"
     tab_adapter_cls = "Lcom/tencent/mobileqq/emoticonview/EmoticonTabAdapter;"
     fav_info_cls = "Lcom/tencent/mobileqq/emoticonview/FavoriteEmoticonInfo;"
 
-    # 1. 拦截 EmoticonPanelController.getPanelDataList 注入贴纸 Tab 面板
     rules.append({
         "name": "挂载 TG 贴纸 Tab (EmoticonPanelController->getPanelDataList)",
         "target_class": controller_cls,
@@ -27,7 +27,6 @@ def build_tg_sticker_rules(dex_data_dict):
     return-object v0"""
     })
 
-    # 2. 拦截 EmotionPanelViewPagerAdapter.getEmotionPanelData 提供贴纸网格数据
     rules.append({
         "name": "提供 TG 贴纸网格数据 (EmotionPanelViewPagerAdapter->getEmotionPanelData)",
         "target_class": adapter_cls,
@@ -43,7 +42,6 @@ def build_tg_sticker_rules(dex_data_dict):
 """
     })
 
-    # 3. 拦截 EmotionPanelViewPagerAdapter.handleIPSite 防止 parseInt 崩溃
     rules.append({
         "name": "防 handleIPSite 数字转换崩溃 (EmotionPanelViewPagerAdapter->handleIPSite)",
         "target_class": adapter_cls,
@@ -59,7 +57,6 @@ def build_tg_sticker_rules(dex_data_dict):
 """
     })
 
-    # 4. 拦截 EmoticonTabAdapter.generateTabUrl 加载本地封面图标
     rules.append({
         "name": "Tab 栏显示本地封面 (EmoticonTabAdapter->generateTabUrl)",
         "target_class": tab_adapter_cls,
@@ -75,7 +72,6 @@ def build_tg_sticker_rules(dex_data_dict):
 """
     })
 
-    # 5. 拦截 FavoriteEmoticonInfo.getDrawable 转调 getZoomDrawable 防 OOM
     rules.append({
         "name": "贴纸缩略图极速加载防 OOM (FavoriteEmoticonInfo->getDrawable)",
         "target_class": fav_info_cls,

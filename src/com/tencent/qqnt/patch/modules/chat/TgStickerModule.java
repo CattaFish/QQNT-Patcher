@@ -1,22 +1,11 @@
 package com.tencent.qqnt.patch.modules.chat;
 
 import android.app.Activity;
-import android.app.Dialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Environment;
-import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
-import android.view.Window;
-import android.widget.Button;
-import android.widget.FrameLayout;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import com.tencent.mobileqq.data.EmoticonPackage;
 import com.tencent.mobileqq.emoticonview.EmotionPanelData;
@@ -26,9 +15,9 @@ import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.IPatchModule;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.ui.NativeSettingHelper;
+import com.tencent.qqnt.patch.ui.SettingDialogBuilder;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.qqnt.patch.util.ToastHelper;
-import me.yxp.qfun.utils.ui.ThemeHelper;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -143,188 +132,52 @@ public class TgStickerModule implements IPatchModule {
     public void onConfigClick(Activity activity, Runnable onSaved) {
         if (activity == null || activity.isFinishing()) return;
 
-        boolean isNight = ThemeHelper.INSTANCE.isNightMode();
-
-        int bgColor = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
-        int textColor = isNight ? Color.WHITE : Color.parseColor("#1D1D1F");
-        int subTextColor = isNight ? Color.parseColor("#8E8E93") : Color.parseColor("#666666");
-        int inputBgColor = isNight ? Color.parseColor("#2C2C2E") : Color.parseColor("#F2F2F7");
-
-        Dialog dialog = new Dialog(activity);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        }
-
-        int pad = dp2px(activity, 20f);
-        LinearLayout root = new LinearLayout(activity);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, pad, pad, pad);
-
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(bgColor);
-        bg.setCornerRadius(dp2px(activity, 18f));
-        root.setBackground(bg);
-
-        TextView title = new TextView(activity);
-        title.setText("Telegram 表情包设置");
-        title.setTextSize(17);
-        title.getPaint().setFakeBoldText(true);
-        title.setTextColor(textColor);
-        title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 0, 0, dp2px(activity, 10f));
-        root.addView(title);
-
         List<StickerPanel> currentPanels = getPanels();
         final String stickerPath = getStickerBaseDir().getAbsolutePath();
-
-        TextView statusDesc = new TextView(activity);
-        statusDesc.setTextSize(12);
-        statusDesc.setTextColor(Color.parseColor("#34C759"));
-        statusDesc.setLineSpacing(dp2px(activity, 2f), 1f);
-        statusDesc.setPadding(dp2px(activity, 4f), 0, dp2px(activity, 4f), dp2px(activity, 10f));
-        statusDesc.setText("[存储路径] " + stickerPath + " (点击复制)\n"
-                + "[目录规范] stickers/表情包名称/图片文件\n"
-                + "[当前状态] 已识别 " + currentPanels.size() + " 个表情包");
-        statusDesc.setOnClickListener(v -> {
-            copyToClipboard(activity, stickerPath);
-            ToastHelper.show(activity, "已复制路径");
-        });
-        root.addView(statusDesc);
-
         final List<File> orphanImages = getOrphanImages();
-        if (!orphanImages.isEmpty()) {
-            LinearLayout warnCard = new LinearLayout(activity);
-            warnCard.setOrientation(LinearLayout.VERTICAL);
-            warnCard.setPadding(dp2px(activity, 12f), dp2px(activity, 10f), dp2px(activity, 12f), dp2px(activity, 10f));
-
-            GradientDrawable warnBg = new GradientDrawable();
-            warnBg.setColor(isNight ? Color.parseColor("#2E2415") : Color.parseColor("#FFFBE6"));
-            warnBg.setCornerRadius(dp2px(activity, 10f));
-            warnBg.setStroke(dp2px(activity, 1f), isNight ? Color.parseColor("#59421A") : Color.parseColor("#FFE58F"));
-            warnCard.setBackground(warnBg);
-
-            LinearLayout.LayoutParams warnLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            warnLp.bottomMargin = dp2px(activity, 12f);
-            warnCard.setLayoutParams(warnLp);
-
-            TextView tvWarnTitle = new TextView(activity);
-            tvWarnTitle.setText("发现 " + orphanImages.size() + " 张图片未放入子文件夹");
-            tvWarnTitle.setTextSize(13);
-            tvWarnTitle.getPaint().setFakeBoldText(true);
-            tvWarnTitle.setTextColor(isNight ? Color.parseColor("#E6A23C") : Color.parseColor("#D46B08"));
-            warnCard.addView(tvWarnTitle);
-
-            TextView tvWarnDesc = new TextView(activity);
-            tvWarnDesc.setText("直接位于 stickers 根目录的图片无法被识别。每个表情包需要作为一个独立的子文件夹存放。");
-            tvWarnDesc.setTextSize(11);
-            tvWarnDesc.setTextColor(subTextColor);
-            tvWarnDesc.setPadding(0, dp2px(activity, 3f), 0, dp2px(activity, 8f));
-            warnCard.addView(tvWarnDesc);
-
-            Button btnAutoFix = new Button(activity);
-            btnAutoFix.setText("移动至「默认表情包」文件夹");
-            btnAutoFix.setTextSize(13);
-            btnAutoFix.setTextColor(Color.WHITE);
-            btnAutoFix.setAllCaps(false);
-
-            GradientDrawable fixBg = new GradientDrawable();
-            fixBg.setColor(Color.parseColor("#FA8C16"));
-            fixBg.setCornerRadius(dp2px(activity, 8f));
-            btnAutoFix.setBackground(fixBg);
-
-            LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(activity, 36f));
-            btnAutoFix.setLayoutParams(btnLp);
-            btnAutoFix.setOnClickListener(v -> {
-                int moved = autoCollectOrphanImages();
-                sLastScanTime = 0L;
-                sPanelMap.clear();
-                dialog.dismiss();
-                ToastHelper.show(activity, "已将 " + moved + " 张图片移动至「默认表情包」");
-                if (onSaved != null) onSaved.run();
-            });
-            warnCard.addView(btnAutoFix);
-
-            root.addView(warnCard);
-        }
 
         final int[] tempColumns = new int[]{ getPanelColumns() };
         final boolean[] tempRemoveEmoticons = new boolean[]{ isRemoveQQEmoticons() };
         final boolean[] tempRemoveMisc = new boolean[]{ isRemoveQQMisc() };
 
-        View columnStepperRow = createColumnStepperRow(
-                activity, isNight, textColor, subTextColor, inputBgColor,
-                tempColumns
-        );
-        root.addView(columnStepperRow);
+        SettingDialogBuilder builder = SettingDialogBuilder.build(activity, "Telegram 表情包设置");
 
-        View switchRowA = createCapsuleSwitchRow(
-                activity, isNight, textColor, subTextColor,
-                "移除商城表情",
-                "隐藏官方商城下载的表情，仅保留外部贴纸",
-                tempRemoveEmoticons[0],
-                checked -> tempRemoveEmoticons[0] = checked
-        );
-        root.addView(switchRowA);
-
-        View switchRowB = createCapsuleSwitchRow(
-                activity, isNight, textColor, subTextColor,
-                "移除杂项入口",
-                "隐藏GIF热图、动效推广等杂项",
-                tempRemoveMisc[0],
-                checked -> tempRemoveMisc[0] = checked
-        );
-        root.addView(switchRowB);
-
-        LinearLayout btnRow = new LinearLayout(activity);
-        btnRow.setOrientation(LinearLayout.HORIZONTAL);
-        btnRow.setPadding(0, dp2px(activity, 6f), 0, 0);
-
-        Button cancelBtn = new Button(activity);
-        cancelBtn.setText("取消");
-        cancelBtn.setTextSize(14);
-        cancelBtn.setTextColor(subTextColor);
-        cancelBtn.setAllCaps(false);
-        GradientDrawable cancelBg = new GradientDrawable();
-        cancelBg.setColor(inputBgColor);
-        cancelBg.setCornerRadius(dp2px(activity, 10f));
-        cancelBtn.setBackground(cancelBg);
-        LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
-        cancelLp.rightMargin = dp2px(activity, 8f);
-        cancelBtn.setOnClickListener(v -> dialog.dismiss());
-        btnRow.addView(cancelBtn, cancelLp);
-
-        Button saveBtn = new Button(activity);
-        saveBtn.setText("保存并更新");
-        saveBtn.setTextSize(14);
-        saveBtn.setTextColor(Color.WHITE);
-        saveBtn.setAllCaps(false);
-        GradientDrawable saveBg = new GradientDrawable();
-        saveBg.setColor(Color.parseColor("#007AFF"));
-        saveBg.setCornerRadius(dp2px(activity, 10f));
-        saveBtn.setBackground(saveBg);
-        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
-        saveBtn.setOnClickListener(v -> {
-            setPanelColumns(tempColumns[0]);
-            setRemoveQQEmoticons(tempRemoveEmoticons[0]);
-            setRemoveQQMisc(tempRemoveMisc[0]);
-            sLastScanTime = 0L;
-            sPanelMap.clear();
-            dialog.dismiss();
-            ToastHelper.show(activity, "已保存配置 (" + tempColumns[0] + "列)");
-            if (onSaved != null) onSaved.run();
+        builder.addTip("[存储路径] " + stickerPath + " (点击复制)\n"
+                + "[目录规范] stickers/表情包名称/图片文件\n"
+                + "[当前状态] 已识别 " + currentPanels.size() + " 个表情包", v -> {
+            copyToClipboard(activity, stickerPath);
+            ToastHelper.show(activity, "已复制路径");
         });
-        btnRow.addView(saveBtn, saveLp);
 
-        root.addView(btnRow);
-
-        dialog.setContentView(root);
-        dialog.show();
-
-        if (dialog.getWindow() != null) {
-            int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.88);
-            dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
+        if (!orphanImages.isEmpty()) {
+            builder.addNoticeBanner(
+                    "发现 " + orphanImages.size() + " 张图片未放入子文件夹",
+                    "直接位于 stickers 根目录的图片无法被识别。每个表情包需要作为一个独立的子文件夹存放。",
+                    "移动至「默认表情包」文件夹",
+                    v -> {
+                        int moved = autoCollectOrphanImages();
+                        sLastScanTime = 0L;
+                        sPanelMap.clear();
+                        ToastHelper.show(activity, "已将 " + moved + " 张图片移动至「默认表情包」");
+                        if (onSaved != null) onSaved.run();
+                    }
+            );
         }
+
+        builder.addStepper("表情包显示列数", "每行排列表情数量", 3, 8, tempColumns[0], val -> tempColumns[0] = val)
+                .addSwitch("移除商城表情", "隐藏官方商城下载的表情，仅保留外部贴纸", tempRemoveEmoticons[0], checked -> tempRemoveEmoticons[0] = checked)
+                .addSwitch("移除杂项入口", "隐藏GIF热图、动效推广等杂项", tempRemoveMisc[0], checked -> tempRemoveMisc[0] = checked)
+                .setPositiveButton("保存并更新", dialog -> {
+                    setPanelColumns(tempColumns[0]);
+                    setRemoveQQEmoticons(tempRemoveEmoticons[0]);
+                    setRemoveQQMisc(tempRemoveMisc[0]);
+                    sLastScanTime = 0L;
+                    sPanelMap.clear();
+                    dialog.dismiss();
+                    ToastHelper.show(activity, "已保存配置 (" + tempColumns[0] + "列)");
+                    if (onSaved != null) onSaved.run();
+                })
+                .show();
     }
 
     private static void copyToClipboard(Context context, String text) {
@@ -334,182 +187,6 @@ public class TgStickerModule implements IPatchModule {
                 cm.setPrimaryClip(ClipData.newPlainText("sticker_path", text));
             }
         } catch (Throwable ignored) {}
-    }
-
-    private static View createColumnStepperRow(Activity activity, boolean isNight, int textColor, int subTextColor,
-                                               int inputBgColor, final int[] tempColumns) {
-        LinearLayout row = new LinearLayout(activity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp2px(activity, 4f), dp2px(activity, 4f), dp2px(activity, 4f), dp2px(activity, 12f));
-
-        LinearLayout textCol = new LinearLayout(activity);
-        textCol.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-
-        TextView tvTitle = new TextView(activity);
-        tvTitle.setText("表情包显示列数");
-        tvTitle.setTextSize(15);
-        tvTitle.getPaint().setFakeBoldText(true);
-        tvTitle.setTextColor(textColor);
-
-        TextView tvDesc = new TextView(activity);
-        tvDesc.setTextSize(12);
-        tvDesc.setTextColor(subTextColor);
-        tvDesc.setPadding(0, dp2px(activity, 2f), 0, 0);
-
-        textCol.addView(tvTitle);
-        textCol.addView(tvDesc);
-        row.addView(textCol, tLp);
-
-        LinearLayout stepper = new LinearLayout(activity);
-        stepper.setOrientation(LinearLayout.HORIZONTAL);
-        stepper.setGravity(Gravity.CENTER);
-        GradientDrawable stepBg = new GradientDrawable();
-        stepBg.setColor(inputBgColor);
-        stepBg.setCornerRadius(dp2px(activity, 8f));
-        stepper.setBackground(stepBg);
-        stepper.setPadding(dp2px(activity, 4f), dp2px(activity, 2f), dp2px(activity, 4f), dp2px(activity, 2f));
-
-        TextView btnMinus = new TextView(activity);
-        btnMinus.setText(" - ");
-        btnMinus.setTextSize(16);
-        btnMinus.getPaint().setFakeBoldText(true);
-        btnMinus.setTextColor(Color.parseColor("#007AFF"));
-        btnMinus.setPadding(dp2px(activity, 8f), dp2px(activity, 4f), dp2px(activity, 8f), dp2px(activity, 4f));
-
-        TextView tvVal = new TextView(activity);
-        tvVal.setTextSize(14);
-        tvVal.getPaint().setFakeBoldText(true);
-        tvVal.setTextColor(textColor);
-        tvVal.setGravity(Gravity.CENTER);
-        tvVal.setMinWidth(dp2px(activity, 44f));
-
-        TextView btnPlus = new TextView(activity);
-        btnPlus.setText(" + ");
-        btnPlus.setTextSize(16);
-        btnPlus.getPaint().setFakeBoldText(true);
-        btnPlus.setTextColor(Color.parseColor("#007AFF"));
-        btnPlus.setPadding(dp2px(activity, 8f), dp2px(activity, 4f), dp2px(activity, 8f), dp2px(activity, 4f));
-
-        Runnable updateDisplay = () -> {
-            tvVal.setText(tempColumns[0] + " 列");
-            tvDesc.setText("每行排列 " + tempColumns[0] + " 个表情 (范围: 3 - 8 列)");
-        };
-
-        btnMinus.setOnClickListener(v -> {
-            if (tempColumns[0] > 3) {
-                tempColumns[0]--;
-                updateDisplay.run();
-            }
-        });
-
-        btnPlus.setOnClickListener(v -> {
-            if (tempColumns[0] < 8) {
-                tempColumns[0]++;
-                updateDisplay.run();
-            }
-        });
-
-        stepper.addView(btnMinus);
-        stepper.addView(tvVal);
-        stepper.addView(btnPlus);
-        row.addView(stepper);
-
-        updateDisplay.run();
-        return row;
-    }
-
-    private interface OnSwitchStateListener {
-        void onStateChange(boolean state);
-    }
-
-    private static View createCapsuleSwitchRow(Activity activity, boolean isNight, int textColor, int subTextColor,
-                                               String title, String desc, boolean initialChecked, OnSwitchStateListener listener) {
-        LinearLayout row = new LinearLayout(activity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp2px(activity, 4f), dp2px(activity, 6f), dp2px(activity, 4f), dp2px(activity, 12f));
-
-        LinearLayout textCol = new LinearLayout(activity);
-        textCol.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-
-        TextView tvTitle = new TextView(activity);
-        tvTitle.setText(title);
-        tvTitle.setTextSize(15);
-        tvTitle.getPaint().setFakeBoldText(true);
-        tvTitle.setTextColor(textColor);
-
-        TextView tvDesc = new TextView(activity);
-        tvDesc.setText(desc);
-        tvDesc.setTextSize(12);
-        tvDesc.setTextColor(subTextColor);
-        tvDesc.setPadding(0, dp2px(activity, 2f), 0, 0);
-
-        textCol.addView(tvTitle);
-        textCol.addView(tvDesc);
-        row.addView(textCol, tLp);
-
-        int trackW = dp2px(activity, 50f);
-        int trackH = dp2px(activity, 28f);
-        int thumbSize = dp2px(activity, 22f);
-        int thumbMargin = dp2px(activity, 3f);
-
-        LinearLayout switchContainer = new LinearLayout(activity);
-        switchContainer.setOrientation(LinearLayout.HORIZONTAL);
-        switchContainer.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView tvStatus = new TextView(activity);
-        tvStatus.setTextSize(13);
-        tvStatus.getPaint().setFakeBoldText(true);
-        tvStatus.setPadding(0, 0, dp2px(activity, 8f), 0);
-        switchContainer.addView(tvStatus);
-
-        FrameLayout switchTrack = new FrameLayout(activity);
-        GradientDrawable trackBg = new GradientDrawable();
-        trackBg.setCornerRadius(trackH / 2f);
-        switchTrack.setBackground(trackBg);
-
-        View switchThumb = new View(activity);
-        GradientDrawable thumbBg = new GradientDrawable();
-        thumbBg.setShape(GradientDrawable.OVAL);
-        thumbBg.setColor(Color.WHITE);
-        switchThumb.setBackground(thumbBg);
-
-        FrameLayout.LayoutParams thumbLp = new FrameLayout.LayoutParams(thumbSize, thumbSize);
-        thumbLp.gravity = Gravity.CENTER_VERTICAL;
-        switchTrack.addView(switchThumb, thumbLp);
-
-        switchContainer.addView(switchTrack, new LinearLayout.LayoutParams(trackW, trackH));
-        row.addView(switchContainer);
-
-        final boolean[] state = new boolean[]{ initialChecked };
-
-        Runnable updateUI = () -> {
-            boolean cur = state[0];
-            if (cur) {
-                tvStatus.setText("已开启");
-                tvStatus.setTextColor(Color.parseColor("#34C759"));
-                trackBg.setColor(Color.parseColor("#34C759"));
-                thumbLp.leftMargin = trackW - thumbSize - thumbMargin;
-            } else {
-                tvStatus.setText("已关闭");
-                tvStatus.setTextColor(subTextColor);
-                trackBg.setColor(isNight ? Color.parseColor("#3A3A3C") : Color.parseColor("#D1D1D6"));
-                thumbLp.leftMargin = thumbMargin;
-            }
-            switchThumb.setLayoutParams(thumbLp);
-        };
-
-        row.setOnClickListener(v -> {
-            state[0] = !state[0];
-            updateUI.run();
-            if (listener != null) listener.onStateChange(state[0]);
-        });
-
-        updateUI.run();
-        return row;
     }
 
     public static int getPanelColumns() {
@@ -525,21 +202,10 @@ public class TgStickerModule implements IPatchModule {
         ConfigManager.setString(KEY_PANEL_COLUMNS, String.valueOf(columns));
     }
 
-    public static boolean isRemoveQQEmoticons() {
-        return ConfigManager.hasFlag(KEY_REMOVE_QQ_EMOTICONS);
-    }
-
-    public static void setRemoveQQEmoticons(boolean enable) {
-        ConfigManager.setFlag(KEY_REMOVE_QQ_EMOTICONS, enable);
-    }
-
-    public static boolean isRemoveQQMisc() {
-        return ConfigManager.hasFlag(KEY_REMOVE_QQ_MISC);
-    }
-
-    public static void setRemoveQQMisc(boolean enable) {
-        ConfigManager.setFlag(KEY_REMOVE_QQ_MISC, enable);
-    }
+    public static boolean isRemoveQQEmoticons() { return ConfigManager.hasFlag(KEY_REMOVE_QQ_EMOTICONS); }
+    public static void setRemoveQQEmoticons(boolean enable) { ConfigManager.setFlag(KEY_REMOVE_QQ_EMOTICONS, enable); }
+    public static boolean isRemoveQQMisc() { return ConfigManager.hasFlag(KEY_REMOVE_QQ_MISC); }
+    public static void setRemoveQQMisc(boolean enable) { ConfigManager.setFlag(KEY_REMOVE_QQ_MISC, enable); }
 
     @Override
     public void onInit(Context context) {
@@ -569,33 +235,10 @@ public class TgStickerModule implements IPatchModule {
     private static void ensureStickerDir() {
         try {
             File baseDir = getStickerBaseDir();
-            if (!baseDir.exists()) {
-                baseDir.mkdirs();
-            }
-            File noMedia = new File(baseDir, ".nomedia");
-            if (!noMedia.exists()) {
-                noMedia.createNewFile();
-            }
+            if (!baseDir.exists()) baseDir.mkdirs();
 
-            File readme = new File(baseDir, "使用说明.txt");
-            if (!readme.exists()) {
-                try (FileOutputStream fos = new FileOutputStream(readme);
-                     OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
-                    osw.write("Telegram 表情包存放规范说明：\n"
-                            + "请勿直接将图片放置于 stickers 根目录下。\n"
-                            + "每个表情包需单独创建一个子文件夹，并将图片放入对应的子文件夹中。\n\n"
-                            + "目录结构示例：\n"
-                            + "stickers/\n"
-                            + "  ├── 示例表情包/\n"
-                            + "  │     ├── __cover__.png (可选封面)\n"
-                            + "  │     ├── 01.png\n"
-                            + "  │     └── 02.webp\n"
-                            + "  └── 另一个表情包/\n"
-                            + "        ├── a.gif\n"
-                            + "        └── b.jpg\n");
-                    osw.flush();
-                }
-            }
+            File noMedia = new File(baseDir, ".nomedia");
+            if (!noMedia.exists()) noMedia.createNewFile();
 
             File sampleDir = new File(baseDir, "示例表情包");
             File[] subs = baseDir.listFiles(File::isDirectory);
@@ -718,29 +361,6 @@ public class TgStickerModule implements IPatchModule {
             }
 
             if (targetInsertIndex < 0) {
-                for (int i = 0; i < originalList.size(); i++) {
-                    Object itemObj = originalList.get(i);
-                    if (itemObj instanceof EmotionPanelInfo && ((EmotionPanelInfo) itemObj).type == 12) {
-                        targetInsertIndex = i + 1;
-                        break;
-                    }
-                }
-            }
-
-            if (targetInsertIndex < 0) {
-                for (int i = 0; i < originalList.size(); i++) {
-                    Object itemObj = originalList.get(i);
-                    if (itemObj instanceof EmotionPanelInfo) {
-                        int t = ((EmotionPanelInfo) itemObj).type;
-                        if (t == 13 || t == 14 || t == 8) {
-                            targetInsertIndex = i;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (targetInsertIndex < 0) {
                 targetInsertIndex = originalList.size();
             }
 
@@ -823,13 +443,6 @@ public class TgStickerModule implements IPatchModule {
         return false;
     }
 
-    private static int dp2px(Context c, float dp) {
-        if (c == null || c.getResources() == null || c.getResources().getDisplayMetrics() == null) {
-            return (int) (dp * 2f + 0.5f);
-        }
-        return (int) (dp * c.getResources().getDisplayMetrics().density + 0.5f);
-    }
-
     public static int compareNatural(String s1, String s2) {
         if (s1 == null || s2 == null) return 0;
         int i = 0, j = 0;
@@ -848,15 +461,11 @@ public class TgStickerModule implements IPatchModule {
                     n2 = n2 * 10 + (s2.charAt(j) - '0');
                     j++;
                 }
-                if (n1 != n2) {
-                    return Long.compare(n1, n2);
-                }
+                if (n1 != n2) return Long.compare(n1, n2);
             } else {
                 char l1 = Character.toLowerCase(c1);
                 char l2 = Character.toLowerCase(c2);
-                if (l1 != l2) {
-                    return l1 - l2;
-                }
+                if (l1 != l2) return l1 - l2;
                 i++;
                 j++;
             }

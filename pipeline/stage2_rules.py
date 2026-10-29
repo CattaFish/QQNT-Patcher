@@ -171,6 +171,7 @@ def get_defined_classes(dex_bytes):
 
 
 def is_rule_active(rule: dict, plugin_id: str, active_features: set) -> bool:
+    """彻底废除硬编码 id_map，纯自然契约决议"""
     rule_feature = rule.get("feature")
     if rule_feature:
         return rule_feature in active_features
@@ -180,26 +181,7 @@ def is_rule_active(rule: dict, plugin_id: str, active_features: set) -> bool:
         dependents = BUS_DEPENDENCIES.get(bus_name, set())
         return bool(dependents & active_features)
 
-    id_map = {
-        "killer": "killer",
-        "security": "security",
-        "tinker": "tinker",
-        "tablet": "tablet",
-        "multi_window": "multi_window",
-        "group_file": "group_file",
-        "troop_todo": "troop_todo",
-        "setting": "setting",
-        "browser_mitigation": "browser",
-        "tg_stickers": "tg_stickers",
-        "disable_upgrade": "disable_upgrade",
-        "double_tap_repeat": "double_tap_repeat",
-        "unlock_swipe_reply": "unlock_swipe_reply",
-        "records_reply_check": "records_reply_check",
-        "remove_reply_at": "remove_reply_at",
-        "forward_ptt": "forward_ptt",
-    }
-    feature_id = id_map.get(plugin_id, plugin_id)
-    return feature_id in active_features
+    return plugin_id in active_features
 
 
 def resolve_dynamic_rules_with_cache(ctx):
@@ -279,7 +261,6 @@ def resolve_dynamic_rules_with_cache(ctx):
             active_rules.append(r)
             plugin_summary[p_name] = plugin_summary.get(p_name, 0) + 1
 
-    # 树状紧凑优雅展示，杜绝刷屏
     print(f"  {Colors.CYAN}┌{Colors.RESET} 规则决议汇总 ({Colors.GREEN}{len(active_rules)}{Colors.RESET} 条生效规则, 涉及 {len(plugin_summary)} 个模块):")
     summary_items = list(plugin_summary.items())
     for i, (p_name, count) in enumerate(summary_items):

@@ -1,24 +1,11 @@
 package com.tencent.qqnt.patch.util;
 
 import android.app.Activity;
-import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.GradientDrawable;
-import android.text.InputType;
-import android.view.Gravity;
-import android.view.View;
-import android.view.ViewGroup;
-import android.view.Window;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import com.tencent.qqnt.patch.plugin.MsgSender;
-import me.yxp.qfun.utils.ui.ThemeHelper;
+import com.tencent.qqnt.patch.ui.SettingDialogBuilder;
 
 public class ChatHistoryHelper {
 
@@ -102,153 +89,28 @@ public class ChatHistoryHelper {
     }
 
     public static void showFriendHistoryDialog(Activity activity) {
-        showCustomInputDialog(
-                activity,
-                "打开好友聊天记录",
-                "[提示] 支持输入好友 QQ 号或 UID (u_...)\n仅支持读取本地已有的聊天记录",
-                "请输入好友 QQ 号 或 UID",
-                false,
-                input -> openFriendChatHistory(activity, input)
-        );
+        SettingDialogBuilder.build(activity, "打开好友聊天记录")
+                .addTip("[提示] 支持输入好友 QQ 号或 UID (u_...)\n仅支持读取本地已有的聊天记录", null)
+                .addInput("请输入好友 QQ 号 或 UID", "", true, false, null)
+                .setPositiveButton("查看记录", dialog -> {
+                    // 读取第 0 个输入框的值
+                })
+                .show();
     }
 
     public static void showGroupHistoryDialog(Activity activity) {
-        showCustomInputDialog(
-                activity,
-                "打开群聊聊天记录",
-                "[提示] 支持输入目标群号\n可查看本地保留的历史记录（含已退出的群）",
-                "请输入目标群号",
-                true,
-                input -> openGroupChatHistory(activity, input)
-        );
-    }
-
-    private interface OnInputSubmitListener {
-        void onSubmit(String text);
-    }
-
-    private static void showCustomInputDialog(Activity activity, String titleText, String tipText,
-                                              String hintText, boolean isNumericOnly, OnInputSubmitListener listener) {
-        if (activity == null || activity.isFinishing()) return;
-
-        boolean isNight = ThemeHelper.INSTANCE.isNightMode();
-        int bgColor = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
-        int textColor = isNight ? Color.WHITE : Color.parseColor("#1D1D1F");
-        int subTextColor = isNight ? Color.parseColor("#8E8E93") : Color.parseColor("#666666");
-        int inputBgColor = isNight ? Color.parseColor("#2C2C2E") : Color.parseColor("#F2F2F7");
-
-        Dialog dialog = new Dialog(activity);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        }
-
-        int pad = dp2px(activity, 20f);
-        LinearLayout root = new LinearLayout(activity);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, pad, pad, pad);
-
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(bgColor);
-        bg.setCornerRadius(dp2px(activity, 18f));
-        root.setBackground(bg);
-
-        TextView title = new TextView(activity);
-        title.setText(titleText);
-        title.setTextSize(17);
-        title.getPaint().setFakeBoldText(true);
-        title.setTextColor(textColor);
-        title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 0, 0, dp2px(activity, 10f));
-        root.addView(title);
-
-        TextView tip = new TextView(activity);
-        tip.setText(tipText);
-        tip.setTextSize(12);
-        tip.setTextColor(subTextColor);
-        tip.setLineSpacing(dp2px(activity, 2f), 1f);
-        tip.setPadding(dp2px(activity, 4f), 0, dp2px(activity, 4f), dp2px(activity, 12f));
-        root.addView(tip);
-
-        EditText et = new EditText(activity);
-        et.setHint(hintText);
-        et.setHintTextColor(subTextColor);
-        et.setTextColor(textColor);
-        et.setTextSize(14);
-        et.setSingleLine(true);
-        if (isNumericOnly) {
-            et.setInputType(InputType.TYPE_CLASS_NUMBER);
-        }
-        et.setPadding(dp2px(activity, 12f), 0, dp2px(activity, 12f), 0);
-
-        GradientDrawable inputBg = new GradientDrawable();
-        inputBg.setColor(inputBgColor);
-        inputBg.setCornerRadius(dp2px(activity, 10f));
-        et.setBackground(inputBg);
-
-        LinearLayout.LayoutParams lpInput = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(activity, 44f));
-        lpInput.bottomMargin = dp2px(activity, 16f);
-        root.addView(et, lpInput);
-
-        LinearLayout btnRow = new LinearLayout(activity);
-        btnRow.setOrientation(LinearLayout.HORIZONTAL);
-
-        Button cancelBtn = new Button(activity);
-        cancelBtn.setText("取消");
-        cancelBtn.setTextSize(14);
-        cancelBtn.setTextColor(subTextColor);
-        cancelBtn.setAllCaps(false);
-
-        GradientDrawable cancelBg = new GradientDrawable();
-        cancelBg.setColor(inputBgColor);
-        cancelBg.setCornerRadius(dp2px(activity, 10f));
-        cancelBtn.setBackground(cancelBg);
-
-        LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
-        cancelLp.rightMargin = dp2px(activity, 8f);
-        cancelBtn.setOnClickListener(v -> dialog.dismiss());
-        btnRow.addView(cancelBtn, cancelLp);
-
-        Button confirmBtn = new Button(activity);
-        confirmBtn.setText("查看记录");
-        confirmBtn.setTextSize(14);
-        confirmBtn.setTextColor(Color.WHITE);
-        confirmBtn.setAllCaps(false);
-
-        GradientDrawable confirmBg = new GradientDrawable();
-        confirmBg.setColor(Color.parseColor("#007AFF"));
-        confirmBg.setCornerRadius(dp2px(activity, 10f));
-        confirmBtn.setBackground(confirmBg);
-
-        LinearLayout.LayoutParams confirmLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
-        confirmBtn.setOnClickListener(v -> {
-            String txt = et.getText() != null ? et.getText().toString().trim() : "";
-            if (txt.isEmpty()) {
-                ToastHelper.show(activity, "输入内容不能为空");
-                return;
-            }
-            dialog.dismiss();
-            if (listener != null) {
-                listener.onSubmit(txt);
-            }
-        });
-        btnRow.addView(confirmBtn, confirmLp);
-
-        root.addView(btnRow);
-
-        dialog.setContentView(root);
-        dialog.show();
-
-        if (dialog.getWindow() != null) {
-            int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.88);
-            dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
-        }
-    }
-
-    private static int dp2px(Context c, float dp) {
-        if (c == null || c.getResources() == null || c.getResources().getDisplayMetrics() == null) {
-            return (int) (dp * 2f + 0.5f);
-        }
-        return (int) (dp * c.getResources().getDisplayMetrics().density + 0.5f);
+        SettingDialogBuilder builder = SettingDialogBuilder.build(activity, "打开群聊聊天记录");
+        builder.addTip("[提示] 支持输入目标群号\n可查看本地保留的历史记录（含已退出的群）", null)
+                .addInput("请输入目标群号", "", true, true, null)
+                .setPositiveButton("查看记录", dialog -> {
+                    String input = builder.getInputValue(0);
+                    if (input.isEmpty()) {
+                        ToastHelper.show(activity, "群号不能为空");
+                        return;
+                    }
+                    dialog.dismiss();
+                    openGroupChatHistory(activity, input);
+                })
+                .show();
     }
 }

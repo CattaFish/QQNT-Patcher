@@ -38,7 +38,6 @@ import java.util.regex.Pattern;
 public class MeowModule implements IPatchModule {
     private static final String TAG = "Meow";
 
-    // 配置持久化 Key
     public static final String KEY_MEOW_WORD_RULES   = "zzz_meow_word_rules";
     public static final String KEY_MEOW_ENABLE_TAIL  = "zzz_meow_enable_tail";
     public static final String KEY_MEOW_TAIL_WORD    = "zzz_meow_tail_word";
@@ -46,13 +45,11 @@ public class MeowModule implements IPatchModule {
     public static final String KEY_MEOW_REGEX_TAIL1  = "zzz_meow_regex_tail1";
     public static final String KEY_MEOW_REGEX_TAIL2  = "zzz_meow_regex_tail2";
 
-    // 默认内置配置
     public static final String DEFAULT_TAIL_WORD   = "喵";
     public static final String DEFAULT_TAIL_SYMBOL = "~";
     public static final String DEFAULT_REGEX_TAIL1 = "^(.*?)([\\s。\\.！!？\\?~～…]*(?:[\\(（\\[【]\\s*[\\)）\\]】]|[\\(（\\[【])[\\s。\\.！!？\\?~～…]*|[\\s。\\.！!？\\?~～…]+)$";
     public static final String DEFAULT_REGEX_TAIL2 = "^(.*?)([\\s。\\.！!？\\?~～…]*[\\)）\\]】][\\s。\\.！!？\\?~～…]*)$";
 
-    // 内存运行时缓存
     private static final List<WordRule> sCachedRules = Collections.synchronizedList(new ArrayList<>());
     private static volatile boolean sCacheLoaded = false;
     private static volatile boolean sEnableTail = true;
@@ -73,7 +70,7 @@ public class MeowModule implements IPatchModule {
         }
     }
 
-    @Override public String getId() { return "meow_helper"; }
+    @Override public String getId() { return "meow"; }
     @Override public String getName() { return "喵喵助手"; }
     @Override public String getCategory() { return CATEGORY_CHAT; }
     @Override public boolean defaultEnabled() { return false; }
@@ -132,7 +129,6 @@ public class MeowModule implements IPatchModule {
 
         String text = original;
 
-        // 1. 词条替换映射
         synchronized (sCachedRules) {
             for (WordRule rule : sCachedRules) {
                 if (rule.enabled && !rule.from.isEmpty()) {
@@ -141,7 +137,6 @@ public class MeowModule implements IPatchModule {
             }
         }
 
-        // 2. 如果关闭语气后缀，直接放行
         if (!sEnableTail || TextUtils.isEmpty(sTailWord)) {
             return text;
         }
@@ -149,7 +144,6 @@ public class MeowModule implements IPatchModule {
         final String tail = sTailWord;
         final String symbol = sTailSymbol != null ? sTailSymbol : "";
 
-        // 3. 正则表达式 1 匹配（末尾带原有标点/开括号前插入语气词）
         Pattern p1 = sPatternTail1;
         if (p1 != null) {
             try {
@@ -162,7 +156,6 @@ public class MeowModule implements IPatchModule {
             } catch (Throwable ignored) {}
         }
 
-        // 4. 正则表达式 2 匹配（末尾闭括号识别）
         Pattern p2 = sPatternTail2;
         if (p2 != null) {
             try {
@@ -176,7 +169,6 @@ public class MeowModule implements IPatchModule {
             } catch (Throwable ignored) {}
         }
 
-        // 5. 兜底追加（句末无标点时，追加「语气词 + 可自定义符号」）
         String fullSuffix = tail + symbol;
 
         if (text.endsWith(fullSuffix)) {
@@ -297,7 +289,6 @@ public class MeowModule implements IPatchModule {
         bg.setCornerRadius(dp2px(activity, 18f));
         root.setBackground(bg);
 
-        // 1. 顶部标题栏
         TextView title = new TextView(activity);
         title.setText("喵喵助手配置");
         title.setTextSize(17);
@@ -314,7 +305,6 @@ public class MeowModule implements IPatchModule {
         subTitle.setPadding(0, dp2px(activity, 4f), 0, dp2px(activity, 12f));
         root.addView(subTitle);
 
-        // 2. 本地编辑状态副本
         final List<WordRule> tempRules = new ArrayList<>();
         synchronized (sCachedRules) {
             for (WordRule r : sCachedRules) {
@@ -327,13 +317,11 @@ public class MeowModule implements IPatchModule {
         final String[] tempRegex1 = new String[]{ ConfigManager.getString(KEY_MEOW_REGEX_TAIL1, DEFAULT_REGEX_TAIL1) };
         final String[] tempRegex2 = new String[]{ ConfigManager.getString(KEY_MEOW_REGEX_TAIL2, DEFAULT_REGEX_TAIL2) };
 
-        // 3. 中间可滚动区域
         ScrollView scrollView = new ScrollView(activity);
         scrollView.setVerticalScrollBarEnabled(false);
         LinearLayout scrollContent = new LinearLayout(activity);
         scrollContent.setOrientation(LinearLayout.VERTICAL);
 
-        // ===== Section 1: 词条替换规则 =====
         LinearLayout rulesHeaderRow = new LinearLayout(activity);
         rulesHeaderRow.setOrientation(LinearLayout.HORIZONTAL);
         rulesHeaderRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -346,12 +334,10 @@ public class MeowModule implements IPatchModule {
         tvRulesSection.setTextColor(textColor);
         rulesHeaderRow.addView(tvRulesSection, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        // + 添加规则 胶囊按钮
         TextView btnAddRule = createActionCapsule(activity, "+ 添加规则", accentColor, Color.WHITE);
-rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity, 90f), dp2px(activity, 32f)));
+        rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity, 90f), dp2px(activity, 32f)));
         scrollContent.addView(rulesHeaderRow);
 
-        // 词条卡片列表容器
         LinearLayout rulesListContainer = new LinearLayout(activity);
         rulesListContainer.setOrientation(LinearLayout.VERTICAL);
         scrollContent.addView(rulesListContainer);
@@ -389,7 +375,6 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
                     LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                     cardLp.bottomMargin = dp2px(activity, 6f);
 
-                    // 映射文本
                     TextView tvMapping = new TextView(activity);
                     tvMapping.setTextSize(13);
                     tvMapping.setIncludeFontPadding(false);
@@ -398,7 +383,6 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
                     tvMapping.setTextColor(rule.enabled ? textColor : subTextColor);
                     itemCard.addView(tvMapping, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-                    // 状态切换按钮
                     TextView btnToggle = createActionCapsule(
                         activity,
                         rule.enabled ? "已开启" : "已停用",
@@ -413,7 +397,6 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
                     tLp.rightMargin = dp2px(activity, 6f);
                     itemCard.addView(btnToggle, tLp);
 
-                    // 删除按钮
                     TextView btnDel = createActionCapsule(
                             activity,
                             "删除",
@@ -437,7 +420,6 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
             renderRulesList.run();
         }));
 
-        // ===== Section 2: 高级功能卡片（无括号冗余，简洁利落） =====
         LinearLayout advContainer = new LinearLayout(activity);
         advContainer.setOrientation(LinearLayout.VERTICAL);
         advContainer.setPadding(dp2px(activity, 12f), dp2px(activity, 12f), dp2px(activity, 12f), dp2px(activity, 12f));
@@ -451,7 +433,6 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
         advLp.topMargin = dp2px(activity, 10f);
         advLp.bottomMargin = dp2px(activity, 12f);
 
-        // 标题：高级功能
         TextView tvAdvTitle = new TextView(activity);
         tvAdvTitle.setText("高级功能");
         tvAdvTitle.setTextSize(14);
@@ -459,7 +440,6 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
         tvAdvTitle.setTextColor(textColor);
         advContainer.addView(tvAdvTitle);
 
-        // 附加语气后缀开关行
         LinearLayout tailSwitchRow = new LinearLayout(activity);
         tailSwitchRow.setOrientation(LinearLayout.HORIZONTAL);
         tailSwitchRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -486,13 +466,11 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
         tailSwitchRow.addView(btnTailToggle, new LinearLayout.LayoutParams(dp2px(activity, 64f), dp2px(activity, 28f)));
         advContainer.addView(tailSwitchRow);
 
-        // ★ 核心升级：语气词与末尾符号（波浪号~）并排两列，支持自由替换与清空
         LinearLayout wordsRow = new LinearLayout(activity);
         wordsRow.setOrientation(LinearLayout.HORIZONTAL);
         wordsRow.setGravity(Gravity.CENTER_VERTICAL);
         wordsRow.setPadding(0, dp2px(activity, 4f), 0, dp2px(activity, 2f));
 
-        // 左列：语气词
         LinearLayout leftCol = new LinearLayout(activity);
         leftCol.setOrientation(LinearLayout.VERTICAL);
         TextView tvTailWordLabel = new TextView(activity);
@@ -507,11 +485,9 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
         leftCol.addView(etTailWord, etLp1);
         wordsRow.addView(leftCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f));
 
-        // 中间间距
         View spacer = new View(activity);
         wordsRow.addView(spacer, new LinearLayout.LayoutParams(dp2px(activity, 10f), dp2px(activity, 1f)));
 
-        // 右列：末尾符号（自由修改/清空原来的 ~）
         LinearLayout rightCol = new LinearLayout(activity);
         rightCol.setOrientation(LinearLayout.VERTICAL);
         TextView tvSymbolLabel = new TextView(activity);
@@ -535,7 +511,6 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
         tvPreviewHint.setPadding(0, dp2px(activity, 4f), 0, dp2px(activity, 6f));
         advContainer.addView(tvPreviewHint);
 
-        // ===== 正则表达式抽屉折叠栏 =====
         final boolean[] isRegexExpanded = new boolean[]{ false };
         final LinearLayout regexContentContainer = new LinearLayout(activity);
         regexContentContainer.setOrientation(LinearLayout.VERTICAL);
@@ -559,7 +534,6 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
         });
         advContainer.addView(regexToggleBar);
 
-        // 正则 1
         LinearLayout reg1Header = new LinearLayout(activity);
         reg1Header.setOrientation(LinearLayout.HORIZONTAL);
         reg1Header.setGravity(Gravity.CENTER_VERTICAL);
@@ -582,7 +556,6 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
         regexContentContainer.addView(etReg1, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(activity, 44f)));
         btnResetReg1.setOnClickListener(v -> etReg1.setText(DEFAULT_REGEX_TAIL1));
 
-        // 正则 2
         LinearLayout reg2Header = new LinearLayout(activity);
         reg2Header.setOrientation(LinearLayout.HORIZONTAL);
         reg2Header.setGravity(Gravity.CENTER_VERTICAL);
@@ -612,7 +585,6 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
         int maxScrollH = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.62f);
         root.addView(scrollView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, maxScrollH));
 
-        // 4. 底部功能按钮条
         LinearLayout btnRow = new LinearLayout(activity);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
         btnRow.setPadding(0, dp2px(activity, 12f), 0, 0);
@@ -651,7 +623,6 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
             String r1 = etReg1.getText() != null ? etReg1.getText().toString().trim() : DEFAULT_REGEX_TAIL1;
             String r2 = etReg2.getText() != null ? etReg2.getText().toString().trim() : DEFAULT_REGEX_TAIL2;
 
-            // 正则预检
             try {
                 Pattern.compile(r1);
             } catch (Throwable t) {
@@ -751,10 +722,14 @@ rulesHeaderRow.addView(btnAddRule, new LinearLayout.LayoutParams(dp2px(activity,
         d.setContentView(root);
         d.show();
 
-        if (d.getWindow() != null) {
+        if (dialogWindow(d) != null) {
             int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.82f);
-            d.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
+            dialogWindow(d).setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
+    }
+
+    private static Window dialogWindow(Dialog d) {
+        return d != null ? d.getWindow() : null;
     }
 
     private static TextView createActionCapsule(Context context, String text, int bgColor, int textColor) {

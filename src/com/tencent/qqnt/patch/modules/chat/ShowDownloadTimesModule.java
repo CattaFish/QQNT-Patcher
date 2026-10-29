@@ -26,13 +26,13 @@ public class ShowDownloadTimesModule implements IPatchModule {
             }
     );
 
-    @Override public String getId() { return "show_file_download_count"; }
+    @Override public String getId() { return "group_file"; }
     @Override public String getName() { return "群文件显示下载次数"; }
     @Override public boolean defaultEnabled() { return false; }
 
     public static void handleGroupFileListResponse(Object responseObj) {
         if (responseObj == null) return;
-        if (!ConfigManager.isModuleEnabled("show_file_download_count", false)) return;
+        if (!ConfigManager.isModuleEnabled("group_file", false)) return;
 
         try {
             List<?> cList = findListFromObject(responseObj);
@@ -42,7 +42,6 @@ public class ShowDownloadTimesModule implements IPatchModule {
             for (Object cObj : cList) {
                 if (cObj == null) continue;
 
-                // 尝试从单项或其子对象中全动态抽取 (fileId, downloadTimes)
                 Pair<String, Integer> pair = dynamicExtractFileInfo(cObj);
                 if (pair != null && pair.first != null && !pair.first.isEmpty()) {
                     String cleanId = pair.first.replaceAll("^/+", "").trim();
@@ -58,17 +57,12 @@ public class ShowDownloadTimesModule implements IPatchModule {
         }
     }
 
-    /**
-     * 全动态嗅探单个文件项：完全脱离方法名与混淆字段名
-     */
     private static Pair<String, Integer> dynamicExtractFileInfo(Object obj) {
         if (obj == null) return null;
 
-        // 1. 先探测当前对象自身
         Pair<String, Integer> res = inspectObjectForPbTags(obj);
         if (res != null) return res;
 
-        // 2. 深度优先探测一层子对象 (如 cObj.h)
         for (Field f : getAllDeclaredFields(obj.getClass())) {
             if (Modifier.isStatic(f.getModifiers()) || f.getType().isPrimitive()) continue;
             try {
@@ -81,19 +75,13 @@ public class ShowDownloadTimesModule implements IPatchModule {
             } catch (Throwable ignored) {}
         }
 
-        // 3. 泛用特征兜底：直接查找文件 ID 字符串与整数字段
         return fallbackInspectByFieldTypes(obj);
     }
 
-    /**
-     * 嗅探 Protobuf 字典（Tag 1 = fileId, Tag 9 = downloadTimes）
-     * 无论生成方法名叫 d()、e() 还是 getMap()，通杀所有版本
-     */
     private static Pair<String, Integer> inspectObjectForPbTags(Object target) {
         if (target == null) return null;
         Class<?> clz = target.getClass();
 
-        // 动态寻找任何“无参且返回 Map”的公有/私有方法
         for (Method m : clz.getDeclaredMethods()) {
             if (m.getParameterTypes().length == 0 && Map.class.isAssignableFrom(m.getReturnType())) {
                 try {
@@ -116,9 +104,6 @@ public class ShowDownloadTimesModule implements IPatchModule {
         return null;
     }
 
-    /**
-     * 类型泛化解包：自动解包 pbandk.h、PBStringField、PBUInt32Field、String、Integer 等所有包装类
-     */
     private static String extractStringValue(Object obj) {
         if (obj == null) return null;
         if (obj instanceof CharSequence) return obj.toString();
@@ -204,7 +189,7 @@ public class ShowDownloadTimesModule implements IPatchModule {
     }
 
     public static String appendDownloadCountToStatusText(String originalStatus, Object fileItemObj) {
-        if (!ConfigManager.isModuleEnabled("show_file_download_count", false)) return originalStatus;
+        if (!ConfigManager.isModuleEnabled("group_file", false)) return originalStatus;
 
         try {
             String fileId = extractFileId(fileItemObj);
@@ -226,13 +211,9 @@ public class ShowDownloadTimesModule implements IPatchModule {
         return originalStatus;
     }
 
-    /**
-     * UI 端动态提取 fileId：不再硬编码 "d" 或 "a"
-     */
     private static String extractFileId(Object obj) {
         if (obj == null) return null;
 
-        // 1. 优先调用标准方法 getFileId()
         try {
             Method m = obj.getClass().getMethod("getFileId");
             Object id = m.invoke(obj);
@@ -241,7 +222,6 @@ public class ShowDownloadTimesModule implements IPatchModule {
             }
         } catch (Throwable ignored) {}
 
-        // 2. 深度反射遍历所有属性，找到以 "/" 开头的特征文件 ID
         return searchFileIdRecursively(obj, 0);
     }
 
@@ -292,7 +272,7 @@ public class ShowDownloadTimesModule implements IPatchModule {
 
     public static void handleTroopFileGetView(View view, Object adapter, int position) {
         if (view == null || adapter == null) return;
-        if (!ConfigManager.isModuleEnabled("show_file_download_count", false)) return;
+        if (!ConfigManager.isModuleEnabled("group_file", false)) return;
         try {
             if (!(view instanceof ViewGroup)) return;
             Class<?> adapterClz = adapter.getClass();

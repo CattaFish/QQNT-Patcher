@@ -9,14 +9,15 @@ import java.lang.reflect.Method;
 public class AtAllNotifyBlockModule implements IPatchModule {
     private static final String TAG = "NotifyBlock";
 
-    @Override public String getId() { return "block_at_all_notify"; }
+    @Override public String getId() { return "block_at_all"; }
     @Override public String getName() { return "静默 @全体 与群待办通知"; }
     @Override public String getCategory() { return CATEGORY_PURIFY; }
     @Override public String getSubName() { return "拦截群内 @全体成员 弹窗与 群待办 提醒"; }
     @Override public boolean defaultEnabled() { return false; }
 
     public static boolean shouldDropTroopToDo() {
-        boolean enabled = ConfigManager.isModuleEnabled("block_at_all_notify", false);
+        boolean enabled = ConfigManager.isModuleEnabled("troop_todo", false) 
+                       || ConfigManager.isModuleEnabled("block_at_all", false);
         if (enabled) {
             PLog.i(TAG, "命中静默：拦截 0x135 群待办强提醒");
         }
@@ -25,7 +26,7 @@ public class AtAllNotifyBlockModule implements IPatchModule {
 
     public static boolean shouldDropMsgNotify(Object msgNotifyItemObj) {
         if (msgNotifyItemObj == null) return false;
-        if (!ConfigManager.isModuleEnabled("block_at_all_notify", false)) return false;
+        if (!ConfigManager.isModuleEnabled("block_at_all", false)) return false;
         try {
             Class<?> dClz = Class.forName("com.tencent.qqnt.notification.util.d");
             Object dInstance = dClz.getField("a").get(null);
@@ -39,7 +40,7 @@ public class AtAllNotifyBlockModule implements IPatchModule {
 
     public static boolean shouldDropRecentContact(Object recentContactInfoObj) {
         if (recentContactInfoObj == null) return false;
-        if (!ConfigManager.isModuleEnabled("block_at_all_notify", false)) return false;
+        if (!ConfigManager.isModuleEnabled("block_at_all", false)) return false;
         try {
             Class<?> clz = recentContactInfoObj.getClass();
             int chatType = clz.getField("chatType").getInt(recentContactInfoObj);
