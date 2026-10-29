@@ -4,8 +4,6 @@ import json
 import time
 import urllib.request
 
-# 彻底移除失效的 ghproxy.net 与无法直连的 raw.githubusercontent.com
-# 仅保留已测通的 ghfast.top 代理与 jsdelivr 高速 CDN 镜像
 SOURCE_GROUPS = [
     {
         "name": "QQNT-Patcher 官方主仓全量底表",
@@ -59,7 +57,7 @@ def merge_entry(local_dict, subid_str, remote_val, is_authoritative=True):
     深度合并：
     - 新增 SubID：直接吸纳
     - 权威主仓源 (is_authoritative=True)：云端修改强制覆盖本地现有字段
-    - 增量补充源 (is_authoritative=False)：仅补充本地缺失的字段，不回退已有数据
+    - 增量补充源 (is_authoritative=False)：补充缺失字段；若云端检测出为 Beta 则支持升级
     """
     if subid_str not in local_dict:
         local_dict[subid_str] = remote_val
@@ -67,7 +65,6 @@ def merge_entry(local_dict, subid_str, remote_val, is_authoritative=True):
 
     l_val = local_dict[subid_str]
 
-    # 本地是简单字符串，远程升级为详细字典
     if isinstance(l_val, str) and isinstance(remote_val, dict):
         local_dict[subid_str] = remote_val
         return "upgrade"
@@ -87,12 +84,11 @@ def merge_entry(local_dict, subid_str, remote_val, is_authoritative=True):
                         l_val[rk] = combined
                         modified = True
 
-        # 2. 标量字段 (summary, version, channel, date, arch, platform 等)
+        # 2. 标量字段 (summary, version, channel, date, arch, platform, is_beta 等)
         for rk, rv in remote_val.items():
             if rk in ("packages", "versions"):
                 continue
             if rv is not None and str(rv).strip():
-                # 核心修复点：主仓权威源直接无条件覆盖；增量源仅在本地缺失时填补
                 if is_authoritative:
                     if rk not in l_val or l_val[rk] != rv:
                         l_val[rk] = rv
@@ -100,6 +96,10 @@ def merge_entry(local_dict, subid_str, remote_val, is_authoritative=True):
                 else:
                     if rk not in l_val:
                         l_val[rk] = rv
+                        modified = True
+                    # ★ 增量源特殊保护：若增量源检测出为 Beta，而本地尚未标记，允许升级
+                    elif rk == "is_beta" and rv is True and not l_val.get("is_beta"):
+                        l_val[rk] = True
                         modified = True
 
         return "upgrade" if modified else "none"
@@ -159,7 +159,6 @@ def sync_subid_incremental(ctx):
 
     sorted_dict = dict(sorted(local_dict.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0, reverse=True))
 
-    # 原子写盘防中断截断
     temp_subid_path = assets_subid_path + ".tmp"
     try:
         with open(temp_subid_path, "w", encoding="utf-8") as f:

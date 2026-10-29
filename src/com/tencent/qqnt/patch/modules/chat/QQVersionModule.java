@@ -48,6 +48,7 @@ public class QQVersionModule implements IPatchModule {
         public String version;
         public String date;
         public String channel;
+        public Boolean isBeta = null; // ★ 改为可空 Boolean，没写时为 null
         public List<String> packages = new ArrayList<>();
         public List<String> versions = new ArrayList<>();
         public Map<String, String> extraFields = new LinkedHashMap<>();
@@ -55,6 +56,7 @@ public class QQVersionModule implements IPatchModule {
 
     public static class InferResult {
         public boolean isExact = false;
+        public Boolean isBeta = null; // ★ 改为可空 Boolean
         public String displaySummary;
         public SubidDetail exactDetail;
         public SubidDetail floorDetail;
@@ -145,6 +147,7 @@ public class QQVersionModule implements IPatchModule {
         SubidDetail exact = sDetailTable.get(sv);
         if (exact != null) {
             res.isExact = true;
+            res.isBeta = exact.isBeta;
             res.exactDetail = exact;
             res.displaySummary = (exact.summary != null && !exact.summary.isEmpty()) ? exact.summary : exact.version;
             return res;
@@ -164,6 +167,7 @@ public class QQVersionModule implements IPatchModule {
 
         if (ceil == null && floor != null) {
             long diff = subId - floor.getKey();
+            res.isBeta = floor.getValue().isBeta;
             res.suspectedPlatform = floor.getValue().platform;
             res.suspectedArch = floor.getValue().arch;
             res.suspectedVersion = floor.getValue().version;
@@ -183,6 +187,7 @@ public class QQVersionModule implements IPatchModule {
             long dCeil = ceil.getKey() - subId;
 
             SubidDetail ref = (dFloor <= dCeil) ? fDet : cDet;
+            res.isBeta = ref.isBeta;
             res.suspectedPlatform = ref.platform;
             res.suspectedArch = ref.arch;
 
@@ -200,6 +205,7 @@ public class QQVersionModule implements IPatchModule {
         }
 
         if (ceil != null) {
+            res.isBeta = ceil.getValue().isBeta;
             res.suspectedPlatform = ceil.getValue().platform;
             res.suspectedArch = ceil.getValue().arch;
             res.suspectedVersion = ceil.getValue().version;
@@ -218,7 +224,6 @@ public class QQVersionModule implements IPatchModule {
 
         loadBuiltinFallback();
 
-        // 1. 先读手机本地已存的缓存文件 (垫底数据)
         File extDictFile = getExternalDictionaryFile(context);
         if (extDictFile != null && extDictFile.exists() && extDictFile.isFile()) {
             try (InputStream fis = new FileInputStream(extDictFile)) {
@@ -226,7 +231,6 @@ public class QQVersionModule implements IPatchModule {
             } catch (Throwable ignored) {}
         }
 
-        // 2. 后读新安装包内的 assets/subid.json (高优先级！新包底表无条件覆盖旧缓存)
         String[] dictNames = new String[]{"builtin_subid.json", "tim_subid.json", "win_subid.json", "subid.json"};
         for (String name : dictNames) {
             try (InputStream is = PatchAssetHelper.openStream(context, name)) {
@@ -244,7 +248,6 @@ public class QQVersionModule implements IPatchModule {
 
         new Thread(() -> {
             try {
-                // 缩短至 2 秒，启动即刻快速完成同步检查
                 Thread.sleep(2000);
 
                 File extFile = getExternalDictionaryFile(context);
@@ -252,7 +255,6 @@ public class QQVersionModule implements IPatchModule {
 
                 JSONObject localJson = new JSONObject();
 
-                // 优先以安装包自带的最全资产作为底表基准
                 try (InputStream is = PatchAssetHelper.openStream(context, "subid.json")) {
                     if (is != null) {
                         BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
@@ -263,7 +265,6 @@ public class QQVersionModule implements IPatchModule {
                     }
                 } catch (Throwable ignored) {}
 
-                // 再合并已有外部缓存
                 if (extFile.exists() && extFile.length() > 0) {
                     try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(extFile), StandardCharsets.UTF_8))) {
                         StringBuilder sb = new StringBuilder();
@@ -284,7 +285,7 @@ public class QQVersionModule implements IPatchModule {
 
                 for (int gIdx = 0; gIdx < REMOTE_SOURCE_GROUPS.length; gIdx++) {
                     String[] mirrors = REMOTE_SOURCE_GROUPS[gIdx];
-                    boolean isAuth = (gIdx == 0); // 组 0 为主仓权威源，允许强制覆盖本地字段
+                    boolean isAuth = (gIdx == 0);
                     boolean groupSuccess = false;
 
                     for (String urlStr : mirrors) {
@@ -373,7 +374,6 @@ public class QQVersionModule implements IPatchModule {
                                                         objModified = true;
                                                     }
                                                 } else {
-                                                    // 主仓权威源：云端有变动直接覆盖本地已有字段
                                                     String rStr = rFieldVal.toString().trim();
                                                     if (!rStr.isEmpty() && !rStr.equals("null")) {
                                                         String lStr = lFieldVal != null ? lFieldVal.toString().trim() : "";
@@ -384,6 +384,9 @@ public class QQVersionModule implements IPatchModule {
                                                             }
                                                         } else {
                                                             if (lFieldVal == null || lStr.isEmpty()) {
+                                                                lObj.put(rk, rFieldVal);
+                                                                objModified = true;
+                                                            } else if (rk.equals("is_beta") && Boolean.TRUE.equals(rFieldVal) && !Boolean.TRUE.equals(lFieldVal)) {
                                                                 lObj.put(rk, rFieldVal);
                                                                 objModified = true;
                                                             }
@@ -415,12 +418,11 @@ public class QQVersionModule implements IPatchModule {
                 }
 
                 if (totalNewCount > 0) {
-                    // ★ 核心改动：抛弃 .tmp 与 renameTo，直接 FileOutputStream 截断重写并调用 sync() 强制刷盘
                     try (FileOutputStream fos = new FileOutputStream(extFile, false);
                          OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
                         osw.write(localJson.toString(2));
                         osw.flush();
-                        fos.getFD().sync(); // 强制刷入物理闪存，穿透 FUSE 驱动缓存
+                        fos.getFD().sync();
                     }
 
                     try (InputStream is = new FileInputStream(extFile)) {
@@ -444,7 +446,7 @@ public class QQVersionModule implements IPatchModule {
         JSONObject root = new JSONObject(sb.toString());
 
         Set<String> standardKeys = new HashSet<>(Arrays.asList(
-                "summary", "platform", "arch", "version", "date", "channel", "packages", "versions"
+                "summary", "platform", "arch", "version", "date", "channel", "packages", "versions", "is_beta"
         ));
 
         Iterator<String> keys = root.keys();
@@ -466,6 +468,13 @@ public class QQVersionModule implements IPatchModule {
                 detail.version = obj.optString("version", "");
                 detail.date = obj.optString("date", "");
                 detail.channel = obj.optString("channel", "");
+
+                // ★ 只有 JSON 中显式含有 is_beta 键时才读取，未写时保持 null
+                if (obj.has("is_beta")) {
+                    detail.isBeta = obj.optBoolean("is_beta");
+                } else {
+                    detail.isBeta = null;
+                }
 
                 JSONArray pkgArr = obj.optJSONArray("packages");
                 if (pkgArr != null) {
@@ -496,6 +505,7 @@ public class QQVersionModule implements IPatchModule {
                 String str = ((String) valObj).trim();
                 detail.summary = str;
                 detail.version = str;
+                detail.isBeta = null; // 字符串旧格式未包含 is_beta，保持 null
             } else continue;
 
             sExactTable.put(key, detail.summary);
@@ -551,7 +561,6 @@ public class QQVersionModule implements IPatchModule {
                 obj.put(entry.getKey(), entry.getValue());
             }
 
-            // ★ 用户记录缓存也改为 FileOutputStream 直写 + sync 刷盘，杜绝 FUSE 虚拟文件系统重命名失败
             try (FileOutputStream fos = new FileOutputStream(f, false);
                  OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
                 osw.write(obj.toString());

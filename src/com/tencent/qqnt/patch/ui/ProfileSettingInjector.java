@@ -253,7 +253,14 @@ public class ProfileSettingInjector {
                 addInfoRow(activity, infoBox, "系统运行架构", detail.arch, textColor, subTextColor);
                 copySb.append("架构: ").append(detail.arch).append("\n");
             }
-            // ★ 显示新渠道字段：有值才显示，没有绝不占位
+
+            // ★ 没写 is_beta (为 null) 时不展示此字段；写了就展示常规文本颜色的「测试版」或「正式版」
+            if (detail.isBeta != null) {
+                String typeStr = detail.isBeta ? "测试版" : "正式版";
+                addInfoRow(activity, infoBox, "版本类型", typeStr, textColor, subTextColor);
+                copySb.append("类型: ").append(typeStr).append("\n");
+            }
+
             if (detail.channel != null && !detail.channel.isEmpty()) {
                 addInfoRow(activity, infoBox, "发布渠道", detail.channel, textColor, subTextColor);
                 copySb.append("渠道: ").append(detail.channel).append("\n");
@@ -271,7 +278,6 @@ public class ProfileSettingInjector {
                 addInfoRow(activity, infoBox, "发布构建日期", detail.date, textColor, subTextColor);
                 copySb.append("日期: ").append(detail.date).append("\n");
             }
-            // ★ 通用动态扩展字段：如果没有就不显示
             if (detail.extraFields != null && !detail.extraFields.isEmpty()) {
                 for (Map.Entry<String, String> entry : detail.extraFields.entrySet()) {
                     String k = entry.getKey();
@@ -295,6 +301,11 @@ public class ProfileSettingInjector {
             if (!infer.suspectedVersion.isEmpty()) {
                 addInfoRow(activity, infoBox, "可疑版本", infer.suspectedVersion + " (可疑，供参考)", textColor, subTextColor);
                 copySb.append("可疑版本: ").append(infer.suspectedVersion).append(" (可疑)\n");
+            }
+            if (infer.isBeta != null) {
+                String typeStr = infer.isBeta ? "测试版" : "正式版";
+                addInfoRow(activity, infoBox, "推测类型", typeStr, textColor, subTextColor);
+                copySb.append("推测类型: ").append(typeStr).append("\n");
             }
             if (infer.floorDetail != null) {
                 addInfoRow(activity, infoBox, "前一已知版本", infer.floorSubid + " (" + infer.floorDetail.summary + ")", textColor, subTextColor);
