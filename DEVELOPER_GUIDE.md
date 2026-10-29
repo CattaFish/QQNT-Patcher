@@ -7,27 +7,49 @@
 1. **默认关闭原则**：所有新增的功能模块，其默认状态必须为关闭（`defaultEnabled() { return false; }`），由用户在设置中主动开启。
 2. **客观描述原则**：UI 界面中的标题与副标题（`getName()` 和 `getSubName()`）必须客观、简洁，直接说明功能作用，禁止使用夸张、极端的修饰词汇。
 3. **动态嗅探原则**：Python 规则（`rules/`）必须使用 `FastDexParser` 基于特征字符串进行动态定位，避免硬编码类名或方法名，以适应 QQ 版本的变化。
+4. **全自动装配体系**：架构已实现全自动流水线自描述与模块装配，**无需修改任何构建总线、无需修改 ModuleManager 注册表、无需修改 PatchBridge**！
 
 ---
 
-## 新增功能标准流程 (5 步走)
+## 极简开发流程：两步极速落地
 
-要完整添加一个新功能（包含插桩、构建总线注册、Java 层逻辑、UI 设置开关），请按以下步骤进行：
+现在添加一个全新功能，**只需要编写 2 个文件**：
 
-### 第一步：编写 Python 规则插件
-在 `rules/` 目录下新建 `xxx_rules.py`，利用 `FastDexParser` 寻找特征字符串并生成 Smali 注入规则。
-* 必须定义常量 `RULE_ID`、`RULE_NAME`、`RULE_ENABLED = True`。
-* 必须实现 `resolve_rules(dex_data_dict, meta=None)` 方法返回规则列表。
+### 第一步：编写自描述 Python 规则插件
+在 `rules/` 目录下新建 `xxx_rules.py`，利用 `FastDexParser` 寻找特征字符串并生成 Smali 注入规则：
+```python
+# -*- coding: utf-8 -*-
+from .parser import FastDexParser
 
-### 第二步：注册构建流水线特征
-1. 打开 `pipeline/features.py`：
-   * 在 `ALL_FEATURES` 字典中添加您的功能 ID 及简短说明。
-   * 在 `FEATURE_ALIASES` 字典中为您的功能添加常见别名（用于命令行 `--only` 和 `--skip` 调试）。
-2. 打开 `pipeline/stage2_rules.py`：
-   * 在 `is_rule_active` 函数的 `id_map` 字典中，添加您的 `RULE_ID` 映射。
+RULE_ID = "your_feature_id"           # 核心功能 ID (必须唯一)
+RULE_NAME = "客观的功能名称"
+RULE_DESC = "简要功能描述"
+RULE_ALIASES = ["别名1", "别名2"]     # 供命令行 --only 和 --skip 快速测试使用
+RULE_ENABLED = True
 
-### 第三步：编写 Java 层业务模块
-在 `src/com/tencent/qqnt/patch/modules/` 下对应的分类目录（如 `chat/` 或 `purify/`）新建 `XxxModule.java`，实现 `IPatchModule` 接口：
+def build_xxx_rules(dex_data_dict):
+    # 如果仅需开关判断放行，直接调用 PatchBridge.isEnabled("your_feature_id")，无需给 PatchBridge 添加专有方法！
+    return [{
+        "name": "某方法拦截",
+        "target_class": "...",
+        "target_method": "...",
+        "type": "INSERT_BEFORE",
+        "smali": """
+    const-string v0, "your_feature_id"
+    invoke-static {v0}, Lcom/tencent/qqnt/patch/PatchBridge;->isEnabled(Ljava/lang/String;)Z
+    move-result v0
+    if-eqz v0, :cond_pass
+    return-void
+    :cond_pass
+"""
+    }]
+
+def resolve_rules(dex_data_dict, meta=None):
+    return build_xxx_rules(dex_data_dict)
+```
+
+### 第二步：编写 Java 业务模块
+在 `src/com/tencent/qqnt/patch/modules/` 下的对应目录（如 `chat/` 或 `purify/`）新建 `XxxModule.java`，实现 `IPatchModule` 接口：
 ```java
 package com.tencent.qqnt.patch.modules.purify;
 
@@ -35,7 +57,7 @@ import com.tencent.qqnt.patch.IPatchModule;
 
 public class XxxModule implements IPatchModule {
     @Override 
-    public String getId() { return "your_feature_id"; } // 必须与 features.py 中一致
+    public String getId() { return "your_feature_id"; } // 必须与 rules 中 RULE_ID 保持一致
 
     @Override 
     public String getName() { return "客观的功能名称"; }
@@ -51,32 +73,15 @@ public class XxxModule implements IPatchModule {
 }
 ```
 
-### 第四步：注册 Java 层模块
-打开 `src/com/tencent/qqnt/patch/ModuleManager.java`：
-1. 在 `MOD_TO_FEATURE` 映射表中添加绑定关系：
-   `MOD_TO_FEATURE.put("your_feature_id", "your_feature_id");`
-2. 在静态初始化块中注册模块实例：
-   `register(new XxxModule());`
-
-### 第五步：添加 Smali 与 Java 的通信桥梁（可选）
-如果你的 Smali 注入代码需要调用 Java 方法（或查询功能是否开启）：
-打开 `src/com/tencent/qqnt/patch/PatchBridge.java`，添加静态方法：
-```java
-public static boolean isXxxEnabled() {
-    return ConfigManager.isModuleEnabled("your_feature_id", false); // 这里的默认值也要是 false
-}
-```
+**大功告成！** 
+流水线在编译打包时会自动扫描到该 Module 并将其写入自动装配清单；运行期 `ModuleManager` 会自动加载、自动在“Zzz 设置”中挂载开关、自动接入全局搜索索引。若模块需要配置弹窗，直接调用 `SettingDialogBuilder` 即可快速以链式 DSL 完成高质感原生表单。
 
 ---
 
 ## 发版 / 提交前必查清单 (Checklist)
 
-每次添加新功能后，请对照此清单检查，切勿遗漏：
-
 - [ ] **默认状态检查**：`XxxModule.java` 中的 `defaultEnabled()` 是否返回了 `false`？
-- [ ] **ID 一致性检查**：`rules/xxx_rules.py` 的 `RULE_ID`、`features.py` 的键名、`XxxModule` 的 `getId()` 三者是否完全一致？
-- [ ] **别名检查**：是否在 `features.py` 的 `FEATURE_ALIASES` 中添加了相应的中文/拼音别名以方便命令行调试？
-- [ ] **模块注册检查**：是否在 `ModuleManager.java` 中调用了 `register(new XxxModule())` 且添加了 `MOD_TO_FEATURE` 映射？
-- [ ] **Smali 安全检查**：Smali 插入的代码是否通过 `PatchBridge` 判断了功能开关？（只有开关开启时才执行自定义逻辑，关闭时正常放行原有逻辑）。
-- [ ] **文本规范检查**：功能描述是否客观简单，无多余的夸张词汇？
-
+- [ ] **ID 一致性检查**：`rules/xxx_rules.py` 的 `RULE_ID` 与 `XxxModule` 的 `getId()` 是否完全一致？
+- [ ] **自描述别名检查**：是否在 `rules/xxx_rules.py` 的 `RULE_ALIASES` 中添加了相应的中文/拼音别名？
+- [ ] **开关安全检查**：Smali 插入的代码是否通过 `PatchBridge.isEnabled("your_feature_id")` 判定放行？
+- [ ] **文本规范检查**：功能描述是否客观简单，无多余夸张词汇？
