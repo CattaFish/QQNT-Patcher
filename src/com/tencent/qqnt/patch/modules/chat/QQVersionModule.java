@@ -253,8 +253,8 @@ public class QQVersionModule implements IPatchModule {
                 File extFile = getExternalDictionaryFile(context);
                 if (extFile == null) return;
 
+                // 1. 绝对权威：优先以安装包自带的资产作为基准
                 JSONObject localJson = new JSONObject();
-
                 try (InputStream is = PatchAssetHelper.openStream(context, "subid.json")) {
                     if (is != null) {
                         BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
@@ -265,24 +265,43 @@ public class QQVersionModule implements IPatchModule {
                     }
                 } catch (Throwable ignored) {}
 
+                boolean needForceSave = false;
+
+                // 2. 合并 SD 卡缓存（修复点：安装包是权威！绝不允许 SD 卡旧条目覆盖安装包新条目）
                 if (extFile.exists() && extFile.length() > 0) {
                     try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(extFile), StandardCharsets.UTF_8))) {
                         StringBuilder sb = new StringBuilder();
                         String l;
                         while ((l = br.readLine()) != null) sb.append(l);
-                        JSONObject extJson = new JSONObject(sb.toString());
+                        String extFileRaw = sb.toString();
+                        JSONObject extJson = new JSONObject(extFileRaw);
+
                         Iterator<String> ekIt = extJson.keys();
                         while (ekIt.hasNext()) {
                             String k = ekIt.next();
-                            localJson.put(k, extJson.get(k));
+                            // 仅当安装包里完全没有收录该 SubID 时，才吸纳外部缓存中的增量条目
+                            if (!localJson.has(k)) {
+                                localJson.put(k, extJson.get(k));
+                                needForceSave = true;
+                            }
+                        }
+
+                        // ★ 核心检测：如果安装包自带了 is_beta，但 media 里的旧文件还没有搜到
+                        // 说明安装包升级了，必须立刻强制把最新数据刷进 media 目录！
+                        if (!extFileRaw.contains("\"is_beta\"") && localJson.toString().contains("\"is_beta\"")) {
+                            needForceSave = true;
                         }
                     } catch (Throwable t) {
-                        PLog.w(TAG, "合并本地已有字典异常: " + t.getMessage());
+                        PLog.w(TAG, "读取 SD 卡已有字典异常: " + t.getMessage());
+                        needForceSave = true;
                     }
+                } else {
+                    needForceSave = true;
                 }
 
                 int totalNewCount = 0;
 
+                // 3. 检查云端增量更新
                 for (int gIdx = 0; gIdx < REMOTE_SOURCE_GROUPS.length; gIdx++) {
                     String[] mirrors = REMOTE_SOURCE_GROUPS[gIdx];
                     boolean isAuth = (gIdx == 0);
@@ -305,21 +324,6 @@ public class QQVersionModule implements IPatchModule {
                             conn.setRequestProperty("Pragma", "no-cache");
 
                             int code = conn.getResponseCode();
-
-                            if (code == 301 || code == 302 || code == 307 || code == 308) {
-                                String redirectUrl = conn.getHeaderField("Location");
-                                if (redirectUrl != null && !redirectUrl.isEmpty()) {
-                                    conn.disconnect();
-                                    url = new URL(redirectUrl);
-                                    conn = (HttpURLConnection) url.openConnection();
-                                    conn.setRequestMethod("GET");
-                                    conn.setConnectTimeout(8000);
-                                    conn.setReadTimeout(8000);
-                                    conn.setRequestProperty("User-Agent", "QQNT-Patcher-Client");
-                                    code = conn.getResponseCode();
-                                }
-                            }
-
                             if (code == 200) {
                                 StringBuilder sb = new StringBuilder();
                                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
@@ -339,10 +343,7 @@ public class QQVersionModule implements IPatchModule {
                                         totalNewCount++;
                                     } else {
                                         Object lVal = localJson.opt(subid);
-                                        if (lVal instanceof String && rVal instanceof JSONObject) {
-                                            localJson.put(subid, rVal);
-                                            totalNewCount++;
-                                        } else if (lVal instanceof JSONObject && rVal instanceof JSONObject) {
+                                        if (lVal instanceof JSONObject && rVal instanceof JSONObject) {
                                             JSONObject lObj = (JSONObject) lVal;
                                             JSONObject rObj = (JSONObject) rVal;
                                             boolean objModified = false;
@@ -354,57 +355,20 @@ public class QQVersionModule implements IPatchModule {
                                                 if (rFieldVal == null) continue;
 
                                                 Object lFieldVal = lObj.opt(rk);
-
-                                                if (rFieldVal instanceof JSONArray) {
-                                                    JSONArray rArr = (JSONArray) rFieldVal;
-                                                    if (lFieldVal instanceof JSONArray) {
-                                                        JSONArray lArr = (JSONArray) lFieldVal;
-                                                        Set<String> set = new LinkedHashSet<>();
-                                                        for (int i = 0; i < lArr.length(); i++) set.add(lArr.optString(i));
-                                                        int beforeSize = set.size();
-                                                        for (int i = 0; i < rArr.length(); i++) set.add(rArr.optString(i));
-                                                        if (set.size() > beforeSize) {
-                                                            JSONArray newArr = new JSONArray();
-                                                            for (String s : set) newArr.put(s);
-                                                            lObj.put(rk, newArr);
-                                                            objModified = true;
-                                                        }
-                                                    } else {
-                                                        lObj.put(rk, rArr);
-                                                        objModified = true;
-                                                    }
-                                                } else {
-                                                    String rStr = rFieldVal.toString().trim();
-                                                    if (!rStr.isEmpty() && !rStr.equals("null")) {
-                                                        String lStr = lFieldVal != null ? lFieldVal.toString().trim() : "";
-                                                        if (isAuth) {
-                                                            if (!rStr.equals(lStr)) {
-                                                                lObj.put(rk, rFieldVal);
-                                                                objModified = true;
-                                                            }
-                                                        } else {
-                                                            if (lFieldVal == null || lStr.isEmpty()) {
-                                                                lObj.put(rk, rFieldVal);
-                                                                objModified = true;
-                                                            } else if (rk.equals("is_beta") && Boolean.TRUE.equals(rFieldVal) && !Boolean.TRUE.equals(lFieldVal)) {
-                                                                lObj.put(rk, rFieldVal);
-                                                                objModified = true;
-                                                            }
-                                                        }
-                                                    }
+                                                if (lFieldVal == null || lFieldVal.toString().trim().isEmpty()) {
+                                                    lObj.put(rk, rFieldVal);
+                                                    objModified = true;
+                                                } else if (isAuth && !rFieldVal.toString().equals(lFieldVal.toString())) {
+                                                    lObj.put(rk, rFieldVal);
+                                                    objModified = true;
                                                 }
                                             }
                                             if (objModified) totalNewCount++;
-                                        } else if (isAuth && rVal instanceof String && !rVal.equals(lVal)) {
-                                            localJson.put(subid, rVal);
-                                            totalNewCount++;
                                         }
                                     }
                                 }
                                 groupSuccess = true;
                                 break;
-                            } else {
-                                PLog.w(TAG, "节点返回非 200 (HTTP " + code + "): " + urlStr);
                             }
                         } catch (Throwable e) {
                             PLog.w(TAG, "节点连接失败 [" + urlStr + "]: " + e.getMessage());
@@ -417,7 +381,8 @@ public class QQVersionModule implements IPatchModule {
                     }
                 }
 
-                if (totalNewCount > 0) {
+                // ★ 只要安装包带有新属性（needForceSave）或者云端有新版本（totalNewCount > 0），均强制刷盘！
+                if (needForceSave || totalNewCount > 0) {
                     try (FileOutputStream fos = new FileOutputStream(extFile, false);
                          OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
                         osw.write(localJson.toString(2));
@@ -428,7 +393,7 @@ public class QQVersionModule implements IPatchModule {
                     try (InputStream is = new FileInputStream(extFile)) {
                         parseJsonDictionary(is);
                     }
-                    PLog.i(TAG, "已成功完成 SubID 字典静默增量更新，吸收新版本/更新属性: " + totalNewCount + " 处，当前总数: " + sExactTable.size());
+                    PLog.i(TAG, "已同步更新 media 目录字典并加载到内存，包含新变动: " + totalNewCount + " 处，当前总数: " + sExactTable.size());
                 } else {
                     PLog.i(TAG, "SubID 字典已是最新，无新增版本或属性 (当前收录: " + sExactTable.size() + " 条)");
                 }
