@@ -48,33 +48,46 @@ def build_upgrade_rules(dex_data_dict):
     method_e_i = None
     method_b_f = None
 
+    # 1. 精准定位升级主控制器 d 类（位于 classes5.dex，以排他性字符串优先检索）
     for _, dex_bytes in dex_data_dict.items():
-        if b"ready to upgrade" in dex_bytes or b"UpgradeCtl_Manager" in dex_bytes:
+        if b"ready to upgrade" in dex_bytes or b"handleUpgradeInfo" in dex_bytes:
             p = FastDexParser(dex_bytes)
             if not p.valid: continue
+
             candidates = p.find_classes_referencing_string_strictly("ready to upgrade")
             if not candidates:
-                candidates = p.find_classes_referencing_string_strictly("UpgradeCtl_Manager")
+                candidates = p.find_classes_referencing_string_strictly("handleUpgradeInfo")
 
             for cls_name, cls_idx in candidates:
                 if "upgrade/control/" in cls_name and not "$" in cls_name:
                     m_k = _find_method_strictly_referencing_string(p, cls_idx, "ready to upgrade")
                     m_l = _find_method_strictly_referencing_string(p, cls_idx, "handleUpgradeInfo")
                     m_o = _find_method_strictly_referencing_string(p, cls_idx, "showUpgradeTip")
-                    ctl_d_class = cls_name
-                    method_d_k = m_k
-                    method_d_l = m_l
-                    method_d_o = m_o
-                    break
+
+                    # 若字符串被混淆内联，兜底基于协议签名参数反查
+                    if not m_l:
+                        for m_name, proto_desc, _, _, _ in p.get_class_methods(cls_idx):
+                            if proto_desc == "(Lprotocol/KQQConfig/UpgradeInfo;)V":
+                                m_l = f"{m_name}{proto_desc}"
+                                break
+
+                    # 核心守护：只有切实命中有效方法，才确认为真正的 d 类并终止搜索
+                    if m_k or m_l:
+                        ctl_d_class = cls_name
+                        method_d_k = m_k
+                        method_d_l = m_l
+                        method_d_o = m_o
+                        break
         if ctl_d_class: break
 
+    # 若全量跨包均未扫描到，使用标准类名和方法名安全回退
     if not ctl_d_class: ctl_d_class = "Lcom/tencent/mobileqq/upgrade/control/d;"
     if not method_d_k: method_d_k = "k(Z)V"
     if not method_d_l: method_d_l = "l(Lprotocol/KQQConfig/UpgradeInfo;)V"
     if not method_d_o: method_d_o = "o()V"
 
     rules.append({
-        "name": f"阻断升级配置接入 ({ctl_d_class}->{method_d_k})",
+        "name": f"阻断升级配置接入 ({ctl_d_class}->{method_d_k.split('(')[0]})",
         "target_class": ctl_d_class,
         "target_method": method_d_k,
         "type": "INSERT_BEFORE",
@@ -89,7 +102,7 @@ def build_upgrade_rules(dex_data_dict):
     })
 
     rules.append({
-        "name": f"彻底拔除强制更新与升级分发 ({ctl_d_class}->{method_d_l})",
+        "name": f"彻底拔除强制更新与升级分发 ({ctl_d_class}->{method_d_l.split('(')[0]})",
         "target_class": ctl_d_class,
         "target_method": method_d_l,
         "type": "INSERT_BEFORE",
@@ -104,7 +117,7 @@ def build_upgrade_rules(dex_data_dict):
     })
 
     rules.append({
-        "name": f"禁用升级弹窗与横幅提示 ({ctl_d_class}->{method_d_o})",
+        "name": f"禁用升级弹窗与横幅提示 ({ctl_d_class}->{method_d_o.split('(')[0]})",
         "target_class": ctl_d_class,
         "target_method": method_d_o,
         "type": "INSERT_BEFORE",
@@ -118,6 +131,7 @@ def build_upgrade_rules(dex_data_dict):
 """,
     })
 
+    # 2. 定位辅助校验 e 类（位于 classes10.dex）
     for _, dex_bytes in dex_data_dict.items():
         if b"needShowUpdateRedDotIgnoreClick, " in dex_bytes:
             p = FastDexParser(dex_bytes)
@@ -126,16 +140,17 @@ def build_upgrade_rules(dex_data_dict):
             for cls_name, cls_idx in candidates:
                 if "upgrade/control/" in cls_name and not "$" in cls_name:
                     m_i = _find_method_strictly_referencing_string(p, cls_idx, "needShowUpdateRedDotIgnoreClick, ")
-                    ctl_e_class = cls_name
-                    method_e_i = m_i
-                    break
+                    if m_i:
+                        ctl_e_class = cls_name
+                        method_e_i = m_i
+                        break
         if ctl_e_class: break
 
     if not ctl_e_class: ctl_e_class = "Lcom/tencent/mobileqq/upgrade/control/e;"
     if not method_e_i: method_e_i = "i()Z"
 
     rules.append({
-        "name": f"致盲灰度更新状态 ({ctl_e_class}->{method_e_i})",
+        "name": f"致盲灰度更新状态 ({ctl_e_class}->{method_e_i.split('(')[0]})",
         "target_class": ctl_e_class,
         "target_method": method_e_i,
         "type": "INSERT_BEFORE",
@@ -150,6 +165,7 @@ def build_upgrade_rules(dex_data_dict):
 """,
     })
 
+    # 3. 定位关于页更新状态 b 类
     for _, dex_bytes in dex_data_dict.items():
         if b"hasGrayUpgrade:" in dex_bytes:
             p = FastDexParser(dex_bytes)
@@ -158,16 +174,17 @@ def build_upgrade_rules(dex_data_dict):
             for cls_name, cls_idx in candidates:
                 if "upgrade/util/" in cls_name and not "$" in cls_name:
                     m_f = _find_method_strictly_referencing_string(p, cls_idx, "hasGrayUpgrade:")
-                    util_b_class = cls_name
-                    method_b_f = m_f
-                    break
+                    if m_f:
+                        util_b_class = cls_name
+                        method_b_f = m_f
+                        break
         if util_b_class: break
 
     if not util_b_class: util_b_class = "Lcom/tencent/mobileqq/upgrade/util/b;"
     if not method_b_f: method_b_f = "f()Lkotlin/Pair;"
 
     rules.append({
-        "name": f"关于页状态恒定最新版 ({util_b_class}->{method_b_f})",
+        "name": f"关于页状态恒定最新版 ({util_b_class}->{method_b_f.split('(')[0]})",
         "target_class": util_b_class,
         "target_method": method_b_f if method_b_f and "(" in method_b_f else "f()Lkotlin/Pair;",
         "type": "INSERT_BEFORE",
