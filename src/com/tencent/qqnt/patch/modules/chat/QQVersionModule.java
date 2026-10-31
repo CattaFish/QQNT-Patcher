@@ -18,9 +18,11 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class QQVersionModule implements IPatchModule {
@@ -29,7 +31,6 @@ public class QQVersionModule implements IPatchModule {
     private static final String CMD_MSG_PUSH = "trpc.msg.olpush.OlPushService.MsgPush";
     public static final String UNKNOWN_STATUS = "未捕获到客户端版本";
 
-    // 备用加速代理源（遵循 gh-proxy 官方接入规范）
     private static final String FALLBACK_PROXY_URL = "https://gh-proxy.com/https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json";
 
     private static final String PREF_NAME = "zzz_subid_ota_pref";
@@ -43,7 +44,7 @@ public class QQVersionModule implements IPatchModule {
         public String version;
         public String date;
         public String channel;
-        public Boolean isBeta = null; // 未显式声明时为 null
+        public Boolean isBeta = null;
         public List<String> packages = new ArrayList<>();
         public List<String> versions = new ArrayList<>();
         public Map<String, String> extraFields = new LinkedHashMap<>();
@@ -64,7 +65,18 @@ public class QQVersionModule implements IPatchModule {
         public String warningNote = "";
     }
 
-    private static final Map<String, Long> sLastSubidByUin = new ConcurrentHashMap<>();
+    public static class UserDeviceRecord {
+        public long subId;
+        public long timestamp;
+
+        public UserDeviceRecord(long subId, long timestamp) {
+            this.subId = subId;
+            this.timestamp = timestamp;
+        }
+    }
+
+    private static final Map<String, List<UserDeviceRecord>> sUserRecords = new ConcurrentHashMap<>();
+
     private static final Map<String, String> sExactTable = new ConcurrentHashMap<>();
     private static final Map<String, SubidDetail> sDetailTable = new ConcurrentHashMap<>();
     private static final ConcurrentSkipListMap<Long, SubidDetail> sNavMap = new ConcurrentSkipListMap<>();
@@ -84,7 +96,7 @@ public class QQVersionModule implements IPatchModule {
             return "在好友设置与群成员设置展示对方版本与架构";
         }
         return "在好友设置与群成员设置展示对方版本与架构\n" +
-               "(已捕获 " + sLastSubidByUin.size() + " 人)";
+               "(已捕获 " + sUserRecords.size() + " 人)";
     }
 
     @Override
@@ -112,7 +124,7 @@ public class QQVersionModule implements IPatchModule {
             long subId = getProtoVarint(head, 4);
 
             if (subId > 0 && uin > 10000L) {
-                sLastSubidByUin.put(String.valueOf(uin), subId);
+                recordSubid(String.valueOf(uin), subId, System.currentTimeMillis());
                 scheduleDebounceSave();
             }
         } catch (Throwable t) {
@@ -122,10 +134,41 @@ public class QQVersionModule implements IPatchModule {
         return buf;
     }
 
+    private static void recordSubid(String uin, long subId, long timestamp) {
+        List<UserDeviceRecord> list = sUserRecords.computeIfAbsent(uin, k -> new CopyOnWriteArrayList<>());
+        synchronized (list) {
+            if (list.isEmpty()) {
+                list.add(new UserDeviceRecord(subId, timestamp));
+                return;
+            }
+
+            UserDeviceRecord latest = list.get(0);
+            if (latest.subId == subId) {
+                latest.timestamp = timestamp;
+                return;
+            }
+
+            for (int i = 0; i < list.size(); i++) {
+                if (list.get(i).subId == subId) {
+                    list.remove(i);
+                    break;
+                }
+            }
+
+            // 不限制历史记录数量，真实完整追加变动轨迹
+            list.add(0, new UserDeviceRecord(subId, timestamp));
+        }
+    }
+
+    public static List<UserDeviceRecord> getUserRecords(String uin) {
+        if (uin == null || uin.isEmpty()) return Collections.emptyList();
+        List<UserDeviceRecord> list = sUserRecords.get(uin);
+        return list != null ? list : Collections.emptyList();
+    }
+
     public static long getSubidByUin(String uin) {
-        if (uin == null || uin.isEmpty()) return 0L;
-        Long subId = sLastSubidByUin.get(uin);
-        return subId != null ? subId : 0L;
+        List<UserDeviceRecord> records = getUserRecords(uin);
+        return (!records.isEmpty()) ? records.get(0).subId : 0L;
     }
 
     public static String getVersionByUin(String uin) {
@@ -133,6 +176,28 @@ public class QQVersionModule implements IPatchModule {
         long subId = getSubidByUin(uin);
         if (subId <= 0) return UNKNOWN_STATUS;
         return inferSubid(subId).displaySummary;
+    }
+
+    public static String formatRelativeTime(long timeMs) {
+        if (timeMs <= 0) return "未知时间";
+        long now = System.currentTimeMillis();
+        long diff = now - timeMs;
+        if (diff < 0) diff = 0;
+
+        if (diff < 60 * 1000L) {
+            return "刚刚";
+        } else if (diff < 60 * 60 * 1000L) {
+            return (diff / (60 * 1000L)) + " 分钟前";
+        } else if (diff < 24 * 60 * 60 * 1000L) {
+            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm", Locale.getDefault());
+            return "今天 " + sdf.format(new Date(timeMs));
+        } else if (diff < 48 * 60 * 60 * 1000L) {
+            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm", Locale.getDefault());
+            return "昨天 " + sdf.format(new Date(timeMs));
+        } else {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+            return sdf.format(new Date(timeMs));
+        }
     }
 
     public static InferResult inferSubid(long subId) {
@@ -166,7 +231,7 @@ public class QQVersionModule implements IPatchModule {
             res.suspectedPlatform = floor.getValue().platform;
             res.suspectedArch = floor.getValue().arch;
             res.suspectedVersion = floor.getValue().version;
-            res.warningNote = "此 SubID (" + subId + ") 高于本地收录最高版本，推测为近期发布的更新版本，可能不准确！";
+            res.warningNote = "此 SubID (" + subId + ") 高于本地收录最高版本，推测为近期发布的更新版本，可能不准确";
             if (diff < 10000) {
                 res.displaySummary = "未精确匹配 (推测为近期新版?)";
             } else {
@@ -194,7 +259,7 @@ public class QQVersionModule implements IPatchModule {
             String platArch = ref.platform != null ? ref.platform : "";
             if (ref.arch != null && !ref.arch.isEmpty()) platArch += "-" + ref.arch;
 
-            res.warningNote = "未精确收录此 SubID，根据临近发版区间推测可能为 " + platArch + " " + guessVer + "，推测仅供参考！";
+            res.warningNote = "未精确收录此 SubID，根据临近发版区间推测可能为 " + platArch + " " + guessVer + "，推测仅供参考";
             res.displaySummary = "未匹配 (推测: " + platArch + " " + guessVer + "?)";
             return res;
         }
@@ -204,13 +269,13 @@ public class QQVersionModule implements IPatchModule {
             res.suspectedPlatform = ceil.getValue().platform;
             res.suspectedArch = ceil.getValue().arch;
             res.suspectedVersion = ceil.getValue().version;
-            res.warningNote = "此 SubID 较低，推测为历史未收录老版本，可能不准确！";
+            res.warningNote = "此 SubID 较低，推测为历史未收录老版本，可能不准确";
             res.displaySummary = "未匹配 (推测为历史老版?)";
             return res;
         }
 
         res.displaySummary = "未匹配版本 (" + subId + ")";
-        res.warningNote = "完全未知号段，无法进行有效区间推测。";
+        res.warningNote = "完全未知号段，无法进行有效区间推测";
         return res;
     }
 
@@ -238,9 +303,6 @@ public class QQVersionModule implements IPatchModule {
         PLog.i(TAG, "版本字典底表加载完成，当前收录: " + sExactTable.size() + " 条");
     }
 
-    /**
-     * 静默 OTA 增量同步（主源走 Cloudflare 边缘 Worker，备用走 gh-proxy）
-     */
     private static void triggerSilentOtaSync(Context context) {
         if (sOtaChecked.getAndSet(true)) return;
 
@@ -254,7 +316,6 @@ public class QQVersionModule implements IPatchModule {
                 SharedPreferences sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
                 String recordedEtag = sp.getString(KEY_ETAG, "");
 
-                // 主端点：Cloudflare Worker，备用端点：gh-proxy 加速代理
                 String primaryUrl = ConfigManager.UPDATE_API_URL + "/subid.json";
                 String[] candidateUrls = new String[]{ primaryUrl, FALLBACK_PROXY_URL };
 
@@ -269,20 +330,17 @@ public class QQVersionModule implements IPatchModule {
                         conn.setInstanceFollowRedirects(true);
                         conn.setRequestProperty("User-Agent", "QQNT-Patcher-Client/" + ConfigManager.VERSION);
 
-                        // 仅在主端点且本地存在有效文件时带上 If-None-Match
                         if (endpoint.equals(primaryUrl) && extFile.exists() && extFile.length() > 0 && !recordedEtag.isEmpty()) {
                             conn.setRequestProperty("If-None-Match", recordedEtag);
                         }
 
                         int code = conn.getResponseCode();
 
-                        // 1. 304 说明云端未变动，0 流量瞬间返回
                         if (code == 304) {
                             PLog.i(TAG, "SubID 字典通过 ETag 校验：云端数据未变动 (304 Not Modified)");
                             return;
                         }
 
-                        // 2. 200 说明有新版本发布
                         if (code == 200) {
                             String newEtag = conn.getHeaderField("ETag");
                             File tmpFile = new File(extFile.getAbsolutePath() + ".tmp");
@@ -306,7 +364,6 @@ public class QQVersionModule implements IPatchModule {
                                     sp.edit().putString(KEY_ETAG, newEtag).apply();
                                 }
 
-                                // 重新载入内存字典
                                 try (InputStream fis = new FileInputStream(extFile)) {
                                     parseJsonDictionary(fis);
                                 }
@@ -357,7 +414,6 @@ public class QQVersionModule implements IPatchModule {
                 detail.date = obj.optString("date", "");
                 detail.channel = obj.optString("channel", "");
 
-                // 只有 JSON 显式含 is_beta 键时才读取，未写时保持 null
                 if (obj.has("is_beta")) {
                     detail.isBeta = obj.optBoolean("is_beta");
                 } else {
@@ -426,8 +482,27 @@ public class QQVersionModule implements IPatchModule {
             Iterator<String> it = obj.keys();
             while (it.hasNext()) {
                 String uin = it.next();
-                long sub = obj.optLong(uin, 0L);
-                if (sub > 0) sLastSubidByUin.put(uin, sub);
+                Object val = obj.get(uin);
+
+                List<UserDeviceRecord> records = new CopyOnWriteArrayList<>();
+                if (val instanceof JSONArray) {
+                    JSONArray arr = (JSONArray) val;
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject r = arr.optJSONObject(i);
+                        if (r != null) {
+                            long sub = r.optLong("sub", 0L);
+                            long t = r.optLong("t", 0L);
+                            if (sub > 0) records.add(new UserDeviceRecord(sub, t));
+                        }
+                    }
+                } else if (val instanceof Number) {
+                    long sub = ((Number) val).longValue();
+                    if (sub > 0) records.add(new UserDeviceRecord(sub, f.lastModified()));
+                }
+
+                if (!records.isEmpty()) {
+                    sUserRecords.put(uin, records);
+                }
             }
         } catch (Throwable ignored) {}
     }
@@ -444,14 +519,21 @@ public class QQVersionModule implements IPatchModule {
             File f = getCacheFile(ctx);
             if (f == null) return;
 
-            JSONObject obj = new JSONObject();
-            for (Map.Entry<String, Long> entry : sLastSubidByUin.entrySet()) {
-                obj.put(entry.getKey(), entry.getValue());
+            JSONObject root = new JSONObject();
+            for (Map.Entry<String, List<UserDeviceRecord>> entry : sUserRecords.entrySet()) {
+                JSONArray arr = new JSONArray();
+                for (UserDeviceRecord record : entry.getValue()) {
+                    JSONObject r = new JSONObject();
+                    r.put("sub", record.subId);
+                    r.put("t", record.timestamp);
+                    arr.put(r);
+                }
+                root.put(entry.getKey(), arr);
             }
 
             try (FileOutputStream fos = new FileOutputStream(f, false);
                  OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
-                osw.write(obj.toString());
+                osw.write(root.toString());
                 osw.flush();
                 fos.getFD().sync();
             }

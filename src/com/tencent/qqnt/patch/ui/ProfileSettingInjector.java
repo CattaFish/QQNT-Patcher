@@ -17,9 +17,11 @@ import android.view.Window;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.modules.chat.QQVersionModule;
+import com.tencent.qqnt.patch.modules.chat.QQVersionModule.UserDeviceRecord;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.qqnt.patch.util.ToastHelper;
 import me.yxp.qfun.utils.ui.ThemeHelper;
@@ -28,6 +30,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 public class ProfileSettingInjector {
@@ -167,11 +170,13 @@ public class ProfileSettingInjector {
             return;
         }
 
-        QQVersionModule.InferResult infer = QQVersionModule.inferSubid(subId);
-        showDetailDialog(activity, uin, subId, infer);
+        showDetailDialog(activity, uin, subId);
     }
 
-    private static void showDetailDialog(Activity activity, String uin, long subId, QQVersionModule.InferResult infer) {
+    /**
+     * 主详情弹窗：展示全部版本信息，捕获时间位于版本属性之后、历史捕获正上方
+     */
+    private static void showDetailDialog(Activity activity, String uin, long subId) {
         boolean isNight = ThemeHelper.INSTANCE.isNightMode();
 
         int bgColor = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
@@ -179,20 +184,26 @@ public class ProfileSettingInjector {
         int subTextColor = isNight ? Color.parseColor("#8E8E93") : Color.parseColor("#666666");
         int rowBgColor = isNight ? Color.parseColor("#2C2C2E") : Color.parseColor("#F2F2F7");
 
+        List<UserDeviceRecord> records = QQVersionModule.getUserRecords(uin);
+        UserDeviceRecord currentRec = !records.isEmpty() ? records.get(0) : null;
+        long activeSubid = (currentRec != null) ? currentRec.subId : subId;
+
+        QQVersionModule.InferResult infer = QQVersionModule.inferSubid(activeSubid);
+
         Dialog dialog = new Dialog(activity);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         }
 
-        int pad = dp2px(activity, 20f);
+        int pad = dp2px(activity, 18f);
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(pad, pad, pad, pad);
 
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(bgColor);
-        bg.setCornerRadius(dp2px(activity, 18f));
+        bg.setCornerRadius(dp2px(activity, 16f));
         root.setBackground(bg);
 
         TextView title = new TextView(activity);
@@ -204,9 +215,21 @@ public class ProfileSettingInjector {
         title.setPadding(0, 0, 0, dp2px(activity, 12f));
         root.addView(title);
 
+        ScrollView scroll = new ScrollView(activity) {
+            @Override
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                int maxH = (int) (getResources().getDisplayMetrics().heightPixels * 0.62f);
+                heightMeasureSpec = MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST);
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            }
+        };
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout content = new LinearLayout(activity);
+        content.setOrientation(LinearLayout.VERTICAL);
+
         StringBuilder copySb = new StringBuilder();
         copySb.append("QQ号: ").append(uin).append("\n");
-        copySb.append("协议 SubID: ").append(subId);
+        copySb.append("协议 SubID: ").append(activeSubid);
 
         if (infer != null && !infer.isExact) {
             TextView warningBox = new TextView(activity);
@@ -224,7 +247,7 @@ public class ProfileSettingInjector {
 
             LinearLayout.LayoutParams wLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             wLp.bottomMargin = dp2px(activity, 12f);
-            root.addView(warningBox, wLp);
+            content.addView(warningBox, wLp);
 
             copySb.append(" (未精确收录)\n");
         } else {
@@ -240,7 +263,7 @@ public class ProfileSettingInjector {
         infoBox.setBackground(boxBg);
 
         addInfoRow(activity, infoBox, "目标 QQ 号", uin, textColor, subTextColor);
-        addInfoRow(activity, infoBox, "协议 SubID", String.valueOf(subId), textColor, subTextColor);
+        addInfoRow(activity, infoBox, "协议 SubID", String.valueOf(activeSubid), textColor, subTextColor);
 
         if (infer != null && infer.isExact && infer.exactDetail != null) {
             QQVersionModule.SubidDetail detail = infer.exactDetail;
@@ -253,14 +276,11 @@ public class ProfileSettingInjector {
                 addInfoRow(activity, infoBox, "系统运行架构", detail.arch, textColor, subTextColor);
                 copySb.append("架构: ").append(detail.arch).append("\n");
             }
-
-            // ★ 没写 is_beta (为 null) 时不展示此字段；写了就展示常规文本颜色的「测试版」或「正式版」
             if (detail.isBeta != null) {
                 String typeStr = detail.isBeta ? "测试版" : "正式版";
                 addInfoRow(activity, infoBox, "版本类型", typeStr, textColor, subTextColor);
                 copySb.append("类型: ").append(typeStr).append("\n");
             }
-
             if (detail.channel != null && !detail.channel.isEmpty()) {
                 addInfoRow(activity, infoBox, "发布渠道", detail.channel, textColor, subTextColor);
                 copySb.append("渠道: ").append(detail.channel).append("\n");
@@ -309,28 +329,51 @@ public class ProfileSettingInjector {
             }
             if (infer.floorDetail != null) {
                 addInfoRow(activity, infoBox, "前一已知版本", infer.floorSubid + " (" + infer.floorDetail.summary + ")", textColor, subTextColor);
+                copySb.append("前一已知版本: ").append(infer.floorSubid).append(" (").append(infer.floorDetail.summary).append(")\n");
             }
             if (infer.ceilDetail != null) {
                 addInfoRow(activity, infoBox, "后一已知版本", infer.ceilSubid + " (" + infer.ceilDetail.summary + ")", textColor, subTextColor);
+                copySb.append("后一已知版本: ").append(infer.ceilSubid).append(" (").append(infer.ceilDetail.summary).append(")\n");
             }
         }
 
-        root.addView(infoBox);
+        // 调整位置：捕获时间移至所有版本属性之后、历史捕获正上方
+        if (currentRec != null && currentRec.timestamp > 0) {
+            String timeText = QQVersionModule.formatRelativeTime(currentRec.timestamp);
+            addInfoRow(activity, infoBox, "捕获时间", timeText, textColor, subTextColor);
+            copySb.append("捕获时间: ").append(timeText).append("\n");
+        }
 
+        // 普通列表末尾追加“历史捕获”条目（大于 1 条记录时展示，紧随捕获时间下方）
+        if (records.size() > 1) {
+            String histCountStr = records.size() + " 条 >";
+            addClickableInfoRow(activity, infoBox, "历史捕获", histCountStr, Color.parseColor("#007AFF"), subTextColor, v -> {
+                showHistoryDialog(activity, uin);
+            });
+            copySb.append("历史捕获: 共 ").append(records.size()).append(" 条记录\n");
+        }
+
+        content.addView(infoBox);
+
+        scroll.addView(content);
+        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        root.addView(scroll, scrollLp);
+
+        // 底部双按钮：恢复原生左右对称布局
         LinearLayout btnRow = new LinearLayout(activity);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
-        btnRow.setPadding(0, dp2px(activity, 16f), 0, 0);
+        btnRow.setPadding(0, dp2px(activity, 14f), 0, 0);
 
         Button copyBtn = new Button(activity);
         copyBtn.setText("复制完整信息");
-        copyBtn.setTextSize(14);
+        copyBtn.setTextSize(13);
         copyBtn.setTextColor(Color.WHITE);
         copyBtn.setAllCaps(false);
         GradientDrawable copyBg = new GradientDrawable();
         copyBg.setColor(Color.parseColor("#007AFF"));
         copyBg.setCornerRadius(dp2px(activity, 10f));
         copyBtn.setBackground(copyBg);
-        LinearLayout.LayoutParams copyLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
+        LinearLayout.LayoutParams copyLp = new LinearLayout.LayoutParams(0, dp2px(activity, 40f), 1f);
         copyLp.rightMargin = dp2px(activity, 8f);
         copyBtn.setOnClickListener(v -> {
             copyText(activity, copySb.toString().trim());
@@ -341,14 +384,14 @@ public class ProfileSettingInjector {
 
         Button okBtn = new Button(activity);
         okBtn.setText("关闭");
-        okBtn.setTextSize(14);
+        okBtn.setTextSize(13);
         okBtn.setTextColor(subTextColor);
         okBtn.setAllCaps(false);
         GradientDrawable okBg = new GradientDrawable();
         okBg.setColor(rowBgColor);
         okBg.setCornerRadius(dp2px(activity, 10f));
         okBtn.setBackground(okBg);
-        LinearLayout.LayoutParams okLp = new LinearLayout.LayoutParams(0, dp2px(activity, 42f), 1f);
+        LinearLayout.LayoutParams okLp = new LinearLayout.LayoutParams(0, dp2px(activity, 40f), 1f);
         okBtn.setOnClickListener(v -> dialog.dismiss());
         btnRow.addView(okBtn, okLp);
 
@@ -358,7 +401,181 @@ public class ProfileSettingInjector {
         dialog.show();
 
         if (dialog.getWindow() != null) {
-            int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.88);
+            int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.88f);
+            dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
+    /**
+     * 独立子弹窗：历史捕获（无蓝色描边，无 Emoji，删除历史编号）
+     */
+    private static void showHistoryDialog(Activity activity, String uin) {
+        boolean isNight = ThemeHelper.INSTANCE.isNightMode();
+
+        int bgColor = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
+        int textColor = isNight ? Color.WHITE : Color.parseColor("#1D1D1F");
+        int subTextColor = isNight ? Color.parseColor("#8E8E93") : Color.parseColor("#666666");
+        int rowBgColor = isNight ? Color.parseColor("#2C2C2E") : Color.parseColor("#F2F2F7");
+        int cardStrokeColor = isNight ? Color.parseColor("#38383A") : Color.parseColor("#E5E5EA");
+
+        List<UserDeviceRecord> records = QQVersionModule.getUserRecords(uin);
+
+        Dialog dialog = new Dialog(activity);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        }
+
+        int pad = dp2px(activity, 18f);
+        LinearLayout root = new LinearLayout(activity);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(pad, pad, pad, pad);
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(bgColor);
+        bg.setCornerRadius(dp2px(activity, 16f));
+        root.setBackground(bg);
+
+        TextView title = new TextView(activity);
+        title.setText("历史捕获");
+        title.setTextSize(17);
+        title.getPaint().setFakeBoldText(true);
+        title.setTextColor(textColor);
+        title.setGravity(Gravity.CENTER);
+        root.addView(title);
+
+        TextView subtitle = new TextView(activity);
+        subtitle.setText("QQ: " + uin + " (共 " + records.size() + " 条记录)");
+        subtitle.setTextSize(12);
+        subtitle.setTextColor(subTextColor);
+        subtitle.setGravity(Gravity.CENTER);
+        subtitle.setPadding(0, dp2px(activity, 3f), 0, dp2px(activity, 12f));
+        root.addView(subtitle);
+
+        ScrollView scroll = new ScrollView(activity) {
+            @Override
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                int maxH = (int) (getResources().getDisplayMetrics().heightPixels * 0.60f);
+                heightMeasureSpec = MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST);
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            }
+        };
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout listContainer = new LinearLayout(activity);
+        listContainer.setOrientation(LinearLayout.VERTICAL);
+
+        StringBuilder copyHistorySb = new StringBuilder();
+        copyHistorySb.append("QQ号: ").append(uin).append("\n[历史捕获]\n");
+
+        if (records.isEmpty()) {
+            TextView emptyTv = new TextView(activity);
+            emptyTv.setText("暂无捕获历史");
+            emptyTv.setTextSize(13);
+            emptyTv.setTextColor(subTextColor);
+            emptyTv.setGravity(Gravity.CENTER);
+            emptyTv.setPadding(0, dp2px(activity, 20f), 0, dp2px(activity, 20f));
+            listContainer.addView(emptyTv);
+        } else {
+            for (int i = 0; i < records.size(); i++) {
+                UserDeviceRecord rec = records.get(i);
+                QQVersionModule.InferResult recInfer = QQVersionModule.inferSubid(rec.subId);
+
+                LinearLayout itemCard = new LinearLayout(activity);
+                itemCard.setOrientation(LinearLayout.VERTICAL);
+                itemCard.setPadding(dp2px(activity, 12f), dp2px(activity, 9f), dp2px(activity, 12f), dp2px(activity, 9f));
+
+                GradientDrawable itemBg = new GradientDrawable();
+                itemBg.setColor(rowBgColor);
+                itemBg.setCornerRadius(dp2px(activity, 8f));
+                itemBg.setStroke(dp2px(activity, 1f), cardStrokeColor);
+                itemCard.setBackground(itemBg);
+
+                LinearLayout.LayoutParams itemLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                itemLp.bottomMargin = dp2px(activity, 8f);
+
+                LinearLayout topRow = new LinearLayout(activity);
+                topRow.setOrientation(LinearLayout.HORIZONTAL);
+                topRow.setGravity(Gravity.CENTER_VERTICAL);
+
+                if (i == 0) {
+                    TextView tvTag = new TextView(activity);
+                    tvTag.setTextSize(11);
+                    tvTag.getPaint().setFakeBoldText(true);
+                    tvTag.setTextColor(Color.parseColor("#007AFF"));
+                    tvTag.setText("[当前] ");
+                    topRow.addView(tvTag);
+                }
+
+                TextView tvSummary = new TextView(activity);
+                tvSummary.setText(recInfer.displaySummary);
+                tvSummary.setTextSize(13);
+                tvSummary.getPaint().setFakeBoldText(i == 0);
+                tvSummary.setTextColor(textColor);
+                topRow.addView(tvSummary);
+
+                itemCard.addView(topRow);
+
+                TextView tvTime = new TextView(activity);
+                String timeStr = "捕获时间: " + QQVersionModule.formatRelativeTime(rec.timestamp) + " | SubID: " + rec.subId;
+                tvTime.setText(timeStr);
+                tvTime.setTextSize(11);
+                tvTime.setTextColor(subTextColor);
+                tvTime.setPadding(0, dp2px(activity, 3f), 0, 0);
+                itemCard.addView(tvTime);
+
+                listContainer.addView(itemCard, itemLp);
+
+                copyHistorySb.append(i == 0 ? "当前: " : "历史: ")
+                            .append(recInfer.displaySummary)
+                            .append(" (").append(QQVersionModule.formatRelativeTime(rec.timestamp)).append(")\n");
+            }
+        }
+
+        scroll.addView(listContainer);
+        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        root.addView(scroll, scrollLp);
+
+        LinearLayout btnRow = new LinearLayout(activity);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+        btnRow.setPadding(0, dp2px(activity, 14f), 0, 0);
+
+        Button copyBtn = new Button(activity);
+        copyBtn.setText("复制历史轨迹");
+        copyBtn.setTextSize(13);
+        copyBtn.setTextColor(Color.WHITE);
+        copyBtn.setAllCaps(false);
+        GradientDrawable copyBg = new GradientDrawable();
+        copyBg.setColor(Color.parseColor("#007AFF"));
+        copyBg.setCornerRadius(dp2px(activity, 10f));
+        copyBtn.setBackground(copyBg);
+        LinearLayout.LayoutParams copyLp = new LinearLayout.LayoutParams(0, dp2px(activity, 40f), 1f);
+        copyLp.rightMargin = dp2px(activity, 6f);
+        copyBtn.setOnClickListener(v -> {
+            copyText(activity, copyHistorySb.toString().trim());
+            ToastHelper.show(activity, "已复制历史轨迹");
+        });
+        btnRow.addView(copyBtn, copyLp);
+
+        Button backBtn = new Button(activity);
+        backBtn.setText("返回");
+        backBtn.setTextSize(13);
+        backBtn.setTextColor(subTextColor);
+        backBtn.setAllCaps(false);
+        GradientDrawable backBg = new GradientDrawable();
+        backBg.setColor(rowBgColor);
+        backBg.setCornerRadius(dp2px(activity, 10f));
+        backBtn.setBackground(backBg);
+        LinearLayout.LayoutParams backLp = new LinearLayout.LayoutParams(0, dp2px(activity, 40f), 1f);
+        backBtn.setOnClickListener(v -> dialog.dismiss());
+        btnRow.addView(backBtn, backLp);
+
+        root.addView(btnRow);
+
+        dialog.setContentView(root);
+        dialog.show();
+
+        if (dialog.getWindow() != null) {
+            int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.88f);
             dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
     }
@@ -381,7 +598,7 @@ public class ProfileSettingInjector {
         tvLabel.setText(label);
         tvLabel.setTextSize(13);
         tvLabel.setTextColor(valColor);
-        row.addView(tvLabel, new LinearLayout.LayoutParams(dp2px(context, 90f), ViewGroup.LayoutParams.WRAP_CONTENT));
+        row.addView(tvLabel, new LinearLayout.LayoutParams(dp2px(context, 96f), ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView tvVal = new TextView(context);
         tvVal.setText(value);
@@ -389,6 +606,35 @@ public class ProfileSettingInjector {
         tvVal.getPaint().setFakeBoldText(true);
         tvVal.setTextColor(labelColor);
         row.addView(tvVal, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        parent.addView(row);
+    }
+
+    /**
+     * 可点击的信息条目（用于“历史捕获”跳转入口）
+     */
+    private static void addClickableInfoRow(Context context, LinearLayout parent, String label, String value, int labelColor, int valColor, View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp2px(context, 4f), 0, dp2px(context, 4f));
+
+        TextView tvLabel = new TextView(context);
+        tvLabel.setText(label);
+        tvLabel.setTextSize(13);
+        tvLabel.setTextColor(valColor);
+        row.addView(tvLabel, new LinearLayout.LayoutParams(dp2px(context, 96f), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView tvVal = new TextView(context);
+        tvVal.setText(value);
+        tvVal.setTextSize(13);
+        tvVal.getPaint().setFakeBoldText(true);
+        tvVal.setTextColor(labelColor);
+        row.addView(tvVal, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        if (onClick != null) {
+            row.setOnClickListener(onClick);
+        }
 
         parent.addView(row);
     }
