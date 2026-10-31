@@ -1,12 +1,14 @@
 package com.tencent.qqnt.patch.modules.chat;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import com.tencent.qqnt.kernel.nativeinterface.IQQNTWrapperSession;
 import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.IPatchModule;
+import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.qqnt.patch.util.PatchAssetHelper;
 import org.json.JSONArray;
@@ -27,18 +29,11 @@ public class QQVersionModule implements IPatchModule {
     private static final String CMD_MSG_PUSH = "trpc.msg.olpush.OlPushService.MsgPush";
     public static final String UNKNOWN_STATUS = "未捕获到客户端版本";
 
-    private static final String[][] REMOTE_SOURCE_GROUPS = new String[][]{
-            {
-                    "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json",
-                    "https://cdn.jsdelivr.net/gh/CattaFish/QQNT-Patcher@main/assets/subid.json",
-                    "https://fastly.jsdelivr.net/gh/CattaFish/QQNT-Patcher@main/assets/subid.json"
-            },
-            {
-                    "https://ghfast.top/https://raw.githubusercontent.com/CattaFish/qqDecoder/main/data/subid.json",
-                    "https://cdn.jsdelivr.net/gh/CattaFish/qqDecoder@main/data/subid.json",
-                    "https://fastly.jsdelivr.net/gh/CattaFish/qqDecoder@main/data/subid.json"
-            }
-    };
+    // 备用加速代理源（遵循 gh-proxy 官方接入规范）
+    private static final String FALLBACK_PROXY_URL = "https://gh-proxy.com/https://raw.githubusercontent.com/CattaFish/QQNT-Patcher/main/assets/subid.json";
+
+    private static final String PREF_NAME = "zzz_subid_ota_pref";
+    private static final String KEY_ETAG = "subid_etag";
 
     public static class SubidDetail {
         public String subId;
@@ -48,7 +43,7 @@ public class QQVersionModule implements IPatchModule {
         public String version;
         public String date;
         public String channel;
-        public Boolean isBeta = null; // ★ 改为可空 Boolean，没写时为 null
+        public Boolean isBeta = null; // 未显式声明时为 null
         public List<String> packages = new ArrayList<>();
         public List<String> versions = new ArrayList<>();
         public Map<String, String> extraFields = new LinkedHashMap<>();
@@ -56,7 +51,7 @@ public class QQVersionModule implements IPatchModule {
 
     public static class InferResult {
         public boolean isExact = false;
-        public Boolean isBeta = null; // ★ 改为可空 Boolean
+        public Boolean isBeta = null;
         public String displaySummary;
         public SubidDetail exactDetail;
         public SubidDetail floorDetail;
@@ -243,6 +238,9 @@ public class QQVersionModule implements IPatchModule {
         PLog.i(TAG, "版本字典底表加载完成，当前收录: " + sExactTable.size() + " 条");
     }
 
+    /**
+     * 静默 OTA 增量同步（主源走 Cloudflare 边缘 Worker，备用走 gh-proxy）
+     */
     private static void triggerSilentOtaSync(Context context) {
         if (sOtaChecked.getAndSet(true)) return;
 
@@ -253,149 +251,74 @@ public class QQVersionModule implements IPatchModule {
                 File extFile = getExternalDictionaryFile(context);
                 if (extFile == null) return;
 
-                // 1. 绝对权威：优先以安装包自带的资产作为基准
-                JSONObject localJson = new JSONObject();
-                try (InputStream is = PatchAssetHelper.openStream(context, "subid.json")) {
-                    if (is != null) {
-                        BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
-                        StringBuilder sb = new StringBuilder();
-                        String l;
-                        while ((l = br.readLine()) != null) sb.append(l);
-                        localJson = new JSONObject(sb.toString());
-                    }
-                } catch (Throwable ignored) {}
+                SharedPreferences sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+                String recordedEtag = sp.getString(KEY_ETAG, "");
 
-                boolean needForceSave = false;
+                // 主端点：Cloudflare Worker，备用端点：gh-proxy 加速代理
+                String primaryUrl = ConfigManager.UPDATE_API_URL + "/subid.json";
+                String[] candidateUrls = new String[]{ primaryUrl, FALLBACK_PROXY_URL };
 
-                // 2. 合并 SD 卡缓存（修复点：安装包是权威！绝不允许 SD 卡旧条目覆盖安装包新条目）
-                if (extFile.exists() && extFile.length() > 0) {
-                    try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(extFile), StandardCharsets.UTF_8))) {
-                        StringBuilder sb = new StringBuilder();
-                        String l;
-                        while ((l = br.readLine()) != null) sb.append(l);
-                        String extFileRaw = sb.toString();
-                        JSONObject extJson = new JSONObject(extFileRaw);
+                for (String endpoint : candidateUrls) {
+                    HttpURLConnection conn = null;
+                    try {
+                        URL url = new URL(endpoint);
+                        conn = (HttpURLConnection) url.openConnection();
+                        conn.setRequestMethod("GET");
+                        conn.setConnectTimeout(6000);
+                        conn.setReadTimeout(8000);
+                        conn.setInstanceFollowRedirects(true);
+                        conn.setRequestProperty("User-Agent", "QQNT-Patcher-Client/" + ConfigManager.VERSION);
 
-                        Iterator<String> ekIt = extJson.keys();
-                        while (ekIt.hasNext()) {
-                            String k = ekIt.next();
-                            // 仅当安装包里完全没有收录该 SubID 时，才吸纳外部缓存中的增量条目
-                            if (!localJson.has(k)) {
-                                localJson.put(k, extJson.get(k));
-                                needForceSave = true;
+                        // 仅在主端点且本地存在有效文件时带上 If-None-Match
+                        if (endpoint.equals(primaryUrl) && extFile.exists() && extFile.length() > 0 && !recordedEtag.isEmpty()) {
+                            conn.setRequestProperty("If-None-Match", recordedEtag);
+                        }
+
+                        int code = conn.getResponseCode();
+
+                        // 1. 304 说明云端未变动，0 流量瞬间返回
+                        if (code == 304) {
+                            PLog.i(TAG, "SubID 字典通过 ETag 校验：云端数据未变动 (304 Not Modified)");
+                            return;
+                        }
+
+                        // 2. 200 说明有新版本发布
+                        if (code == 200) {
+                            String newEtag = conn.getHeaderField("ETag");
+                            File tmpFile = new File(extFile.getAbsolutePath() + ".tmp");
+
+                            try (InputStream is = conn.getInputStream();
+                                 FileOutputStream fos = new FileOutputStream(tmpFile)) {
+                                byte[] buf = new byte[8192];
+                                int len;
+                                while ((len = is.read(buf)) != -1) {
+                                    fos.write(buf, 0, len);
+                                }
+                                fos.flush();
+                                fos.getFD().sync();
+                            }
+
+                            if (tmpFile.exists() && tmpFile.length() > 0) {
+                                if (extFile.exists()) extFile.delete();
+                                tmpFile.renameTo(extFile);
+
+                                if (newEtag != null && !newEtag.isEmpty()) {
+                                    sp.edit().putString(KEY_ETAG, newEtag).apply();
+                                }
+
+                                // 重新载入内存字典
+                                try (InputStream fis = new FileInputStream(extFile)) {
+                                    parseJsonDictionary(fis);
+                                }
+                                PLog.i(TAG, "SubID 字典云端实时同步成功！当前内存收录: " + sExactTable.size() + " 条");
+                                return;
                             }
                         }
-
-                        // ★ 核心检测：如果安装包自带了 is_beta，但 media 里的旧文件还没有搜到
-                        // 说明安装包升级了，必须立刻强制把最新数据刷进 media 目录！
-                        if (!extFileRaw.contains("\"is_beta\"") && localJson.toString().contains("\"is_beta\"")) {
-                            needForceSave = true;
-                        }
-                    } catch (Throwable t) {
-                        PLog.w(TAG, "读取 SD 卡已有字典异常: " + t.getMessage());
-                        needForceSave = true;
+                    } catch (Throwable e) {
+                        PLog.w(TAG, "拉取 SubID 节点失败 [" + endpoint + "]: " + e.getMessage());
+                    } finally {
+                        if (conn != null) conn.disconnect();
                     }
-                } else {
-                    needForceSave = true;
-                }
-
-                int totalNewCount = 0;
-
-                // 3. 检查云端增量更新
-                for (int gIdx = 0; gIdx < REMOTE_SOURCE_GROUPS.length; gIdx++) {
-                    String[] mirrors = REMOTE_SOURCE_GROUPS[gIdx];
-                    boolean isAuth = (gIdx == 0);
-                    boolean groupSuccess = false;
-
-                    for (String urlStr : mirrors) {
-                        HttpURLConnection conn = null;
-                        try {
-                            long ts = System.currentTimeMillis();
-                            String sep = urlStr.contains("?") ? "&" : "?";
-                            URL url = new URL(urlStr + sep + "_nocache=" + ts);
-
-                            conn = (HttpURLConnection) url.openConnection();
-                            conn.setRequestMethod("GET");
-                            conn.setInstanceFollowRedirects(true);
-                            conn.setConnectTimeout(8000);
-                            conn.setReadTimeout(8000);
-                            conn.setRequestProperty("User-Agent", "QQNT-Patcher-Client");
-                            conn.setRequestProperty("Cache-Control", "no-cache");
-                            conn.setRequestProperty("Pragma", "no-cache");
-
-                            int code = conn.getResponseCode();
-                            if (code == 200) {
-                                StringBuilder sb = new StringBuilder();
-                                try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
-                                    String line;
-                                    while ((line = reader.readLine()) != null) sb.append(line);
-                                }
-                                JSONObject remoteJson = new JSONObject(sb.toString());
-
-                                Iterator<String> it = remoteJson.keys();
-                                while (it.hasNext()) {
-                                    String subid = it.next();
-                                    Object rVal = remoteJson.opt(subid);
-                                    if (rVal == null) continue;
-
-                                    if (!localJson.has(subid)) {
-                                        localJson.put(subid, rVal);
-                                        totalNewCount++;
-                                    } else {
-                                        Object lVal = localJson.opt(subid);
-                                        if (lVal instanceof JSONObject && rVal instanceof JSONObject) {
-                                            JSONObject lObj = (JSONObject) lVal;
-                                            JSONObject rObj = (JSONObject) rVal;
-                                            boolean objModified = false;
-
-                                            Iterator<String> rkIt = rObj.keys();
-                                            while (rkIt.hasNext()) {
-                                                String rk = rkIt.next();
-                                                Object rFieldVal = rObj.opt(rk);
-                                                if (rFieldVal == null) continue;
-
-                                                Object lFieldVal = lObj.opt(rk);
-                                                if (lFieldVal == null || lFieldVal.toString().trim().isEmpty()) {
-                                                    lObj.put(rk, rFieldVal);
-                                                    objModified = true;
-                                                } else if (isAuth && !rFieldVal.toString().equals(lFieldVal.toString())) {
-                                                    lObj.put(rk, rFieldVal);
-                                                    objModified = true;
-                                                }
-                                            }
-                                            if (objModified) totalNewCount++;
-                                        }
-                                    }
-                                }
-                                groupSuccess = true;
-                                break;
-                            }
-                        } catch (Throwable e) {
-                            PLog.w(TAG, "节点连接失败 [" + urlStr + "]: " + e.getMessage());
-                        } finally {
-                            if (conn != null) conn.disconnect();
-                        }
-                    }
-                    if (!groupSuccess) {
-                        PLog.w(TAG, "当前镜像组全量失败，跳过该组更新");
-                    }
-                }
-
-                // ★ 只要安装包带有新属性（needForceSave）或者云端有新版本（totalNewCount > 0），均强制刷盘！
-                if (needForceSave || totalNewCount > 0) {
-                    try (FileOutputStream fos = new FileOutputStream(extFile, false);
-                         OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
-                        osw.write(localJson.toString(2));
-                        osw.flush();
-                        fos.getFD().sync();
-                    }
-
-                    try (InputStream is = new FileInputStream(extFile)) {
-                        parseJsonDictionary(is);
-                    }
-                    PLog.i(TAG, "已同步更新 media 目录字典并加载到内存，包含新变动: " + totalNewCount + " 处，当前总数: " + sExactTable.size());
-                } else {
-                    PLog.i(TAG, "SubID 字典已是最新，无新增版本或属性 (当前收录: " + sExactTable.size() + " 条)");
                 }
             } catch (Throwable t) {
                 PLog.w(TAG, "静默 OTA 增量同步异常: " + t.getMessage());
@@ -434,7 +357,7 @@ public class QQVersionModule implements IPatchModule {
                 detail.date = obj.optString("date", "");
                 detail.channel = obj.optString("channel", "");
 
-                // ★ 只有 JSON 中显式含有 is_beta 键时才读取，未写时保持 null
+                // 只有 JSON 显式含 is_beta 键时才读取，未写时保持 null
                 if (obj.has("is_beta")) {
                     detail.isBeta = obj.optBoolean("is_beta");
                 } else {
@@ -470,7 +393,7 @@ public class QQVersionModule implements IPatchModule {
                 String str = ((String) valObj).trim();
                 detail.summary = str;
                 detail.version = str;
-                detail.isBeta = null; // 字符串旧格式未包含 is_beta，保持 null
+                detail.isBeta = null;
             } else continue;
 
             sExactTable.put(key, detail.summary);
