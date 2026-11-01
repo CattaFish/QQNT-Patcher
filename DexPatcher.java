@@ -127,6 +127,7 @@ public class DexPatcher {
         }
 
         BaksmaliOptions baksmaliOptions = new BaksmaliOptions();
+        baksmaliOptions.localsDirective = true; // ★ 统一强制使用 .locals 规范输出，实现形参与局部变量在语法层面的彻底隔离
         Map<String, ClassDef> replacedClasses = new HashMap<>();
 
         for (ClassDef classDef : dexFile.getClasses()) {
@@ -236,6 +237,47 @@ public class DexPatcher {
         return maxIndex;
     }
 
+    /**
+     * 准确解析 Dalvik 方法签名的形参寄存器占用数 (包含 this 及 long/double 占双寄存器)
+     */
+    private static int countMethodParameterRegisters(String methodHeader) {
+        int paramRegs = 0;
+        int start = methodHeader.indexOf('(');
+        int end = methodHeader.indexOf(')');
+        if (start < 0 || end <= start) {
+            return 0;
+        }
+
+        String prefix = methodHeader.substring(0, start);
+        boolean isStatic = prefix.matches("(?s).*\\bstatic\\b.*");
+        if (!isStatic) {
+            paramRegs = 1; // p0 为 this 实例
+        }
+
+        String params = methodHeader.substring(start + 1, end);
+        int i = 0;
+        int len = params.length();
+        while (i < len) {
+            char c = params.charAt(i);
+            if (c == '[') {
+                while (i < len && params.charAt(i) == '[') i++;
+                if (i < len && params.charAt(i) == 'L') {
+                    while (i < len && params.charAt(i) != ';') i++;
+                }
+                paramRegs += 1;
+            } else if (c == 'L') {
+                while (i < len && params.charAt(i) != ';') i++;
+                paramRegs += 1;
+            } else if (c == 'J' || c == 'D') {
+                paramRegs += 2; // long 与 double 占用 2 个寄存器
+            } else {
+                paramRegs += 1; // 基本类型占用 1 个寄存器
+            }
+            i++;
+        }
+        return paramRegs;
+    }
+
     private static String applyRule(String code, PatchRule rule, DexTask task) {
         if ("SUPER_REPLACE".equals(rule.type)) {
             String oldSuper = rule.regex;
@@ -272,10 +314,11 @@ public class DexPatcher {
         Matcher methodMatcher = pattern.matcher(code);
         if (!methodMatcher.find()) {
             if ("<clinit>()V".equals(rule.targetMethod) && "INSERT_BEFORE".equals(rule.type)) {
+                int req = Math.max(0, calculateMaxRegisterIndex(rule.smali) + 1);
                 StringBuilder sb = new StringBuilder();
                 sb.append("\n# injected by DexPatcher\n");
                 sb.append(".method static constructor <clinit>()V\n");
-                sb.append("    .registers 0\n\n");
+                sb.append("    .locals ").append(req).append("\n\n");
                 sb.append("    ").append(rule.smali.trim()).append("\n\n");
                 sb.append("    return-void\n");
                 sb.append(".end method\n");
@@ -308,6 +351,7 @@ public class DexPatcher {
             while (methodMatcher.find()) {
                 String mBody = methodMatcher.group(1);
 
+                // 1. 优先匹配标准的 .locals 指令并执行安全扩容 (只增不减)
                 Matcher localsMatcher = Pattern.compile("(\\.locals\\s+)(\\d+)").matcher(mBody);
                 if (localsMatcher.find()) {
                     int curLocals = Integer.parseInt(localsMatcher.group(2));
@@ -315,12 +359,14 @@ public class DexPatcher {
                         mBody = localsMatcher.replaceFirst("$1" + requiredLocals);
                     }
                 } else {
+                    // 2. 兜底保护：若遇到 .registers N，精准保留原方法所有局部变量，再按需追加插桩空间
                     Matcher regMatcher = Pattern.compile("(\\.registers\\s+)(\\d+)").matcher(mBody);
                     if (regMatcher.find()) {
                         int curRegs = Integer.parseInt(regMatcher.group(2));
-                        if (curRegs < requiredLocals) {
-                            mBody = regMatcher.replaceFirst("$1" + requiredLocals);
-                        }
+                        int paramRegs = countMethodParameterRegisters(mBody);
+                        int origLocals = Math.max(0, curRegs - paramRegs);
+                        int newLocals = Math.max(origLocals, requiredLocals);
+                        mBody = regMatcher.replaceFirst(".locals " + newLocals);
                     }
                 }
 
