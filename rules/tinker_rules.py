@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Tinker 去签 + 热修复禁用规则插件"""
+"""去签壳入口注入与热修复禁用规则插件 (自适应: 9.1.75- QFix 架构 vs 9.1.75+ Tinker 架构)"""
+
+import re
 
 RULE_ID = "tinker"
-RULE_NAME = "禁用 Tinker 热修复载入"
-RULE_DESC = "禁用 Tinker 热修复载入"
-RULE_ALIASES = ["热修", "热修复", "tinker_disable"]
+RULE_NAME = "去签壳挂载与热修复禁用"
+RULE_DESC = "去签壳挂载与热修复禁用"
+RULE_ALIASES = ["热修", "热修复", "tinker_disable", "tinker", "qfix"]
 RULE_ENABLED = True
 
 def _load_cfg():
@@ -14,33 +16,57 @@ def _load_cfg():
     except Exception:
         return None
 
+def parse_semver(ver_str):
+    if not ver_str: return None
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", ver_str)
+    if m:
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    return None
+
 def build_tinker_rules(dex_data_dict, meta):
     KC = _load_cfg()
-    tinker_cls = KC.TINKER_APP_CLASS if KC else "Lcom/tencent/tinker/loader/app/TinkerApplication;"
-    orig_super = KC.TINKER_ORIG_SUPER if KC else "Landroid/app/Application;"
-    flags_method = KC.TINKER_FLAGS_METHOD if KC else "getTinkerFlags()I"
-
     provider = (meta or {}).get("provider", "")
     killer_desc = (meta or {}).get("killer_app_desc", "") or ""
+    ver_str = (meta or {}).get("version_name", "")
+    semver = parse_semver(ver_str)
+
+    # 1. 架构判定：Tinker (9.1.75+) 还是 QFix (< 9.1.75)
+    # 优先使用版本号比较；若未获取到版本号，根据 DEX 内部的类特征双保险判定
+    is_tinker = True
+    if semver is not None:
+        is_tinker = (semver >= (9, 1, 75))
+    else:
+        has_tinker = any(b"Lcom/tencent/tinker/loader/app/TinkerApplication;" in b for b in dex_data_dict.values())
+        has_qfix = any(b"Lcom/tencent/mobileqq/qfix/QFixApplication;" in b for b in dex_data_dict.values())
+        if not has_tinker and has_qfix:
+            is_tinker = False
 
     rules = []
 
-    if provider == "killer" and killer_desc:
-        rules.append({
-            "name": "去签: TinkerApplication.super -> " + killer_desc,
-            "target_class": tinker_cls,
-            "target_method": "",
-            "type": "SUPER_REPLACE",
-            "regex": orig_super,
-            "smali": killer_desc,
-        })
+    if is_tinker:
+        # =========================================================
+        # 9.1.75+ 新架构：Tinker 方案
+        # =========================================================
+        tinker_cls = KC.TINKER_APP_CLASS if KC else "Lcom/tencent/tinker/loader/app/TinkerApplication;"
+        orig_super = KC.TINKER_ORIG_SUPER if KC else "Landroid/app/Application;"
+        flags_method = KC.TINKER_FLAGS_METHOD if KC else "getTinkerFlags()I"
 
-    rules.append({
-        "name": "禁用 Tinker 热修复 (getTinkerFlags -> 0)",
-        "target_class": tinker_cls,
-        "target_method": flags_method,
-        "type": "REPLACE",
-        "smali": """
+        if provider == "killer" and killer_desc:
+            rules.append({
+                "name": "去签: TinkerApplication.super -> " + killer_desc,
+                "target_class": tinker_cls,
+                "target_method": "",
+                "type": "SUPER_REPLACE",
+                "regex": orig_super,
+                "smali": killer_desc,
+            })
+
+        rules.append({
+            "name": "禁用 Tinker 热修复 (getTinkerFlags -> 0)",
+            "target_class": tinker_cls,
+            "target_method": flags_method,
+            "type": "REPLACE",
+            "smali": """
 .method public getTinkerFlags()I
     .registers 1
 
@@ -49,7 +75,23 @@ def build_tinker_rules(dex_data_dict, meta):
     return p0
 .end method
 """
-    })
+        })
+    else:
+        # =========================================================
+        # < 9.1.75 老架构：QFix 方案 (如 9.1.70)
+        # =========================================================
+        qfix_cls = "Lcom/tencent/mobileqq/qfix/QFixApplication;"
+        orig_super = "Landroid/app/Application;"
+
+        if provider == "killer" and killer_desc:
+            rules.append({
+                "name": "去签: QFixApplication.super -> " + killer_desc,
+                "target_class": qfix_cls,
+                "target_method": "",
+                "type": "SUPER_REPLACE",
+                "regex": orig_super,
+                "smali": killer_desc,
+            })
 
     return rules
 
