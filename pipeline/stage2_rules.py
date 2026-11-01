@@ -36,6 +36,30 @@ def _extract_package_name(ctx, apk):
     return ""
 
 
+def _extract_version_name(ctx, apk):
+    """提取官方 APK 的 versionName (优先 aapt，失败时极速扫描 AXML 字符串池)"""
+    aapt = ctx.find_tool("aapt")
+    try:
+        out = subprocess.getoutput(f"{aapt} dump badging {shlex.quote(apk)} 2>/dev/null")
+        m = re.search(r"versionName='([^']+)'", out)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+
+    # 无 aapt 或执行异常时：直接从 AndroidManifest.xml 二进制字符串池探测版本号
+    try:
+        with zipfile.ZipFile(apk, "r") as zf:
+            if "AndroidManifest.xml" in zf.namelist():
+                data = zf.read("AndroidManifest.xml")
+                m = re.search(rb"(9\.[0-9]+\.[0-9]+)", data)
+                if m:
+                    return m.group(1).decode("ascii", errors="ignore")
+    except Exception:
+        pass
+    return ""
+
+
 def _extract_cert_der_b64(apk):
     try:
         out = subprocess.getoutput(f"keytool -printcert -jarfile {shlex.quote(apk)} -rfc 2>/dev/null")
@@ -98,10 +122,12 @@ def extract_apk_metadata(ctx):
                 ctx.orig_apk_md5 = d.get("apk_md5", "")
                 ctx.orig_sig_md5 = d.get("sig_md5", "")
                 ctx.target_pkg = d.get("target_pkg", "")
+                ctx.version_name = d.get("version_name", "")
                 ctx.signature_b64 = d.get("signature_b64", "")
 
                 if (not need_killer_meta) or (ctx.target_pkg and ctx.signature_b64):
-                    ctx.log("CACHE", f"原包指纹缓存命中 (MD5: {Colors.CYAN}{ctx.orig_apk_md5}{Colors.RESET})")
+                    ver_desc = f", 版本: {Colors.CYAN}{ctx.version_name}{Colors.RESET}" if ctx.version_name else ""
+                    ctx.log("CACHE", f"原包指纹缓存命中 (MD5: {Colors.CYAN}{ctx.orig_apk_md5}{Colors.RESET}{ver_desc})")
                     return
         except Exception:
             pass
@@ -125,6 +151,11 @@ def extract_apk_metadata(ctx):
     if ctx.orig_sig_md5:
         ctx.log("OK", f"官方证书 MD5 : {Colors.CYAN}{ctx.orig_sig_md5}{Colors.RESET}")
 
+    # 提取版本名称（无论是否开启 killer 壳模式，规则引擎均需要）
+    ctx.version_name = _extract_version_name(ctx, ctx.input_apk)
+    if ctx.version_name:
+        ctx.log("OK", f"识别版本名称 : {Colors.CYAN}{ctx.version_name}{Colors.RESET}")
+
     if need_killer_meta:
         ctx.target_pkg = _extract_package_name(ctx, ctx.input_apk)
         if ctx.target_pkg:
@@ -140,6 +171,7 @@ def extract_apk_metadata(ctx):
                 "apk_md5": ctx.orig_apk_md5,
                 "sig_md5": ctx.orig_sig_md5,
                 "target_pkg": ctx.target_pkg,
+                "version_name": getattr(ctx, "version_name", ""),
                 "signature_b64": ctx.signature_b64,
             }, cf)
     except Exception:
@@ -209,6 +241,7 @@ def resolve_dynamic_rules_with_cache(ctx):
     meta = {
         "orig_apk_md5": ctx.orig_apk_md5,
         "orig_sig_md5": ctx.orig_sig_md5,
+        "version_name": getattr(ctx, "version_name", ""),
         "no_killer": ctx.no_killer,
         "provider": provider_name,
         "killer_app_desc": fqcn_to_dex_desc(KC.KILLER_APP_CLASS),
