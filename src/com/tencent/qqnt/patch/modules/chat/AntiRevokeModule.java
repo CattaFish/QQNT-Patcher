@@ -30,6 +30,9 @@ public class AntiRevokeModule implements IPatchModule {
     private static final long BUSI_ID_C2C = 2021L;
     private static final long BUSI_ID_GROUP = 2022L;
 
+    // 0x857 通知总线中，群消息撤回的专属枚举值 (opt_enum_type == 7)
+    private static final int ENUM_TYPE_GROUP_RECALL = 7;
+
     @Override public String getId() { return "anti_revoke"; }
     @Override public String getName() { return "消息防撤回"; }
     @Override public boolean defaultEnabled() { return false; }
@@ -56,12 +59,15 @@ public class AntiRevokeModule implements IPatchModule {
             int revokeType = checkRevokeType(buf);
             if (revokeType != 0) {
                 try {
-                    boolean isSelf = processRecall(session, buf, revokeType);
-                    if (isSelf) return buf;
+                    // 仅当确凿拦截到他人的撤回并生成灰条时才拦截（返回 null）
+                    // 凡是非撤回（如文件通知）、自身撤回、校验不通过，一律放行原包（返回 buf）
+                    boolean intercepted = processRecall(session, buf, revokeType);
+                    if (intercepted) {
+                        return null; // 成功拦截撤回指令
+                    }
                 } catch (Throwable t) {
                     PLog.e(TAG, "处理撤回灰条异常", t);
                 }
-                return null;
             }
             return buf;
         }
@@ -227,10 +233,12 @@ public class AntiRevokeModule implements IPatchModule {
         int limit = Math.min(buf.length - 4, 150);
         for (int i = 0; i < limit; i++) {
             if (buf[i] == 0x08) {
+                // 0x08 0xDC 0x05 0x10 0x11: 群系统推送 0x2DC (732) 的子命令 0x11 (17)
                 if ((buf[i + 1] & 0xFF) == 0xDC && (buf[i + 2] & 0xFF) == 0x05
                         && (buf[i + 3] & 0xFF) == 0x10 && (buf[i + 4] & 0xFF) == 0x11) {
                     return 1;
                 }
+                // 0x08 0x90 0x04 0x10 0x8A 0x01: C2C系统推送 0x210 (528) 的子命令 0x8A (138)
                 if (i + 5 < buf.length && (buf[i + 1] & 0xFF) == 0x90 && (buf[i + 2] & 0xFF) == 0x04
                         && (buf[i + 3] & 0xFF) == 0x10 && (buf[i + 4] & 0xFF) == 0x8A && (buf[i + 5] & 0xFF) == 0x01) {
                     return 2;
@@ -263,15 +271,29 @@ public class AntiRevokeModule implements IPatchModule {
         int limit = Math.min(data.length - 4, 60);
         for (int i = 0; i < limit; i++) {
             if (data[i] == 0x08) {
+                // 必须同时包含 0x2DC_0x11 以及 NotifyMsgBody 起始标志 0x08 0x07 (opt_enum_type == 7)
                 if ((data[i + 1] & 0xFF) == 0xDC && (data[i + 2] & 0xFF) == 0x05
                         && (data[i + 3] & 0xFF) == 0x10 && (data[i + 4] & 0xFF) == 0x11) {
-                    return true;
+                    return hasBytesSequence(data, new byte[]{0x08, 0x07});
                 }
                 if (i + 5 < data.length && (data[i + 1] & 0xFF) == 0x90 && (data[i + 2] & 0xFF) == 0x04
                         && (data[i + 3] & 0xFF) == 0x10 && (data[i + 4] & 0xFF) == 0x8A && (data[i + 5] & 0xFF) == 0x01) {
                     return true;
                 }
             }
+        }
+        return false;
+    }
+
+    private static boolean hasBytesSequence(byte[] data, byte[] seq) {
+        if (data == null || seq == null || data.length < seq.length) return false;
+        int limit = data.length - seq.length;
+        for (int i = 0; i <= limit; i++) {
+            boolean match = true;
+            for (int j = 0; j < seq.length; j++) {
+                if (data[i + j] != seq[j]) { match = false; break; }
+            }
+            if (match) return true;
         }
         return false;
     }
@@ -320,6 +342,11 @@ public class AntiRevokeModule implements IPatchModule {
         }
     }
 
+    /**
+     * 解析撤回通知并实施拦截与灰条构建
+     * @return true 代表确为他人发起的合法撤回，已成功拦截并生成灰条；
+     *         false 代表非撤回通知（如文件过期、公告）、本人主动撤回或解析不合法，放行原包。
+     */
     private static boolean processRecall(IQQNTWrapperSession session, byte[] buf, int revokeType) {
         if (session == null) return false;
         IKernelMsgService msgService = session.getMsgService();
@@ -339,81 +366,72 @@ public class AntiRevokeModule implements IPatchModule {
         String myUin = MsgSender.getMyUin();
 
         if (revokeType == 1) {
-            String groupCode = "";
-
-            String gCodeStr = Proto.getString(headerBytes, 2);
-            if (gCodeStr != null && !gCodeStr.isEmpty() && gCodeStr.matches("\\d+")) {
-                groupCode = gCodeStr;
-            }
-
-            if (groupCode.isEmpty()) {
-                long gCodeVal = Proto.getVarint(headerBytes, 1);
-                if (gCodeVal > 10000L) {
-                    groupCode = String.valueOf(gCodeVal);
-                }
-            }
-
             byte[] opBytesSkip7 = (opBytes.length > 7) ? Proto.subArray(opBytes, 7) : opBytes;
 
-            if (groupCode.isEmpty()) {
-                long g4 = Proto.getVarint(opBytesSkip7, 4);
-                if (g4 > 10000L) groupCode = String.valueOf(g4);
+            // 1. 【核心防御一】：严格校验 NotifyMsgBody 的 opt_enum_type (Tag 1) 必须等于 7 (群撤回)
+            // 文件通知、群待办、公告等非撤回通知枚举绝对不等于 7，在此直接一票否决放行！
+            long optEnumType = Proto.getVarint(opBytesSkip7, 1);
+            if (optEnumType != ENUM_TYPE_GROUP_RECALL) {
+                return false;
             }
 
-            String operatorUid = "";
-            String senderUid = "";
-            long msgSeq = 0L;
-
+            // 2. 【核心防御二】：必须包含真实的 opt_msg_recall 结构体 (Tag 11)
             byte[] tag11 = Proto.getBytes(opBytesSkip7, 11);
-            if (tag11 != null) {
-                operatorUid = Proto.getString(tag11, 1);
-                byte[] tag3 = Proto.getBytes(tag11, 3);
-                if (tag3 != null) {
-                    msgSeq = Proto.getVarint(tag3, 1);
-                    senderUid = Proto.getString(tag3, 6);
-                }
+            if (tag11 == null || tag11.length == 0) {
+                return false;
             }
 
-            if (msgSeq == 0) {
-                byte[] tag1 = Proto.getBytes(opBytesSkip7, 1);
-                if (tag1 != null) {
-                    if (operatorUid.isEmpty()) operatorUid = Proto.getString(tag1, 1);
-                    byte[] tag3 = Proto.getBytes(tag1, 3);
-                    if (tag3 != null) {
-                        msgSeq = Proto.getVarint(tag3, 1);
-                        if (senderUid.isEmpty()) senderUid = Proto.getString(tag3, 6);
-                    }
-                }
+            // 3. 【核心防御三】：提取被撤回气泡的真实序号与发送人
+            // Tag 1: uint64_uin / operatorUid (操作撤回的人)
+            String operatorUid = Proto.getString(tag11, 1);
+
+            // Tag 3: uint32_recalled_msg_list (MessageMeta)
+            byte[] tag3 = Proto.getBytes(tag11, 3);
+            if (tag3 == null || tag3.length == 0) {
+                return false;
             }
 
-            if (msgSeq == 0) {
-                byte[] tag11Direct = Proto.getBytes(opBytes, 11);
-                if (tag11Direct != null) {
-                    if (operatorUid.isEmpty()) operatorUid = Proto.getString(tag11Direct, 1);
-                    byte[] tag3 = Proto.getBytes(tag11Direct, 3);
-                    if (tag3 != null) {
-                        msgSeq = Proto.getVarint(tag3, 1);
-                        if (senderUid.isEmpty()) senderUid = Proto.getString(tag3, 6);
-                    }
-                }
+            // MessageMeta: Tag 1 为 uint32_seq (被撤回消息序号), Tag 6 为 uint64_author_uin (原发送人)
+            long msgSeq = Proto.getVarint(tag3, 1);
+            String senderUid = Proto.getString(tag3, 6);
+            if (senderUid == null || senderUid.isEmpty()) {
+                senderUid = operatorUid;
             }
 
-            if (operatorUid.isEmpty()) operatorUid = findFirstUidSafe(opBytes);
-            if (senderUid.isEmpty()) senderUid = operatorUid;
+            // 必须具备有效序列号与操作人 UID，否则绝不视为有效消息撤回
+            if (msgSeq <= 0 || operatorUid.isEmpty()) {
+                return false;
+            }
 
+            // 本人主动撤回放行，让官方逻辑正常处理
             if (selfUid != null && !selfUid.isEmpty() && selfUid.equals(operatorUid)) {
-                PLog.d(TAG, "本人主动执行撤回操作，放行生效");
-                return true;
+                PLog.d(TAG, "本人主动执行群撤回操作，放行原包");
+                return false;
+            }
+
+            // 提取群号 (优先从 NotifyMsgBody 的 Tag 4 取，备选从 header 取)
+            String groupCode = "";
+            long g4 = Proto.getVarint(opBytesSkip7, 4);
+            if (g4 > 10000L) {
+                groupCode = String.valueOf(g4);
+            } else {
+                String gCodeStr = Proto.getString(headerBytes, 2);
+                if (gCodeStr != null && gCodeStr.matches("\\d+")) {
+                    groupCode = gCodeStr;
+                } else {
+                    long gCodeVal = Proto.getVarint(headerBytes, 1);
+                    if (gCodeVal > 10000L) groupCode = String.valueOf(gCodeVal);
+                }
             }
 
             if (groupCode.isEmpty()) {
-                PLog.w(TAG, "未能解析到有效群号，放弃生成灰条");
                 return false;
             }
 
+            // 防重判定：若同一个 seq 已经处理过，直接拦截阻断避免重复弹灰条
             String cacheKey = "grp_" + groupCode + "_seq_" + msgSeq;
-            if (msgSeq > 0 && !sRevokedCache.add(cacheKey)) {
-                return false;
+            if (!sRevokedCache.add(cacheKey)) {
+                return true;
             }
 
             String opUin = getUin(operatorUid);
@@ -438,6 +456,7 @@ public class AntiRevokeModule implements IPatchModule {
             Contact contact = new Contact(2, groupCode, "");
             JsonGrayElement grayElement = new JsonGrayElement(BUSI_ID_GROUP, json, "", false, null);
             msgService.addLocalJsonGrayTipMsg(contact, grayElement, true, true, null);
+            return true;
 
         } else if (revokeType == 2) {
             String operatorUid = "";
@@ -450,15 +469,19 @@ public class AntiRevokeModule implements IPatchModule {
             }
             if (operatorUid.isEmpty()) operatorUid = Proto.getString(headerBytes, 2);
 
-            if (selfUid != null && !selfUid.isEmpty() && selfUid.equals(operatorUid)) {
-                return true;
+            // 私聊撤回同样严格要求具备合法序列号与对方 UID
+            if (msgSeq <= 0 || operatorUid.isEmpty()) {
+                return false;
             }
 
-            if (operatorUid.isEmpty()) return false;
+            if (selfUid != null && !selfUid.isEmpty() && selfUid.equals(operatorUid)) {
+                PLog.d(TAG, "本人主动执行私聊撤回操作，放行原包");
+                return false;
+            }
 
             String cacheKey = "c2c_" + operatorUid + "_seq_" + msgSeq;
-            if (msgSeq > 0 && !sRevokedCache.add(cacheKey)) {
-                return false;
+            if (!sRevokedCache.add(cacheKey)) {
+                return true;
             }
 
             PLog.i(TAG, "拦截[私聊撤回]: 对方=" + operatorUid + ", seq=" + msgSeq);
@@ -467,38 +490,9 @@ public class AntiRevokeModule implements IPatchModule {
             Contact contact = new Contact(1, operatorUid, "");
             JsonGrayElement grayElement = new JsonGrayElement(BUSI_ID_C2C, json, "", false, null);
             msgService.addLocalJsonGrayTipMsg(contact, grayElement, true, true, null);
+            return true;
         }
         return false;
-    }
-
-    private static String findFirstUidSafe(byte[] data) {
-        if (data == null) return "";
-        ProtoReader reader = new ProtoReader(data);
-        while (reader.hasMore()) {
-            long tag = reader.readVarint();
-            int wire = (int) (tag & 7);
-            if (wire == 2) {
-                byte[] sub = reader.readBytes();
-                if (sub != null) {
-                    String s = tryAsciiString(sub);
-                    if (s != null && s.startsWith("u_")) return s;
-                    String inner = findFirstUidSafe(sub);
-                    if (!inner.isEmpty()) return inner;
-                }
-            } else if (wire == 0) reader.readVarint();
-            else if (wire == 1) reader.skip(8);
-            else if (wire == 5) reader.skip(4);
-            else break;
-        }
-        return "";
-    }
-
-    private static String tryAsciiString(byte[] b) {
-        if (b == null || b.length < 4 || b.length > 50) return null;
-        for (byte v : b) {
-            if (v < 32 || v > 126) return null;
-        }
-        return new String(b, StandardCharsets.UTF_8);
     }
 
     private static String getUin(String uid) {
@@ -537,8 +531,7 @@ public class AntiRevokeModule implements IPatchModule {
           .append("\",\"tp\":\"0\",\"type\":\"qq\",\"uid\":\"").append(operatorUid).append("\",\"uin\":\"").append(uinVal).append("\"},");
         sb.append("{\"txt\":\" 尝试撤回 \",\"type\":\"nor\"},");
         sb.append("{\"col\":\"3\",\"local_jp\":58,");
-        if (msgSeq > 0) sb.append("\"param\":{\"seq\":\"").append(msgSeq).append("\"},");
-        else sb.append("\"param\":{},");
+        sb.append("\"param\":{\"seq\":\"").append(msgSeq).append("\"},");
         sb.append("\"txt\":\"一条消息\",\"type\":\"url\"}");
         sb.append("]}");
         return sb.toString();
@@ -563,8 +556,7 @@ public class AntiRevokeModule implements IPatchModule {
         sb.append("{\"txt\":\" 的 \",\"type\":\"nor\"},");
 
         sb.append("{\"col\":\"3\",\"local_jp\":58,");
-        if (msgSeq > 0) sb.append("\"param\":{\"seq\":\"").append(msgSeq).append("\"},");
-        else sb.append("\"param\":{},");
+        sb.append("\"param\":{\"seq\":\"").append(msgSeq).append("\"},");
         sb.append("\"txt\":\"一条消息\",\"type\":\"url\"}");
         sb.append("]}");
         return sb.toString();
@@ -575,8 +567,7 @@ public class AntiRevokeModule implements IPatchModule {
         sb.append("{\"align\":\"center\",\"items\":[");
         sb.append("{\"txt\":\"对方 尝试撤回 \",\"type\":\"nor\"},");
         sb.append("{\"col\":\"3\",\"local_jp\":58,");
-        if (msgSeq > 0) sb.append("\"param\":{\"seq\":\"").append(msgSeq).append("\"},");
-        else sb.append("\"param\":{},");
+        sb.append("\"param\":{\"seq\":\"").append(msgSeq).append("\"},");
         sb.append("\"txt\":\"一条消息\",\"type\":\"url\"}");
         sb.append("]}");
         return sb.toString();
