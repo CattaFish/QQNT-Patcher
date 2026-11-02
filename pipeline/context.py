@@ -60,7 +60,6 @@ class ConsoleProgress:
         )
 
         if self.is_tty:
-            # 单行刷新
             cols = shutil.get_terminal_size((80, 20)).columns
             if len(line) > cols:
                 line = line[:cols - 1]
@@ -68,7 +67,6 @@ class ConsoleProgress:
             sys.stdout.flush()
             self.last_render_len = len(line)
         else:
-            # CI 或非交互式管道，每满 25% 或全部完成时换行打印
             if self.current == self.total or self.current % max(1, self.total // 4) == 0:
                 sys.stdout.write(f"  {self.title} [{percent:>3}%] ({self.current}/{self.total}) {item_name}\n")
                 sys.stdout.flush()
@@ -101,10 +99,13 @@ class PipelineContext:
 
         # 特性决议
         self.active_features = resolve_active_features(self.only_keywords, self.skipped_keywords)
-        if self.no_killer:
-            self.active_features.discard("killer")
-        elif "killer" not in self.active_features:
+        
+        # Killer 属于去签基础设施：除非显式传入 --no-killer 或在 --skip 中排除，否则始终保留
+        if not self.no_killer and "killer" not in self.skipped_keywords:
+            self.active_features.add("killer")
+        else:
             self.no_killer = True
+            self.active_features.discard("killer")
 
         # 工具链
         self.baksmali_jar = os.path.join(self.tools_dir, "baksmali.jar")

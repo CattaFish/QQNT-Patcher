@@ -31,7 +31,6 @@ def build_tinker_rules(dex_data_dict, meta):
     semver = parse_semver(ver_str)
 
     # 1. 架构判定：Tinker (9.1.75+) 还是 QFix (< 9.1.75)
-    # 优先使用版本号比较；若未获取到版本号，根据 DEX 内部的类特征双保险判定
     is_tinker = True
     if semver is not None:
         is_tinker = (semver >= (9, 1, 75))
@@ -44,9 +43,6 @@ def build_tinker_rules(dex_data_dict, meta):
     rules = []
 
     if is_tinker:
-        # =========================================================
-        # 9.1.75+ 新架构：Tinker 方案
-        # =========================================================
         tinker_cls = KC.TINKER_APP_CLASS if KC else "Lcom/tencent/tinker/loader/app/TinkerApplication;"
         orig_super = KC.TINKER_ORIG_SUPER if KC else "Landroid/app/Application;"
         flags_method = KC.TINKER_FLAGS_METHOD if KC else "getTinkerFlags()I"
@@ -54,6 +50,7 @@ def build_tinker_rules(dex_data_dict, meta):
         if provider == "killer" and killer_desc:
             rules.append({
                 "name": "去签: TinkerApplication.super -> " + killer_desc,
+                "feature": "killer",
                 "target_class": tinker_cls,
                 "target_method": "",
                 "type": "SUPER_REPLACE",
@@ -63,6 +60,7 @@ def build_tinker_rules(dex_data_dict, meta):
 
         rules.append({
             "name": "禁用 Tinker 热修复 (getTinkerFlags -> 0)",
+            "feature": "killer",
             "target_class": tinker_cls,
             "target_method": flags_method,
             "type": "REPLACE",
@@ -77,15 +75,13 @@ def build_tinker_rules(dex_data_dict, meta):
 """
         })
     else:
-        # =========================================================
-        # < 9.1.75 老架构：QFix 方案 (如 9.1.70)
-        # =========================================================
         qfix_cls = "Lcom/tencent/mobileqq/qfix/QFixApplication;"
         orig_super = "Landroid/app/Application;"
 
         if provider == "killer" and killer_desc:
             rules.append({
                 "name": "去签: QFixApplication.super -> " + killer_desc,
+                "feature": "killer",
                 "target_class": qfix_cls,
                 "target_method": "",
                 "type": "SUPER_REPLACE",

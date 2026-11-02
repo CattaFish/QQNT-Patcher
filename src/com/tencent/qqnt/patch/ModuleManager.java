@@ -22,6 +22,19 @@ public class ModuleManager {
     private static final List<IPatchModule> sModules = new CopyOnWriteArrayList<>();
     private static volatile boolean sInitialized = false;
 
+    public static void ensureInitialized() {
+        if (!sInitialized) {
+            synchronized (ModuleManager.class) {
+                if (!sInitialized) {
+                    Context ctx = AppContext.get();
+                    if (ctx != null) {
+                        initAll(ctx);
+                    }
+                }
+            }
+        }
+    }
+
     public static void register(IPatchModule module) {
         if (module == null) return;
         if (!FeatureConfig.has(module.getId())) {
@@ -34,6 +47,7 @@ public class ModuleManager {
     }
 
     public static List<IPatchModule> getModules() {
+        ensureInitialized();
         return Collections.unmodifiableList(sModules);
     }
 
@@ -94,6 +108,7 @@ public class ModuleManager {
         if (sInitialized || context == null) return;
         sInitialized = true;
 
+        FeatureConfig.ensureLoaded();
         autoAssembleModules(context);
 
         PLog.i(TAG, "挂载核心模块，共 " + sModules.size() + " 个模块就绪");
@@ -108,6 +123,7 @@ public class ModuleManager {
     }
 
     public static byte[] dispatchMsfPush(IQQNTWrapperSession session, String cmd, byte[] buf) {
+        ensureInitialized();
         byte[] current = buf;
         for (IPatchModule m : sModules) {
             if (m.isEnabled()) {
@@ -123,6 +139,7 @@ public class ModuleManager {
     }
 
     public static void dispatchSendMsg(ArrayList<MsgElement> elements) {
+        ensureInitialized();
         for (IPatchModule m : sModules) {
             if (m.isEnabled()) {
                 try {
@@ -135,6 +152,7 @@ public class ModuleManager {
     }
 
     public static void dispatchRecvMsg(List<MsgRecord> msgList) {
+        ensureInitialized();
         for (IPatchModule m : sModules) {
             if (m.isEnabled()) {
                 try {
@@ -147,6 +165,7 @@ public class ModuleManager {
     }
 
     public static void dispatchAIOMsgItem(MsgRecord record) {
+        ensureInitialized();
         for (IPatchModule m : sModules) {
             if (m.isEnabled()) {
                 try {
@@ -159,6 +178,7 @@ public class ModuleManager {
     }
 
     public static void dispatchAIOShow(Object delegate) {
+        ensureInitialized();
         PLog.d("AIO", "进入聊天会话 (AIO)");
         for (IPatchModule m : sModules) {
             if (m.isEnabled()) {
@@ -172,6 +192,7 @@ public class ModuleManager {
     }
 
     public static void dispatchAIOHide() {
+        ensureInitialized();
         PLog.d("AIO", "退出聊天会话 (AIO)");
         for (IPatchModule m : sModules) {
             if (m.isEnabled()) {

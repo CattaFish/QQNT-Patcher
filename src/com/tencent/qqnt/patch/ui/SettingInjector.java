@@ -36,7 +36,8 @@ public class SettingInjector {
             return;
         }
 
-        if (!FeatureConfig.has("setting")) {
+        // 放宽阻断拦截：只要设置、脚本或聊天记录任意一个激活，就允许挂载
+        if (!FeatureConfig.has("setting") && !FeatureConfig.has("script") && !FeatureConfig.has("chat_history")) {
             return;
         }
 
@@ -47,21 +48,24 @@ public class SettingInjector {
             Class<?> func1Class = cl.loadClass("kotlin.jvm.functions.Function1");
             Object unitInstance = getKotlinUnitInstance(cl);
 
-            CharSequence finalZzzTitle = createTitleWithIcon(context, "zzz_icon.png", TITLE_ZZZ, 28f);
-            Object zzzItem = newInstanceSmart(itemClass, new Object[]{context, 10, finalZzzTitle, 0, null});
-            if (zzzItem != null) {
-                Object clickProxy = Proxy.newProxyInstance(cl, new Class[]{func0Class}, (proxy, method, args) -> {
-                    if ("invoke".equals(method.getName())) {
-                        ZzzSettingFragment.startCore(context);
-                    }
-                    return unitInstance;
-                });
-                bindItemAction(itemClass, zzzItem, func0Class, clickProxy);
+            Object zzzItem = null;
+            if (FeatureConfig.has("setting") || FeatureConfig.has("chat_history")) {
+                CharSequence finalZzzTitle = createTitleWithIcon(context, "zzz_icon.png", TITLE_ZZZ, 28f);
+                zzzItem = newInstanceSmart(itemClass, new Object[]{context, 10, finalZzzTitle, 0, null});
+                if (zzzItem != null) {
+                    Object clickProxy = Proxy.newProxyInstance(cl, new Class[]{func0Class}, (proxy, method, args) -> {
+                        if ("invoke".equals(method.getName())) {
+                            ZzzSettingFragment.startCore(context);
+                        }
+                        return unitInstance;
+                    });
+                    bindItemAction(itemClass, zzzItem, func0Class, clickProxy);
 
-                bindItemView(cl, itemClass, zzzItem, func1Class, unitInstance, view -> {
-                    boolean hasNew = ConfigManager.hasNewVersion();
-                    QUIBadgeHelper.attachNativeBadge(view, ConfigManager.VERSION, hasNew, true);
-                });
+                    bindItemView(cl, itemClass, zzzItem, func1Class, unitInstance, view -> {
+                        boolean hasNew = ConfigManager.hasNewVersion();
+                        QUIBadgeHelper.attachNativeBadge(view, ConfigManager.VERSION, hasNew, true);
+                    });
+                }
             }
 
             Object scriptItem = null;

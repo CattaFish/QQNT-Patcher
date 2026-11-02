@@ -58,9 +58,14 @@ def run_stage4(ctx):
     assets_dir = os.path.join(inject_dir, "assets")
     os.makedirs(assets_dir, exist_ok=True)
 
+    # 包含 only_mode 元数据，以便运行时通用判断精简构建模式
     features_json_path = os.path.join(assets_dir, "zzz_features.json")
+    features_payload = {
+        "only_mode": bool(ctx.only_keywords),
+        "features": list(ctx.active_features)
+    }
     with open(features_json_path, "w", encoding="utf-8") as f:
-        json.dump(list(ctx.active_features), f, ensure_ascii=False, indent=2)
+        json.dump(features_payload, f, ensure_ascii=False, indent=2)
     injected_summary["assets"].append("zzz_features.json")
 
     # 动态扫描 Java 模块并生成自动装配清单 zzz_modules.list

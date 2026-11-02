@@ -124,6 +124,11 @@ public class PatchBridge {
     @SuppressWarnings("unchecked")
     public static void handleSendMsg(ArrayList elements) {
         if (elements == null || elements.isEmpty()) return;
+        
+        // 确保冷启动环境就绪（在未注入 MSF 推送总线时提供兜底初始化）
+        ConfigManager.triggerColdStartUpdateCheck();
+        ModuleManager.ensureInitialized();
+
         try {
             me.yxp.qfun.hook.api.OnSendMsg.INSTANCE.dispatch(elements);
         } catch (Throwable ignored) {}

@@ -50,6 +50,12 @@ BUILTIN_FEATURES = {
     },
 }
 
+# 模块间前置依赖关系
+FEATURE_DEPENDENCIES = {
+    "killer": {"tinker"},        # 去签壳必须通过 Tinker/QFix 入口注入挂载
+    "chat_history": {"setting"}, # 查看聊天记录必须依赖设置中心容器挂载
+}
+
 BUS_DEPENDENCIES = {
     "bus_msf": {"anti_revoke", "auto_remark_apk", "script", "qq_version"},
     "bus_send_msg": {"meow", "auto_remark_apk", "modify_pic_summary", "script"},
@@ -57,7 +63,7 @@ BUS_DEPENDENCIES = {
     "bus_aio_msg": {"flash_pic", "floating_ball"},
     "bus_aio_lifecycle": {"floating_ball"},
     "bus_aio_menu": {"script"},
-    "bus_setting": {"setting"},
+    "bus_setting": {"setting", "chat_history"},
     "bus_troop_member": {"script"},
 }
 
@@ -101,6 +107,11 @@ def resolve_active_features(only_inputs, skip_inputs):
             for part in item.split(","):
                 fid = resolve_feature_id(part)
                 if fid: active.add(fid)
+        
+        # 自动补全前置依赖（Killer 自动关联 Tinker，聊天记录自动关联 Setting）
+        for fid in list(active):
+            if fid in FEATURE_DEPENDENCIES:
+                active.update(FEATURE_DEPENDENCIES[fid])
     else:
         active = set(ALL_FEATURES.keys())
 

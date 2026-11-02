@@ -5,6 +5,8 @@ import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.util.PatchAssetHelper;
 import com.tencent.qqnt.patch.util.PLog;
 import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -17,6 +19,7 @@ public class FeatureConfig {
     private static volatile boolean sLoaded = false;
     private static final Set<String> sActiveFeatures = Collections.synchronizedSet(new HashSet<>());
     private static volatile boolean sAllEnabled = false;
+    private static volatile boolean sIsOnlyMode = false;
 
     public static synchronized void ensureLoaded() {
         if (sLoaded) return;
@@ -31,12 +34,24 @@ public class FeatureConfig {
                 while ((line = br.readLine()) != null) {
                     sb.append(line);
                 }
-                JSONArray arr = new JSONArray(sb.toString());
-                for (int i = 0; i < arr.length(); i++) {
-                    sActiveFeatures.add(arr.getString(i));
+                String jsonStr = sb.toString().trim();
+                if (jsonStr.startsWith("{")) {
+                    JSONObject obj = new JSONObject(jsonStr);
+                    sIsOnlyMode = obj.optBoolean("only_mode", false);
+                    JSONArray arr = obj.optJSONArray("features");
+                    if (arr != null) {
+                        for (int i = 0; i < arr.length(); i++) {
+                            sActiveFeatures.add(arr.getString(i));
+                        }
+                    }
+                } else if (jsonStr.startsWith("[")) {
+                    JSONArray arr = new JSONArray(jsonStr);
+                    for (int i = 0; i < arr.length(); i++) {
+                        sActiveFeatures.add(arr.getString(i));
+                    }
                 }
                 sLoaded = true;
-                PLog.i("FeatureConfig", "已成功加载构建特性激活清单，包含 " + sActiveFeatures.size() + " 项特性");
+                PLog.i("FeatureConfig", "加载特性清单成功 [onlyMode=" + sIsOnlyMode + ", count=" + sActiveFeatures.size() + "]");
                 return;
             }
         } catch (Throwable t) {
@@ -45,6 +60,11 @@ public class FeatureConfig {
 
         sAllEnabled = true;
         sLoaded = true;
+    }
+
+    public static boolean isOnlyMode() {
+        if (!sLoaded) ensureLoaded();
+        return sIsOnlyMode;
     }
 
     public static boolean has(String featureId) {

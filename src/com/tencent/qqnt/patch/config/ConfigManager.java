@@ -137,6 +137,11 @@ public class ConfigManager {
         String flagOn = "zzz_mod_on_" + moduleId;
         String alias = ID_ALIASES.get(moduleId);
 
+        // 通用架构：经由 --only 显式指定的构建模块，运行期默认状态反转为开启
+        if (FeatureConfig.isOnlyMode() && (FeatureConfig.has(moduleId) || (alias != null && FeatureConfig.has(alias)))) {
+            defValue = true;
+        }
+
         if (defValue) {
             if (hasFlag(flagOff)) return false;
             if (alias != null && hasFlag("zzz_mod_off_" + alias)) return false;
