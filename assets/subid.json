@@ -6049,6 +6049,22 @@
     "date": "2026-10-22",
     "channel": "官方"
   },
+  "537399146": {
+    "summary": "QQ 9.3.80.608",
+    "platform": "iOS",
+    "version": "9.3.80.608",
+    "arch": "Phone",
+    "date": "2026-11-02",
+    "channel": "AppStore"
+  },
+  "537399157": {
+    "summary": "QQ(Pad) 9.3.80.608",
+    "platform": "iOS",
+    "version": "9.3.80.608",
+    "arch": "Pad",
+    "date": "2026-11-02",
+    "channel": "AppStore"
+  },
   "537399652": {
     "summary": "QQ 9.3.80.42670",
     "platform": "Android",
@@ -6146,6 +6162,37 @@
     "platform": "macOS",
     "version": "7.0.3.54276",
     "date": "2026-10-23",
+    "channel": "官方"
+  },
+  "537403722": {
+    "summary": "QQ(Win-X86) 9.9.37.54395",
+    "platform": "Windows",
+    "version": "9.9.37.54395",
+    "arch": "X86",
+    "date": "2026-11-02",
+    "channel": "官方"
+  },
+  "537403723": {
+    "summary": "QQ(Win-X64) 9.9.37.54395",
+    "platform": "Windows",
+    "version": "9.9.37.54395",
+    "arch": "X64",
+    "date": "2026-11-02",
+    "channel": "官方"
+  },
+  "537403735": {
+    "summary": "QQ(Win-Arm) 9.9.37.54395",
+    "platform": "Windows",
+    "version": "9.9.37.54395",
+    "arch": "Arm",
+    "date": "2026-11-02",
+    "channel": "官方"
+  },
+  "537403747": {
+    "summary": "QQ(Mac) 7.0.3.54395",
+    "platform": "macOS",
+    "version": "7.0.3.54395",
+    "date": "2026-11-02",
     "channel": "官方"
   },
   "537403760": {

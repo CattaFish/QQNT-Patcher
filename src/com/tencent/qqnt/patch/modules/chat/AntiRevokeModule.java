@@ -14,6 +14,7 @@ import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.relation.common.api.IRelationNTUinAndUidApi;
 
 import java.io.ByteArrayOutputStream;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -53,6 +54,7 @@ public class AntiRevokeModule implements IPatchModule {
     public byte[] onMsfPush(IQQNTWrapperSession session, String cmd, byte[] buf) {
         if (cmd == null || buf == null) return buf;
 
+        // 1. 在线实时推送 (MsgPush)
         if (CMD_MSG_PUSH.equals(cmd)) {
             dispatchNudgeAndShutUpEvents(buf);
 
@@ -60,18 +62,19 @@ public class AntiRevokeModule implements IPatchModule {
             if (revokeType != 0) {
                 try {
                     // 仅当确凿拦截到他人的撤回并生成灰条时才拦截（返回 null）
-                    // 凡是非撤回（如文件通知）、自身撤回、校验不通过，一律放行原包（返回 buf）
+                    // 凡是非撤回（如文件通知、状态变更）、自身撤回、校验不通过，一律放行原包（返回 buf）
                     boolean intercepted = processRecall(session, buf, revokeType);
                     if (intercepted) {
                         return null; // 成功拦截撤回指令
                     }
                 } catch (Throwable t) {
-                    PLog.e(TAG, "处理撤回灰条异常", t);
+                    PLog.e(TAG, "处理实时撤回异常", t);
                 }
             }
             return buf;
         }
 
+        // 2. 漫游离线同步 (InfoSyncPush)
         if (CMD_SYNC_PUSH.equals(cmd)) {
             if (hasRecallSignature(buf)) {
                 return filterProtoTree(buf);
@@ -266,12 +269,125 @@ public class AntiRevokeModule implements IPatchModule {
         return false;
     }
 
-    private static boolean isDirectRecallMsg(byte[] data) {
+    private static boolean hasBytesSequence(byte[] data, byte[] seq) {
+        if (data == null || seq == null || data.length < seq.length) return false;
+        int limit = data.length - seq.length;
+        for (int i = 0; i <= limit; i++) {
+            boolean match = true;
+            for (int j = 0; j < seq.length; j++) {
+                if (data[i + j] != seq[j]) { match = false; break; }
+            }
+            if (match) return true;
+        }
+        return false;
+    }
+
+    private static int findSequence(byte[] data, byte[] seq) {
+        if (data == null || seq == null || data.length < seq.length) return -1;
+        int limit = data.length - seq.length;
+        for (int i = 0; i <= limit; i++) {
+            boolean match = true;
+            for (int j = 0; j < seq.length; j++) {
+                if (data[i + j] != seq[j]) { match = false; break; }
+            }
+            if (match) return i;
+        }
+        return -1;
+    }
+
+    // =========================================================================
+    // 【查库预检核心】：效仿官方 BaseQQMessageFacade.e0 查本地消息是否存在
+    // =========================================================================
+    private static boolean queryMsgExists(String peerUin, int istroop, long msgSeq) {
+        if (peerUin == null || peerUin.isEmpty() || msgSeq <= 0) return false;
+        try {
+            Class<?> facadeClz = Class.forName("com.tencent.mobileqq.msg.api.IMessageFacade");
+            Object facade = QRoute.api((Class) facadeClz);
+            if (facade != null) {
+                Method queryM = facade.getClass().getMethod("queryMsgItemByShmsgseq", String.class, int.class, long.class, long.class);
+                List<?> list = (List<?>) queryM.invoke(facade, peerUin, istroop, msgSeq, 0L);
+                return list != null && !list.isEmpty();
+            }
+        } catch (Throwable t) {
+            PLog.d(TAG, "queryMsgExists 忽略异常: " + t.getMessage());
+        }
+        return false;
+    }
+
+    private static class RecallMeta {
+        String peerUin;
+        int istroop; // 1 为群聊, 0 为私聊
+        long msgSeq;
+        RecallMeta(String peerUin, int istroop, long msgSeq) {
+            this.peerUin = peerUin;
+            this.istroop = istroop;
+            this.msgSeq = msgSeq;
+        }
+    }
+
+    private static RecallMeta extractGroupRecallMeta(byte[] data) {
+        if (data == null) return null;
+        try {
+            int idx = findSequence(data, new byte[]{0x08, 0x07});
+            if (idx < 0) return null;
+
+            byte[] notifyBody = Proto.subArray(data, idx);
+            long optEnumType = Proto.getVarint(notifyBody, 1);
+            if (optEnumType != ENUM_TYPE_GROUP_RECALL) return null;
+
+            long groupCode = Proto.getVarint(notifyBody, 4);
+            byte[] tag11 = Proto.getBytes(notifyBody, 11);
+            if (tag11 == null) return null;
+
+            byte[] tag3 = Proto.getBytes(tag11, 3);
+            if (tag3 == null) return null;
+
+            long seq = Proto.getVarint(tag3, 1);
+            if (groupCode > 10000L && seq > 0) {
+                return new RecallMeta(String.valueOf(groupCode), 1, seq);
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static RecallMeta extractC2CRecallMeta(byte[] data) {
+        if (data == null) return null;
+        try {
+            int idx = findSequence(data, new byte[]{0x08, (byte) 0x90, 0x04, 0x10, (byte) 0x8A, 0x01});
+            if (idx < 0) return null;
+
+            byte[] afterSig = Proto.subArray(data, idx);
+            ProtoReader reader = new ProtoReader(afterSig);
+            while (reader.hasMore()) {
+                long tag = reader.readVarint();
+                int wire = (int) (tag & 7);
+                int fn = (int) (tag >>> 3);
+                if (wire == 2) {
+                    byte[] sub = reader.readBytes();
+                    if (fn == 1 && sub != null) { // msg_info
+                        long fromUin = Proto.getVarint(sub, 1);
+                        long toUin = Proto.getVarint(sub, 2);
+                        long seq = Proto.getVarint(sub, 3);
+                        if (seq > 0 && (fromUin > 10000L || toUin > 10000L)) {
+                            String myUin = MsgSender.getMyUin();
+                            String peer = (myUin != null && myUin.equals(String.valueOf(fromUin))) ? String.valueOf(toUin) : String.valueOf(fromUin);
+                            return new RecallMeta(peer, 0, seq);
+                        }
+                    }
+                } else if (wire == 0) reader.readVarint();
+                else if (wire == 1) reader.skip(8);
+                else if (wire == 5) reader.skip(4);
+                else break;
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static boolean isDirectRecallNode(byte[] data) {
         if (data == null || data.length < 5) return false;
         int limit = Math.min(data.length - 4, 60);
         for (int i = 0; i < limit; i++) {
             if (data[i] == 0x08) {
-                // 必须同时包含 0x2DC_0x11 以及 NotifyMsgBody 起始标志 0x08 0x07 (opt_enum_type == 7)
                 if ((data[i + 1] & 0xFF) == 0xDC && (data[i + 2] & 0xFF) == 0x05
                         && (data[i + 3] & 0xFF) == 0x10 && (data[i + 4] & 0xFF) == 0x11) {
                     return hasBytesSequence(data, new byte[]{0x08, 0x07});
@@ -285,16 +401,45 @@ public class AntiRevokeModule implements IPatchModule {
         return false;
     }
 
-    private static boolean hasBytesSequence(byte[] data, byte[] seq) {
-        if (data == null || seq == null || data.length < seq.length) return false;
-        int limit = data.length - seq.length;
-        for (int i = 0; i <= limit; i++) {
-            boolean match = true;
-            for (int j = 0; j < seq.length; j++) {
-                if (data[i + j] != seq[j]) { match = false; break; }
+    /**
+     * 判定漫游同步中的撤回节点是否应该被过滤抹除：
+     * 只有当本地手机里【确实存在原消息】时，才过滤抹除撤回事件以保全原消息；
+     * 若本地根本没有原消息（彻底停止QQ期间被撤回），绝对不过滤，放行让官方原生画灰条！
+     */
+    private static boolean shouldDropRecallNodeInSync(byte[] sub) {
+        if (sub == null || sub.length < 5) return false;
+
+        // 1. 群聊撤回节点预检
+        if (hasBytesSequence(sub, new byte[]{0x08, (byte) 0xDC, 0x05, 0x10, 0x11})
+                && hasBytesSequence(sub, new byte[]{0x08, 0x07})) {
+            RecallMeta meta = extractGroupRecallMeta(sub);
+            if (meta != null && meta.msgSeq > 0 && !meta.peerUin.isEmpty()) {
+                boolean exists = queryMsgExists(meta.peerUin, 1, meta.msgSeq);
+                if (exists) {
+                    PLog.i(TAG, "漫游同步命中本地原消息 (group=" + meta.peerUin + ", seq=" + meta.msgSeq + ")，拦截撤回指令保护原消息");
+                    return true; // 本地有 -> 丢弃撤回指令
+                } else {
+                    PLog.i(TAG, "漫游同步未命中本地原消息 (group=" + meta.peerUin + ", seq=" + meta.msgSeq + ")，放行撤回指令让官方画原生灰条");
+                    return false; // 本地无 -> 放行撤回指令
+                }
             }
-            if (match) return true;
         }
+
+        // 2. 私聊撤回节点预检
+        if (hasBytesSequence(sub, new byte[]{0x08, (byte) 0x90, 0x04, 0x10, (byte) 0x8A, 0x01})) {
+            RecallMeta meta = extractC2CRecallMeta(sub);
+            if (meta != null && meta.msgSeq > 0 && !meta.peerUin.isEmpty()) {
+                boolean exists = queryMsgExists(meta.peerUin, 0, meta.msgSeq);
+                if (exists) {
+                    PLog.i(TAG, "漫游同步命中本地私聊消息 (peer=" + meta.peerUin + ", seq=" + meta.msgSeq + ")，拦截撤回指令保护原消息");
+                    return true; // 本地有 -> 丢弃撤回指令
+                } else {
+                    PLog.i(TAG, "漫游同步未命中本地私聊消息 (peer=" + meta.peerUin + ", seq=" + meta.msgSeq + ")，放行撤回指令让官方画原生灰条");
+                    return false; // 本地无 -> 放行撤回指令
+                }
+            }
+        }
+
         return false;
     }
 
@@ -315,7 +460,20 @@ public class AntiRevokeModule implements IPatchModule {
                     if (subStart + l <= data.length) {
                         byte[] sub = Proto.subArray(data, subStart, l);
                         reader.skip(l);
-                        if (isDirectRecallMsg(sub)) continue;
+
+                        // 智能决策一：本地有原消息，丢弃此撤回节点，原消息保全！
+                        if (shouldDropRecallNodeInSync(sub)) {
+                            continue;
+                        }
+
+                        // 智能决策二：是撤回节点但本地无原消息，完整写入同步流放行，让官方原生补灰条！
+                        if (isDirectRecallNode(sub)) {
+                            Proto.writeVarint(out, tag);
+                            Proto.writeVarint(out, sub.length);
+                            out.write(sub);
+                            continue;
+                        }
+
                         if (hasRecallSignature(sub)) {
                             byte[] cleanedSub = filterProtoTree(sub);
                             Proto.writeVarint(out, tag);
@@ -345,7 +503,7 @@ public class AntiRevokeModule implements IPatchModule {
     /**
      * 解析撤回通知并实施拦截与灰条构建
      * @return true 代表确为他人发起的合法撤回，已成功拦截并生成灰条；
-     *         false 代表非撤回通知（如文件过期、公告）、本人主动撤回或解析不合法，放行原包。
+     *         false 代表非撤回通知（如文件通知、公告）、本人主动撤回或解析不合法，放行原包。
      */
     private static boolean processRecall(IQQNTWrapperSession session, byte[] buf, int revokeType) {
         if (session == null) return false;
