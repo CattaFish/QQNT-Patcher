@@ -44,7 +44,7 @@ public class ForwardPttModule implements IPatchModule {
 
     @Override
     public String getSubName() {
-        return "长按语音气泡在 2X 旁增加转发按钮，支持私聊、群聊与多选";
+        return "长按语音气泡在 2X 旁增加转发按钮";
     }
 
     @Override
