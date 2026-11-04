@@ -19,6 +19,7 @@ public interface IPatchModule {
 
     String getId();
     String getName();
+    default int getOrder() { return 100; }
     default String getCategory() { return CATEGORY_CHAT; }
     default String getSubName() { return ""; }
     default boolean defaultEnabled() { return false; }

@@ -59,15 +59,7 @@ public class PatchBridge {
     }
 
     public static boolean shouldDropTroopToDo() {
-        return AtAllNotifyBlockModule.shouldDropTroopToDo();
-    }
-
-    public static boolean shouldDropMsgNotify(Object msgNotifyItemObj) {
-        return AtAllNotifyBlockModule.shouldDropMsgNotify(msgNotifyItemObj);
-    }
-
-    public static boolean shouldDropRecentContact(Object recentContactInfoObj) {
-        return AtAllNotifyBlockModule.shouldDropRecentContact(recentContactInfoObj);
+        return ConfigManager.isModuleEnabled("troop_todo", false);
     }
 
     public static void handleDispatchRespMsg(Object msfMessagePair) {

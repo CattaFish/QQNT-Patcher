@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 
 public class TroopHelper {
 
-    private static Object getKernelGroupService() {
+    public static Object getKernelGroupService() {
         try {
             Object runtime = AppContext.getAppRuntime();
             if (runtime == null) return null;

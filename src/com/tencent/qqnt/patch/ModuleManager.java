@@ -89,6 +89,7 @@ public class ModuleManager {
         register(new com.tencent.qqnt.patch.modules.chat.FloatingBallModule());
         register(new com.tencent.qqnt.patch.modules.purify.TabletModeModule());
         register(new com.tencent.qqnt.patch.modules.purify.AtAllNotifyBlockModule());
+        register(new com.tencent.qqnt.patch.modules.purify.TroopTodoModule());
         register(new com.tencent.qqnt.patch.modules.chat.AutoRemarkApkModule());
         register(new com.tencent.qqnt.patch.modules.chat.ShowDownloadTimesModule());
         register(new com.tencent.qqnt.patch.modules.chat.ModifyPicSummaryModule());

@@ -19,6 +19,7 @@ import com.tencent.qqnt.patch.util.ToastHelper;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -233,7 +234,12 @@ public class ZzzSettingFragment {
                 List<GroupData> pendingGroups = new ArrayList<>();
 
                 List<Object> funcItems = new ArrayList<>();
-                for (IPatchModule module : ModuleManager.getModules()) {
+
+                // ★ 新增：按模块设定的 getOrder() 权重排序，保证“群待办 (11)”紧跟在“@全体成员 (10)”正下方
+                List<IPatchModule> moduleList = new ArrayList<>(ModuleManager.getModules());
+                Collections.sort(moduleList, (m1, m2) -> Integer.compare(m1.getOrder(), m2.getOrder()));
+
+                for (IPatchModule module : moduleList) {
                     if (!module.showInSettings()) continue;
                     if (category != null && !category.equals(module.getCategory())) continue;
 
