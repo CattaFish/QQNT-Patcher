@@ -188,15 +188,28 @@ public class QQVersionModule implements IPatchModule {
             return "刚刚";
         } else if (diff < 60 * 60 * 1000L) {
             return (diff / (60 * 1000L)) + " 分钟前";
-        } else if (diff < 24 * 60 * 60 * 1000L) {
-            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm", Locale.getDefault());
-            return "今天 " + sdf.format(new Date(timeMs));
-        } else if (diff < 48 * 60 * 60 * 1000L) {
-            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm", Locale.getDefault());
-            return "昨天 " + sdf.format(new Date(timeMs));
+        }
+
+        // 获取今天 00:00:00 的毫秒时间戳
+        Calendar cal = Calendar.getInstance();
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        long todayMidnight = cal.getTimeInMillis();
+
+        SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm", Locale.getDefault());
+
+        if (timeMs >= todayMidnight) {
+            // 捕获时间在今天 0 点之后，才是真正的“今天”
+            return "今天 " + timeFmt.format(new Date(timeMs));
+        } else if (timeMs >= todayMidnight - 24 * 60 * 60 * 1000L) {
+            // 捕获时间在昨天 0 点到今天 0 点之间，是真正的“昨天”
+            return "昨天 " + timeFmt.format(new Date(timeMs));
         } else {
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
-            return sdf.format(new Date(timeMs));
+            // 昨天之前的显示完整年月日
+            SimpleDateFormat dateFmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+            return dateFmt.format(new Date(timeMs));
         }
     }
 
