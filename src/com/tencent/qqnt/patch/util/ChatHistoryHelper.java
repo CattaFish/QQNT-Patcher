@@ -19,12 +19,10 @@ public class ChatHistoryHelper {
             return;
         }
 
-        String peerId = null;
+        String peerId = text;
         String sessionName = text;
 
-        if (text.startsWith("u_")) {
-            peerId = text;
-        } else {
+        if (!text.startsWith("u_")) {
             try {
                 long uin = Long.parseLong(text);
                 if (uin < 10000L) {
@@ -35,8 +33,7 @@ public class ChatHistoryHelper {
                 if (uid != null && uid.startsWith("u_")) {
                     peerId = uid;
                 } else {
-                    ToastHelper.show(context, "本地未检索到该 QQ 对应 UID，若知晓请直接输入 UID (u_...)");
-                    return;
+                    PLog.w("ChatHistory", "本地关系链未检索到 UID，直接使用 QQ 号尝试拉起");
                 }
             } catch (NumberFormatException e) {
                 ToastHelper.show(context, "格式错误，请输入纯数字 QQ 或以 u_ 开头的 UID");
@@ -89,11 +86,17 @@ public class ChatHistoryHelper {
     }
 
     public static void showFriendHistoryDialog(Activity activity) {
-        SettingDialogBuilder.build(activity, "打开好友聊天记录")
-                .addTip("[提示] 支持输入好友 QQ 号或 UID (u_...)\n仅支持读取本地已有的聊天记录", null)
+        SettingDialogBuilder builder = SettingDialogBuilder.build(activity, "打开好友聊天记录");
+        builder.addTip("[提示] 支持输入好友 QQ 号或 UID (u_...)\n仅支持读取本地已有的聊天记录", null)
                 .addInput("请输入好友 QQ 号 或 UID", "", true, false, null)
                 .setPositiveButton("查看记录", dialog -> {
-                    // 读取第 0 个输入框的值
+                    String input = builder.getInputValue(0);
+                    if (input.isEmpty()) {
+                        ToastHelper.show(activity, "输入不能为空");
+                        return;
+                    }
+                    dialog.dismiss();
+                    openFriendChatHistory(activity, input);
                 })
                 .show();
     }
