@@ -77,7 +77,7 @@ public class MainPageAdBlockModule implements IPatchModule {
 
     @Override
     public String getSubName() {
-        return "去除消息列表顶部的VIP续费、活动与游戏推广横幅";
+        return "去除消息列表顶部的VIP续费与游戏推广横幅";
     }
 
     @Override
