@@ -52,6 +52,12 @@ BASE_RULES = [
         "smali": """
     move-object/16 v0, p4
     invoke-static {v0}, Lcom/tencent/qqnt/patch/PatchBridge;->handleSendMsg(Ljava/util/ArrayList;)V
+    if-eqz v0, :cond_pass_empty_send
+    invoke-virtual {v0}, Ljava/util/ArrayList;->isEmpty()Z
+    move-result v0
+    if-eqz v0, :cond_pass_empty_send
+    return-void
+    :cond_pass_empty_send
 """
     },
     {

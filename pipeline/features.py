@@ -48,6 +48,10 @@ BUILTIN_FEATURES = {
         "desc": "查看本地聊天记录 (私聊/群聊)",
         "aliases": ["chat_history", "history", "聊天记录", "历史记录"],
     },
+    "mixed_emo": {
+        "desc": "发送文字表情复合消息 (图文混排)",
+        "aliases": ["mixed_emo", "文字表情混排", "复合消息", "表情暂存", "图文混排"],
+    },
 }
 
 # 模块间前置依赖关系
@@ -58,7 +62,7 @@ FEATURE_DEPENDENCIES = {
 
 BUS_DEPENDENCIES = {
     "bus_msf": {"anti_revoke", "auto_remark_apk", "script", "qq_version"},
-    "bus_send_msg": {"meow", "auto_remark_apk", "modify_pic_summary", "script"},
+    "bus_send_msg": {"meow", "auto_remark_apk", "modify_pic_summary", "script", "mixed_emo"},
     "bus_recv_msg": {"flash_pic", "anti_revoke", "script"},
     "bus_aio_msg": {"flash_pic", "floating_ball"},
     "bus_aio_lifecycle": {"floating_ball"},

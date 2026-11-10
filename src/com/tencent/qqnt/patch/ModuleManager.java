@@ -103,6 +103,7 @@ public class ModuleManager {
         register(new com.tencent.qqnt.patch.modules.chat.RecordsReplyCheckModule());
         register(new com.tencent.qqnt.patch.modules.chat.RemoveReplyAtModule());
         register(new com.tencent.qqnt.patch.modules.chat.ForwardPttModule());
+        register(new com.tencent.qqnt.patch.modules.chat.MixedEmoAndTextModule());
     }
 
     public static void initAll(Context context) {
