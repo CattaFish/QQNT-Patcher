@@ -1,7 +1,6 @@
 package com.tencent.qqnt.patch.modules.chat;
 
 import android.app.Activity;
-import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.text.Editable;
@@ -29,7 +28,6 @@ public class MixedEmoAndTextModule implements IPatchModule {
     private static volatile String sFactoryClassName = null;
     private static volatile String sFactoryMethodName = null;
 
-    private static volatile Class<?> sCachedClass = null;
     private static volatile Method sCachedMethod = null;
     private static volatile Object sCachedInstance = null;
     private static volatile boolean sFactoryResolved = false;
@@ -56,11 +54,11 @@ public class MixedEmoAndTextModule implements IPatchModule {
 
     @Override
     public boolean defaultEnabled() {
-        return false; // 严格遵循默认关闭原则
+        return false; // 严格遵守默认关闭原则
     }
 
     /**
-     * 由 Smali 规则动态注入的工厂类与方法名配置
+     * 接收 Python 动态嗅探结果
      */
     public static void setupFactory(String className, String methodName) {
         if (className != null && !className.isEmpty()) {
@@ -77,7 +75,7 @@ public class MixedEmoAndTextModule implements IPatchModule {
             return;
         }
 
-        // 仅拦截单发图片/表情的场景（避免干扰多图发送等其他批处理）
+        // 仅处理单发图片/表情的场景（避免干扰批量图文外发）
         if (elements == null || elements.size() != 1) {
             return;
         }
@@ -107,34 +105,32 @@ public class MixedEmoAndTextModule implements IPatchModule {
             return;
         }
 
-        // 状态判定：输入框已有文字 OR 处于回复状态（通过 Top CompoundDrawable 判定）
+        // 条件判定：输入框有字 OR 正在回复
         CharSequence currentText = editText.getText();
         boolean hasText = (currentText != null && currentText.length() > 0);
         boolean isReplying = checkIsReplying(editText);
 
         if (!hasText && !isReplying) {
-            return; // 两个条件均不满足，放行正常单发
+            return; // 均不满足，放行正常单发表情
         }
 
-        // 创建原生 ImageSpan
+        // 反射调用工厂生成原厂 ImageSpan
         Object customSpan = createCustomSpan(activity.getClassLoader(), file);
         if (customSpan == null) {
-            PLog.w(TAG, "创建 ImageSpan 失败，放弃拦截并放行原消息");
+            PLog.w(TAG, "创建 ImageSpan 失败，安全放行原消息");
             return;
         }
 
-        // 核心拦截动作：清空列表（配合 base_rules 的 isEmpty 判定立即 return-void 掐死网络发包）
+        // 清空列表（base_rules 中 isEmpty 判定生效，立即 return-void 阻断底层 JNI 发包）
         elements.clear();
 
-        // 投递到 UI 线程在光标处插入图片 Span，并自动将光标后移
+        // 投递到 UI 线程插入光标位置并推进光标
         insertSpanAtCursor(editText, customSpan);
-        PLog.i(TAG, "已成功拦截表情并插入输入框混排 [path=" + sourcePath + "]");
+        PLog.i(TAG, "已成功拦截表情并插入输入框 [path=" + sourcePath + "]");
     }
 
     /**
-     * 判定是否处于回复状态：
-     * 1. 检查 AIOEditText 顶部的 CompoundDrawable 是否非空；
-     * 2. 检查 Tag 0x7f0a55c7 是否挂载了回复对象。
+     * 被动感知是否处于回复状态
      */
     private static boolean checkIsReplying(EditText editText) {
         try {
@@ -151,7 +147,7 @@ public class MixedEmoAndTextModule implements IPatchModule {
     }
 
     /**
-     * 健壮定位当前界面的 AIOEditText（优先资源 ID，兜底递归类名搜索）
+     * 健壮定位 AIOEditText（优先资源 ID，兜底递归 View 树）
      */
     public static EditText findAioEditText(Activity activity) {
         if (activity == null) return null;
@@ -189,9 +185,6 @@ public class MixedEmoAndTextModule implements IPatchModule {
         return null;
     }
 
-    /**
-     * 动态反射调用 ImageUtils 生成官方原厂 ImageSpan
-     */
     private static Object createCustomSpan(ClassLoader cl, File file) {
         try {
             resolveSpanFactory(cl);
@@ -206,18 +199,31 @@ public class MixedEmoAndTextModule implements IPatchModule {
         }
     }
 
+    /**
+     * 跨版本动态绑定 ImageUtils 单例与方法
+     */
     private static synchronized void resolveSpanFactory(ClassLoader cl) {
         if (sFactoryResolved) return;
         try {
-            String targetCls = (sFactoryClassName != null && !sFactoryClassName.isEmpty())
-                    ? sFactoryClassName : "com.tencent.mobileqq.aio.input.fullscreen.v";
-            String targetMethod = (sFactoryMethodName != null && !sFactoryMethodName.isEmpty())
-                    ? sFactoryMethodName : "a";
+            // 双版本默认类名与动态传入类名候选池
+            String[] candidateClasses = (sFactoryClassName != null && !sFactoryClassName.isEmpty())
+                    ? new String[]{sFactoryClassName, "com.tencent.mobileqq.aio.input.fullscreen.InputImageUtils", "com.tencent.mobileqq.aio.input.fullscreen.v"}
+                    : new String[]{"com.tencent.mobileqq.aio.input.fullscreen.InputImageUtils", "com.tencent.mobileqq.aio.input.fullscreen.v"};
 
-            Class<?> clazz = cl.loadClass(targetCls);
-            sCachedClass = clazz;
+            Class<?> clazz = null;
+            for (String cName : candidateClasses) {
+                try {
+                    clazz = cl.loadClass(cName);
+                    if (clazz != null) break;
+                } catch (Throwable ignored) {}
+            }
 
-            // 1. 获取 Kotlin object 单例实例（优先静态 a，其次 INSTANCE，再次遍历自身类型的静态字段）
+            if (clazz == null) {
+                PLog.w(TAG, "未找到有效的 InputImageUtils 类");
+                return;
+            }
+
+            // 1. 获取 Kotlin object 单例（优先静态 a，其次 INSTANCE，兜底扫自身类型静态字段）
             Object instance = null;
             try {
                 Field fA = clazz.getDeclaredField("a");
@@ -244,30 +250,46 @@ public class MixedEmoAndTextModule implements IPatchModule {
             }
             sCachedInstance = instance;
 
-            // 2. 获取 a(String, Uri, boolean) 方法
-            for (Method m : clazz.getDeclaredMethods()) {
-                if (m.getName().equals(targetMethod) && m.getParameterTypes().length == 3) {
-                    Class<?>[] pts = m.getParameterTypes();
-                    if (pts[0] == String.class && pts[1] == Uri.class && (pts[2] == boolean.class || pts[2] == Boolean.class)) {
+            // 2. 匹配参数为 (String, Uri, boolean) 的方法（不依赖名称是 a 还是 b）
+            Method targetMethod = null;
+            if (sFactoryMethodName != null && !sFactoryMethodName.isEmpty()) {
+                for (Method m : clazz.getDeclaredMethods()) {
+                    if (m.getName().equals(sFactoryMethodName) && isFactoryMethodParamMatch(m)) {
                         m.setAccessible(true);
-                        sCachedMethod = m;
+                        targetMethod = m;
                         break;
                     }
                 }
             }
 
+            if (targetMethod == null) {
+                for (Method m : clazz.getDeclaredMethods()) {
+                    if (isFactoryMethodParamMatch(m)) {
+                        m.setAccessible(true);
+                        targetMethod = m;
+                        break;
+                    }
+                }
+            }
+            sCachedMethod = targetMethod;
+
             sFactoryResolved = (sCachedMethod != null && sCachedInstance != null);
             if (sFactoryResolved) {
-                PLog.i(TAG, "成功绑定图文混排工厂: " + targetCls + "->" + targetMethod);
+                PLog.i(TAG, "成功绑定图文混排工厂: " + clazz.getName() + "->" + sCachedMethod.getName());
             }
         } catch (Throwable t) {
             PLog.e(TAG, "解析 ImageSpan 工厂失败", t);
         }
     }
 
-    /**
-     * 将 ImageSpan 包装为 SpannableStringBuilder("图片") 并插入光标位置
-     */
+    private static boolean isFactoryMethodParamMatch(Method m) {
+        Class<?>[] pts = m.getParameterTypes();
+        return pts.length == 3 
+                && pts[0] == String.class 
+                && pts[1] == Uri.class 
+                && (pts[2] == boolean.class || pts[2] == Boolean.class);
+    }
+
     private static void insertSpanAtCursor(EditText editText, Object customSpan) {
         SpannableStringBuilder ssb = new SpannableStringBuilder("图片");
         ssb.setSpan(customSpan, 0, 2, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -279,7 +301,7 @@ public class MixedEmoAndTextModule implements IPatchModule {
                 Editable editable = editText.getText();
                 if (editable != null) {
                     editable.replace(Math.min(start, end), Math.max(start, end), ssb);
-                    editText.setSelection(Math.min(start, end) + 2); // 光标顺畅后移
+                    editText.setSelection(Math.min(start, end) + 2); // 光标顺滑后移
                 }
             } catch (Throwable t) {
                 PLog.e(TAG, "光标处插入图片 Span 异常", t);

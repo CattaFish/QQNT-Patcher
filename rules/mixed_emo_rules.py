@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """发送文字表情复合消息 (图文混排) 动态规则引擎"""
 
-import struct
 from .parser import FastDexParser
 
 RULE_ID = "mixed_emo"
@@ -13,38 +12,41 @@ RULE_ENABLED = True
 def build_mixed_emo_rules(dex_data_dict):
     rules = []
     target_class = None
-    target_method = "a"
+    target_method = None
     aio_delegate_cls = "Lcom/tencent/qqnt/aio/activity/AIODelegate;"
 
-    # 1. 动态嗅探：扫描包含 "sampleSize" 的类，定位 aio/input/fullscreen 下的 ImageUtils
+    # 跨版本黄金特征字符串（9.2.x 与 9.3.x 的 <clinit> 均恒定存在）
+    FINGERPRINT = "aio_input_rotate_bitmap_147306215"
+
     for _, dex_bytes in dex_data_dict.items():
-        if b"sampleSize" in dex_bytes:
+        if FINGERPRINT.encode("utf-8") in dex_bytes:
             p = FastDexParser(dex_bytes)
             if not p.valid:
                 continue
 
-            candidates = p.find_classes_referencing_string_strictly("sampleSize")
+            candidates = p.find_classes_referencing_string_strictly(FINGERPRINT)
             for cls_name, cls_idx in candidates:
                 if "aio/input/fullscreen/" in cls_name and "$" not in cls_name:
                     methods = p.get_class_methods(cls_idx)
                     for m_name, proto_desc, _, _, _ in methods:
+                        # 无论方法叫 a 还是 b，统一匹配 (String, Uri, boolean) 核心签名
                         if proto_desc.startswith("(Ljava/lang/String;Landroid/net/Uri;Z)"):
                             target_class = cls_name
                             target_method = m_name
                             break
-                if target_class:
+                if target_class and target_method:
                     break
-        if target_class:
+        if target_class and target_method:
             break
 
-    # 兜底保障（基于已知 9.2.90 版本的类名）
+    # 健壮双版本兜底
     if not target_class:
-        target_class = "Lcom/tencent/mobileqq/aio/input/fullscreen/v;"
-        target_method = "a"
+        target_class = "Lcom/tencent/mobileqq/aio/input/fullscreen/InputImageUtils;"
+        target_method = "b"
 
     java_class_name = target_class[1:-1].replace('/', '.')
 
-    # 2. 注入规则：在 AIO 会话创建/打开时，把动态嗅探到的类名与方法名同步给 Java 模块
+    # 注入规则：进入 AIO 时动态将解析出的类名与方法名同步给 Java 模块
     rules.append({
         "name": f"动态挂载图文混排工厂 ({java_class_name}->{target_method})",
         "target_class": aio_delegate_cls,
