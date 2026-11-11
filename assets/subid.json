@@ -6124,6 +6124,14 @@
     "date": "2026-11-04",
     "channel": "荣耀"
   },
+  "537400119": {
+    "summary": "QQ 9.3.80.42775",
+    "platform": "Android",
+    "version": "9.3.80.42775",
+    "arch": "Phone",
+    "date": "2026-11-11",
+    "channel": "小米"
+  },
   "537400120": {
     "summary": "QQ 9.3.80.42775",
     "platform": "Android",
@@ -6181,6 +6189,14 @@
     "date": "2026-11-04",
     "channel": "荣耀"
   },
+  "537400158": {
+    "summary": "QQ(Pad) 9.3.80.42775",
+    "platform": "Android",
+    "version": "9.3.80.42775",
+    "arch": "Pad",
+    "date": "2026-11-11",
+    "channel": "小米"
+  },
   "537400159": {
     "summary": "QQ(Pad) 9.3.80.42775",
     "platform": "Android",
@@ -6214,6 +6230,38 @@
     "arch": "Pad",
     "date": "2026-11-06",
     "channel": "官方"
+  },
+  "537402552": {
+    "summary": "QQ 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Phone",
+    "date": "2026-11-10 / 2026-11-11",
+    "dates": [
+      "2026-11-10",
+      "2026-11-11"
+    ],
+    "channel": "应用宝 / 应用汇",
+    "channels": [
+      "应用宝",
+      "应用汇"
+    ]
+  },
+  "537402591": {
+    "summary": "QQ(Pad) 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Pad",
+    "date": "2026-11-10 / 2026-11-11",
+    "dates": [
+      "2026-11-10",
+      "2026-11-11"
+    ],
+    "channel": "应用宝 / 应用汇",
+    "channels": [
+      "应用宝",
+      "应用汇"
+    ]
   },
   "537403569": {
     "summary": "QQ(Win-X86) 9.9.37.54276",
