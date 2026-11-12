@@ -37,7 +37,7 @@ public class MixedEmoAndTextModule implements IPatchModule {
     @Override public String getId() { return "mixed_emo"; }
     @Override public String getName() { return "文字表情混排"; }
     @Override public String getCategory() { return CATEGORY_CHAT; }
-    @Override public String getSubName() { return "输入框已有文字或回复时，点击表情暂存至输入框混合发送"; }
+    @Override public String getSubName() { return "开启后 点击表情暂存至输入框与文字混合发送"; }
     @Override public boolean defaultEnabled() { return false; }
 
     public static void setupFactory(String className, String methodName) {

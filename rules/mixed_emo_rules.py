@@ -5,7 +5,7 @@ from .parser import FastDexParser
 
 RULE_ID = "mixed_emo"
 RULE_NAME = "文字表情混排"
-RULE_DESC = "输入框已有文字或回复时，点击表情暂存至输入框混合发送"
+RULE_DESC = "开启后 点击表情暂存至输入框与文字混合发送"
 RULE_ALIASES = ["mixed_emo", "文字表情混排", "复合消息", "表情暂存", "图文混排"]
 RULE_ENABLED = True
 
