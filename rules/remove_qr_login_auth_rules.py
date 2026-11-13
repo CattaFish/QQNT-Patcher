@@ -35,13 +35,9 @@ def _find_method_strictly_referencing_string(p, class_idx, target_string):
             if op == 0x1A and k + 4 <= len_insns:  # const-string
                 if s_16 and insns[k + 2 : k + 4] == s_16:
                     return f"{m_name}{proto_desc}", access_flags
-                k += 4
-                continue
             elif op == 0x1B and k + 6 <= len_insns:  # const-string/jumbo
                 if insns[k + 2 : k + 6] == s_32:
                     return f"{m_name}{proto_desc}", access_flags
-                k += 6
-                continue
             k += 2
     return None, 0
 
