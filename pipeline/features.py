@@ -52,12 +52,17 @@ BUILTIN_FEATURES = {
         "desc": "发送文字表情复合消息 (图文混排)",
         "aliases": ["mixed_emo", "文字表情混排", "复合消息", "表情暂存", "图文混排"],
     },
+    "custom_icon": {
+        "desc": "自定义应用图标 (杂项)",
+        "aliases": ["custom_icon", "icon", "icons", "图标", "换图标", "应用图标"],
+    },
 }
 
 # 模块间前置依赖关系
 FEATURE_DEPENDENCIES = {
     "killer": {"tinker"},        # 去签壳必须通过 Tinker/QFix 入口注入挂载
     "chat_history": {"setting"}, # 查看聊天记录必须依赖设置中心容器挂载
+    "custom_icon": {"setting"},  # 自定义图标依赖设置中心容器挂载
 }
 
 BUS_DEPENDENCIES = {
@@ -67,7 +72,7 @@ BUS_DEPENDENCIES = {
     "bus_aio_msg": {"flash_pic", "floating_ball"},
     "bus_aio_lifecycle": {"floating_ball"},
     "bus_aio_menu": {"script"},
-    "bus_setting": {"setting", "chat_history"},
+    "bus_setting": {"setting", "chat_history", "custom_icon"},
     "bus_troop_member": {"script"},
 }
 

@@ -9,6 +9,7 @@ import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.config.FeatureConfig;
 import com.tencent.qqnt.patch.config.UpdateHelper;
 import com.tencent.qqnt.patch.util.ChatHistoryHelper;
+import com.tencent.qqnt.patch.util.CustomIconHelper;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.qqnt.patch.util.ToastHelper;
 
@@ -27,6 +28,21 @@ public class SettingMenuRegistry {
     }
 
     static {
+    
+        register(new FeatureSettingItem() {
+            @Override public String getCategory() { return IPatchModule.CATEGORY_MISC; }
+            @Override public String getGroupName() { return ""; }
+            @Override public String getTitle() { return "更换应用图标"; }
+            @Override public String getFeatureId() { return "custom_icon"; }
+            @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
+                String currentName = CustomIconHelper.getCurrentIconName(activity);
+                return NativeSettingHelper.createClickable(
+                        cl, getTitle(), currentName, true, false,
+                        v -> CustomIconHelper.showIconPickerDialog(activity, onRefresh)
+                );
+            }
+        });
+        
         register(new FeatureSettingItem() {
             @Override public String getCategory() { return IPatchModule.CATEGORY_CHAT; }
             @Override public String getGroupName() { return ""; }

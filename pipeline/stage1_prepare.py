@@ -147,3 +147,15 @@ def run_stage1(ctx):
         os.makedirs(ctx.engine_bin, exist_ok=True)
         ctx.run_cmd(f"javac -cp {shlex.quote(neoapk_jar)} -d {shlex.quote(ctx.engine_bin)} {shlex.quote(packer_src)}")
         ctx.log("OK", "编译 NeoPacker 流式装配引擎")
+        
+    # 6. 编译 IconManifestPatcher.java
+    icon_patcher_src = os.path.join(ctx.tools_dir, "IconManifestPatcher.java")
+    icon_patcher_class = os.path.join(ctx.engine_bin, "com/tencent/qqnt/patcher/IconManifestPatcher.class")
+
+    if os.path.isfile(icon_patcher_src) and os.path.isfile(ctx.arsclib_jar):
+        if not (os.path.exists(icon_patcher_class) and os.path.getmtime(icon_patcher_class) >= os.path.getmtime(icon_patcher_src)):
+            os.makedirs(ctx.engine_bin, exist_ok=True)
+            ctx.run_cmd(
+                f"javac -cp {shlex.quote(ctx.arsclib_jar)} -d {shlex.quote(ctx.engine_bin)} {shlex.quote(icon_patcher_src)}"
+            )
+            ctx.log("OK", "编译 IconManifestPatcher 图标/Manifest 修补引擎")

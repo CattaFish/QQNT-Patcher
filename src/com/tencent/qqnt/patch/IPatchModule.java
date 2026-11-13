@@ -15,6 +15,7 @@ import java.util.List;
 public interface IPatchModule {
     String CATEGORY_CHAT = "chat";
     String CATEGORY_PURIFY = "purify";
+    String CATEGORY_MISC = "misc";
     String CATEGORY_ADVANCED = "advanced";
 
     String getId();

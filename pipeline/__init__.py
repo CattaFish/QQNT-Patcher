@@ -28,7 +28,7 @@ def run_pipeline(ctx: PipelineContext):
         "patcher_bin", "dex_out", "bin", "bsh.dex", "bsh_dex",
         "libs_cached.dex", "preset_plugins.zip", "apk_meta_cache.json",
         "dex_cache", "rule_discovery_cache.json", "dex_classes_map.json",
-        "killer_cache"
+        "killer_cache", "icon_cache"
     }
     for f in os.listdir(ctx.work_dir):
         if f not in keep_list:

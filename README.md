@@ -137,9 +137,10 @@ curl -L -o tools/guava.jar https://repo1.maven.org/maven2/com/google/guava/guava
 # 2. 脚本引擎与协议依赖
 curl -f -L -o tools/bsh.aar https://repo1.maven.org/maven2/io/github/copylibs/beanshell-android-lambda/3.0.0.beta10/beanshell-android-lambda-3.0.0.beta10.aar
 python3 -c "import zipfile, os; open('tools/bsh.jar', 'wb').write(zipfile.ZipFile('tools/bsh.aar').read('classes.jar')); os.remove('tools/bsh.aar')"
-
 curl -L -o tools/dx.jar https://repo1.maven.org/maven2/com/jakewharton/android/repackaged/dalvik-dx/9.0.0_r3/dalvik-dx-9.0.0_r3.jar
 curl -L -o tools/protobuf.jar https://repo1.maven.org/maven2/com/google/protobuf/protobuf-java/3.25.3/protobuf-java-3.25.3.jar
+
+curl -L -o tools/arsclib.jar https://repo1.maven.org/maven2/io/github/reandroid/ARSCLib/1.4.0/ARSCLib-1.4.0.jar
 
 # 3. Android 编译期桩库
 curl -L -o tools/android.jar https://raw.githubusercontent.com/Sable/android-platforms/master/android-30/android.jar

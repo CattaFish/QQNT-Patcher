@@ -126,6 +126,7 @@ public class SettingSearchInjector {
             ArrayList<c> categories = new ArrayList<>();
             categories.add(new ZzzChatSearchNode());
             categories.add(new ZzzPurifySearchNode());
+            categories.add(new ZzzMiscSearchNode());
             categories.add(new ZzzAdvancedSearchNode());
             return categories;
         }
@@ -141,6 +142,8 @@ public class SettingSearchInjector {
                 ZzzSettingFragment.startCategory(context, IPatchModule.CATEGORY_CHAT);
             } else if ("净化".equals(title)) {
                 ZzzSettingFragment.startCategory(context, IPatchModule.CATEGORY_PURIFY);
+            } else if ("杂项".equals(title)) {
+                ZzzSettingFragment.startCategory(context, IPatchModule.CATEGORY_MISC);
             } else if ("高级".equals(title)) {
                 ZzzSettingFragment.startCategory(context, IPatchModule.CATEGORY_ADVANCED);
             } else {
@@ -208,6 +211,37 @@ public class SettingSearchInjector {
         @Override
         public void f(String title, Context context, String search) {
             ZzzSettingFragment.startCategory(context, IPatchModule.CATEGORY_PURIFY, title);
+        }
+    }
+    
+    /**
+     * 二级分类节点：杂项（无参构造，硬编码分类）
+     */
+    public static class ZzzMiscSearchNode extends c {
+        @Override
+        public ArrayList<c> c() {
+            ArrayList<c> leaves = new ArrayList<>();
+            for (IPatchModule module : ModuleManager.getModules()) {
+                if (module.showInSettings() && IPatchModule.CATEGORY_MISC.equals(module.getCategory())) {
+                    leaves.add(new ZzzLeafNode(module.getName()));
+                }
+            }
+            for (SettingItem item : SettingMenuRegistry.getItems()) {
+                if (item.isSearchable() && !item.isPluginPage() && IPatchModule.CATEGORY_MISC.equals(item.getCategory())) {
+                    leaves.add(new ZzzLeafNode(item.getTitle()));
+                }
+            }
+            return leaves;
+        }
+
+        @Override
+        public String e() {
+            return "杂项";
+        }
+
+        @Override
+        public void f(String title, Context context, String search) {
+            ZzzSettingFragment.startCategory(context, IPatchModule.CATEGORY_MISC, title);
         }
     }
 

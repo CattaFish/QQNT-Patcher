@@ -87,6 +87,7 @@ class PipelineContext:
         self.work_dir = os.path.join(self.root_dir, "build_cache")
         self.assets_src_dir = os.path.join(self.root_dir, "assets")
         self.preset_plugins_dir = os.path.join(self.root_dir, "preset_plugins")
+        self.icons_src_dir = os.path.join(self.root_dir, "icons")
 
         self.input_apk = os.path.abspath(input_apk)
         self.output_apk = os.path.abspath(output_apk)
@@ -117,6 +118,7 @@ class PipelineContext:
         self.protobuf_jar = os.path.join(self.tools_dir, "protobuf.jar")
         self.android_jar = os.path.join(self.tools_dir, "android.jar")
         self.fixed_keystore = os.path.join(self.tools_dir, "debug.keystore")
+        self.arsclib_jar = os.path.join(self.tools_dir, "arsclib.jar")
 
         self.target_pkg = ""
         self.signature_b64 = ""

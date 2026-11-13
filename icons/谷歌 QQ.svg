@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <!-- 圆环轮廓（外圆顺时针、内孔逆时针） -->
+    <clipPath id="q-ring-clip">
+      <path d="M 114,24 A 88,88 0 1,1 114,200 A 88,88 0 1,1 114,24 Z
+               M 114,59 A 53,53 0 1,0 114,165 A 53,53 0 1,0 114,59 Z" />
+    </clipPath>
+
+    <!-- 底部淡亮绿 -> 左上黄 -->
+    <linearGradient id="grad-gy" x1="56.25" y1="152.44" x2="43.77" y2="118.15" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#32CE62" />
+      <stop offset="100%" stop-color="#FFCD0A" />
+    </linearGradient>
+
+    <!-- 左上黄 -> 顶部及右侧淡亮红 -->
+    <linearGradient id="grad-yr" x1="78.75" y1="50.95" x2="114" y2="41.50" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFCD0A" />
+      <stop offset="100%" stop-color="#FF534D" />
+    </linearGradient>
+
+    <!-- 放大后的蓝色斜棍渐变（同步拉长渐变轴） -->
+    <linearGradient id="grad-blue-tail" x1="139.5" y1="137.5" x2="204.5" y2="202.5" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4293FF" />
+      <stop offset="100%" stop-color="#267DFF" />
+    </linearGradient>
+  </defs>
+
+  <!-- 圆环三色 -->
+  <g clip-path="url(#q-ring-clip)">
+    <rect width="240" height="240" fill="#32CE62" />
+    <path d="M 114,112 L -27.4,253.4 L -90,253.4 L -90,-85.0 L 148.7,-85.0 Z" fill="url(#grad-gy)" />
+    <path d="M -30,-32 L 260,-32 L 260,258 Z" fill="url(#grad-yr)" />
+  </g>
+
+  <!-- 加粗拉长后的蓝色一撇（宽 34、长 92） -->
+  <polygon points="151.48,125.44 216.53,190.49 192.49,214.53 127.44,149.48" fill="url(#grad-blue-tail)" />
+</svg>

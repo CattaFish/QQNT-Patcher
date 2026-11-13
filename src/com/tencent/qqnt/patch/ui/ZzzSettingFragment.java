@@ -99,7 +99,9 @@ public class ZzzSettingFragment {
                     if (IPatchModule.CATEGORY_CHAT.equals(category)) {
                         setTitleMethod.invoke(fragment, "聊天");
                     } else if (IPatchModule.CATEGORY_PURIFY.equals(category)) {
-                        setTitleMethod.invoke(fragment, "净化");
+                    setTitleMethod.invoke(fragment, "净化");
+                    } else if (IPatchModule.CATEGORY_MISC.equals(category)) {
+                    setTitleMethod.invoke(fragment, "杂项");
                     } else if (IPatchModule.CATEGORY_ADVANCED.equals(category)) {
                         setTitleMethod.invoke(fragment, "高级");
                     } else {
@@ -197,6 +199,8 @@ public class ZzzSettingFragment {
 
                 int chatEnabled = 0, chatTotal = 0;
                 int purifyEnabled = 0, purifyTotal = 0;
+                int miscEnabled = 0, miscTotal = 0;
+                int miscExtraItems = 0;
 
                 for (IPatchModule m : ModuleManager.getModules()) {
                     if (!m.showInSettings()) continue;
@@ -206,6 +210,14 @@ public class ZzzSettingFragment {
                     } else if (IPatchModule.CATEGORY_PURIFY.equals(m.getCategory())) {
                         purifyTotal++;
                         if (m.isEnabled()) purifyEnabled++;
+                    } else if (IPatchModule.CATEGORY_MISC.equals(m.getCategory())) {
+                        miscTotal++;
+                        if (m.isEnabled()) miscEnabled++;
+                    }
+                }
+                for (SettingItem item : SettingMenuRegistry.getItems()) {
+                    if (!item.isPluginPage() && IPatchModule.CATEGORY_MISC.equals(item.getCategory())) {
+                        miscExtraItems++;
                     }
                 }
 
@@ -220,6 +232,16 @@ public class ZzzSettingFragment {
                         cl, "净化", purifySummary, true, false,
                         v -> startCategory(activity, IPatchModule.CATEGORY_PURIFY)
                 ));
+
+                if (miscTotal > 0 || miscExtraItems > 0) {
+                    String miscSummary = (miscTotal > 0)
+                            ? (miscEnabled + "/" + miscTotal + " 已开启")
+                            : (miscExtraItems + " 项功能");
+                    categoryItems.add(NativeSettingHelper.createClickable(
+                            cl, "杂项", miscSummary, true, false,
+                            v -> startCategory(activity, IPatchModule.CATEGORY_MISC)
+                    ));
+                }
 
                 boolean hasNew = ConfigManager.hasNewVersion();
                 String advSummary = hasNew ? "发现新版本" : ConfigManager.VERSION;
@@ -286,6 +308,7 @@ public class ZzzSettingFragment {
                     String headerTitle = "功能列表";
                     if (IPatchModule.CATEGORY_CHAT.equals(category)) headerTitle = "聊天功能";
                     else if (IPatchModule.CATEGORY_PURIFY.equals(category)) headerTitle = "净化功能";
+                    else if (IPatchModule.CATEGORY_MISC.equals(category)) headerTitle = "杂项功能";
                     pendingGroups.add(new GroupData(headerTitle, funcItems));
                 }
 

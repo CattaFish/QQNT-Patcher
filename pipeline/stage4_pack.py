@@ -2,9 +2,95 @@
 import os
 import re
 import json
+import shlex
 import shutil
+import hashlib
 import zipfile
 from .context import Colors
+
+
+def _collect_icon_files(icons_dir):
+    if not os.path.isdir(icons_dir):
+        return []
+    files = []
+    for name in sorted(os.listdir(icons_dir)):
+        if name.startswith("."):
+            continue
+        fp = os.path.join(icons_dir, name)
+        if os.path.isfile(fp) and name.lower().endswith((".png", ".webp")):
+            files.append((name, fp))
+    return files
+
+
+def _compute_icon_cache_key(ctx, icon_files):
+    h = hashlib.sha256()
+    h.update((ctx.orig_apk_md5 or "").encode("utf-8"))
+    patcher_src = os.path.join(ctx.tools_dir, "IconManifestPatcher.java")
+    if os.path.isfile(patcher_src):
+        h.update(str(os.path.getmtime(patcher_src)).encode("utf-8"))
+    for name, fp in icon_files:
+        h.update(name.encode("utf-8"))
+        with open(fp, "rb") as f:
+            while chunk := f.read(65536):
+                h.update(chunk)
+    return h.hexdigest()[:16]
+
+
+def _prepare_custom_icons(ctx, inject_dir, injected_summary):
+    if "custom_icon" not in ctx.active_features:
+        return
+    icon_files = _collect_icon_files(ctx.icons_src_dir)
+    if not icon_files:
+        return
+
+    icon_patcher_class = os.path.join(ctx.engine_bin, "com/tencent/qqnt/patcher/IconManifestPatcher.class")
+    if not os.path.isfile(ctx.arsclib_jar) or not os.path.isfile(icon_patcher_class):
+        ctx.log("WARN", "缺少 tools/arsclib.jar 或 IconManifestPatcher，跳过自定义图标注入")
+        return
+
+    cache_root = os.path.join(ctx.work_dir, "icon_cache")
+    os.makedirs(cache_root, exist_ok=True)
+    cache_key = _compute_icon_cache_key(ctx, icon_files)
+    cached_dir = os.path.join(cache_root, cache_key)
+
+    manifest_ok = os.path.isfile(os.path.join(cached_dir, "AndroidManifest.xml"))
+    arsc_ok = os.path.isfile(os.path.join(cached_dir, "resources.arsc"))
+    json_ok = os.path.isfile(os.path.join(cached_dir, "assets", "zzz_icons.json"))
+
+    if manifest_ok and arsc_ok and json_ok:
+        ctx.log("CACHE", f"自定义图标缓存命中 ({len(icon_files)} 套)")
+    else:
+        # 清理旧缓存，避免堆积 9MB 级别的旧 resources.arsc
+        for old in os.listdir(cache_root):
+            old_p = os.path.join(cache_root, old)
+            if os.path.isdir(old_p):
+                shutil.rmtree(old_p, ignore_errors=True)
+        os.makedirs(cached_dir, exist_ok=True)
+
+        cp = f"{shlex.quote(ctx.engine_bin)}:{shlex.quote(ctx.arsclib_jar)}"
+        cmd = (
+            f"java -Xms128m -Xmx512m -cp {cp} "
+            f"com.tencent.qqnt.patcher.IconManifestPatcher "
+            f"{shlex.quote(ctx.input_apk)} {shlex.quote(cached_dir)} {shlex.quote(ctx.icons_src_dir)}"
+        )
+        ret = ctx.run_cmd_stream(cmd)
+        if ret != 0 or not os.path.isfile(os.path.join(cached_dir, "AndroidManifest.xml")):
+            ctx.log("ERR", "IconManifestPatcher 执行失败，跳过本次图标注入")
+            shutil.rmtree(cached_dir, ignore_errors=True)
+            return
+
+    # 合并写入 inject_dir (AndroidManifest.xml, resources.arsc, res/..., assets/...)
+    for root, _, files in os.walk(cached_dir):
+        for fname in files:
+            src_fp = os.path.join(root, fname)
+            rel_fp = os.path.relpath(src_fp, cached_dir)
+            dst_fp = os.path.join(inject_dir, rel_fp)
+            os.makedirs(os.path.dirname(dst_fp), exist_ok=True)
+            shutil.copyfile(src_fp, dst_fp)
+            if rel_fp.startswith("assets" + os.sep) or rel_fp.startswith("assets/"):
+                injected_summary["assets"].append(rel_fp.replace(os.sep, "/")[len("assets/"):])
+
+    injected_summary["custom_icons"] = len(icon_files)
 
 
 def run_stage4(ctx):
@@ -19,7 +105,8 @@ def run_stage4(ctx):
         "host_dex": 0,
         "extra_dex": 0,
         "sos": [],
-        "assets": []
+        "assets": [],
+        "custom_icons": 0
     }
 
     for local_path, in_zip_name in ctx.modified_dex_files:
@@ -106,12 +193,17 @@ def run_stage4(ctx):
                     shutil.copyfile(src_fp, dst_fp)
                     injected_summary["assets"].append(rel_fp)
 
+    # 注入自定义图标（修改 AndroidManifest.xml + resources.arsc + res/ + assets/icons/）
+    _prepare_custom_icons(ctx, inject_dir, injected_summary)
+
     print(f"  {Colors.CYAN}┌{Colors.RESET} 注入产物清单汇总:")
     print(f"  {Colors.CYAN}│{Colors.RESET}  ├─ 重构宿主 DEX  : {Colors.BOLD}{injected_summary['host_dex']}{Colors.RESET} 个分包")
     print(f"  {Colors.CYAN}│{Colors.RESET}  ├─ 注入扩展 DEX  : {Colors.BOLD}{injected_summary['extra_dex']}{Colors.RESET} 个分包")
     if injected_summary["sos"]:
         so_desc = ", ".join(injected_summary["sos"])
         print(f"  {Colors.CYAN}│{Colors.RESET}  ├─ 原生 Native 库: {Colors.BOLD}{so_desc}{Colors.RESET}")
+    if injected_summary["custom_icons"] > 0:
+        print(f"  {Colors.CYAN}│{Colors.RESET}  ├─ 自定义应用图标: {Colors.BOLD}{injected_summary['custom_icons']}{Colors.RESET} 套 (Manifest + ARSC)")
     print(f"  {Colors.CYAN}│{Colors.RESET}  └─ 挂载静态资产  : {Colors.BOLD}{len(injected_summary['assets'])}{Colors.RESET} 项文件 (含自动装配清单)")
 
     ctx.log("OK", "装配注入目录准备完毕")
