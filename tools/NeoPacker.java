@@ -73,7 +73,10 @@ public class NeoPacker {
                     File f = e.getValue();
 
                     ZipEntry origEntry = origZip.getEntry(name);
-                    if (origEntry != null) {
+                    if ("resources.arsc".equals(name)) {
+                        // Android 11+ (targetSdk>=30) 强制要求 resources.arsc 不压缩且 4 字节对齐
+                        maker.setMethod(ZipMaker.METHOD_STORED);
+                    } else if (origEntry != null) {
                         maker.setMethod(origEntry.getMethod());
                     } else {
                         if (name.endsWith(".dex")) {

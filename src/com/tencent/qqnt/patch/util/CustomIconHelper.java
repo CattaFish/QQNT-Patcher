@@ -28,7 +28,6 @@ import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Build;
 import android.view.Gravity;
-import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.Button;
@@ -37,6 +36,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.tencent.qqnt.patch.ui.SettingDialogBuilder;
 import me.yxp.qfun.utils.ui.ThemeHelper;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -498,17 +498,90 @@ public class CustomIconHelper {
 
     private static void createPinnedShortcutFromUri(Activity activity, Uri uri) {
         if (Build.VERSION.SDK_INT < 26) return;
-        try (InputStream is = activity.getContentResolver().openInputStream(uri)) {
-            if (is == null) return;
-            Bitmap raw = BitmapFactory.decodeStream(is);
-            if (raw == null) {
+        try {
+            Bitmap scaled = decodeSampledSquareBitmap(activity, uri, 256);
+            if (scaled == null) {
                 ToastHelper.show(activity, "无法解析所选图片");
                 return;
             }
+
+            String defaultLabel = "QQ";
+            try {
+                CharSequence lbl = activity.getApplicationInfo().loadLabel(activity.getPackageManager());
+                if (lbl != null && lbl.length() > 0) {
+                    defaultLabel = lbl.toString();
+                }
+            } catch (Throwable ignored) {}
+
+            final String fallbackLabel = defaultLabel;
+            SettingDialogBuilder builder = SettingDialogBuilder.build(activity, "创建桌面快捷方式")
+                    .setSubTitle("确认图标与桌面显示名称");
+
+            ImageView preview = new ImageView(activity);
+            int pSize = dp2px(activity, 72f);
+            LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(pSize, pSize);
+            pLp.gravity = Gravity.CENTER_HORIZONTAL;
+            pLp.bottomMargin = dp2px(activity, 12f);
+            preview.setLayoutParams(pLp);
+            preview.setImageBitmap(getRoundedBitmap(scaled, dp2px(activity, 16f)));
+
+            builder.addCustomView(preview)
+                    .addInput("快捷方式名称", fallbackLabel, true, false, null)
+                    .setPositiveButton("创建", dialog -> {
+                        String customLabel = builder.getInputValue(0);
+                        if (customLabel.isEmpty()) customLabel = fallbackLabel;
+                        dialog.dismiss();
+                        requestPinShortcut(activity, scaled, customLabel);
+                    })
+                    .show();
+        } catch (Throwable t) {
+            PLog.e(TAG, "创建桌面快捷方式异常", t);
+            ToastHelper.show(activity, "创建快捷方式失败: " + t.getMessage());
+        }
+    }
+
+    // 分两步按 inSampleSize 降采样解码相册图片，防止高像素原图 OOM
+    private static Bitmap decodeSampledSquareBitmap(Activity activity, Uri uri, int targetSize) {
+        try {
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inJustDecodeBounds = true;
+            try (InputStream is = activity.getContentResolver().openInputStream(uri)) {
+                if (is == null) return null;
+                BitmapFactory.decodeStream(is, null, opts);
+            }
+            if (opts.outWidth <= 0 || opts.outHeight <= 0) return null;
+
+            int inSample = 1;
+            int halfW = opts.outWidth / 2;
+            int halfH = opts.outHeight / 2;
+            while ((halfW / inSample) >= targetSize && (halfH / inSample) >= targetSize) {
+                inSample *= 2;
+            }
+
+            BitmapFactory.Options decodeOpts = new BitmapFactory.Options();
+            decodeOpts.inSampleSize = inSample;
+            Bitmap raw;
+            try (InputStream is2 = activity.getContentResolver().openInputStream(uri)) {
+                if (is2 == null) return null;
+                raw = BitmapFactory.decodeStream(is2, null, decodeOpts);
+            }
+            if (raw == null) return null;
+
             int size = Math.min(raw.getWidth(), raw.getHeight());
             Bitmap square = Bitmap.createBitmap(raw, (raw.getWidth() - size) / 2, (raw.getHeight() - size) / 2, size, size);
-            Bitmap scaled = Bitmap.createScaledBitmap(square, 256, 256, true);
+            Bitmap scaled = Bitmap.createScaledBitmap(square, targetSize, targetSize, true);
+            if (square != raw && square != scaled) square.recycle();
+            if (raw != scaled) raw.recycle();
+            return scaled;
+        } catch (Throwable t) {
+            PLog.w(TAG, "降采样解码图片异常: " + t.getMessage());
+            return null;
+        }
+    }
 
+    private static void requestPinShortcut(Activity activity, Bitmap iconBmp, String label) {
+        if (Build.VERSION.SDK_INT < 26) return;
+        try {
             ShortcutManager sm = activity.getSystemService(ShortcutManager.class);
             if (sm == null || !sm.isRequestPinShortcutSupported()) {
                 ToastHelper.show(activity, "当前桌面不支持创建快捷方式");
@@ -521,16 +594,16 @@ public class CustomIconHelper {
 
             String shortcutId = "zzz_custom_shortcut_" + System.currentTimeMillis();
             ShortcutInfo info = new ShortcutInfo.Builder(activity, shortcutId)
-                    .setShortLabel("QQ")
-                    .setLongLabel("QQ")
-                    .setIcon(Icon.createWithBitmap(scaled))
+                    .setShortLabel(label)
+                    .setLongLabel(label)
+                    .setIcon(Icon.createWithBitmap(iconBmp))
                     .setIntent(launchIntent)
                     .build();
 
             sm.requestPinShortcut(info, null);
             ToastHelper.show(activity, "已请求创建桌面快捷方式（如系统拦截请授予“桌面快捷方式”权限）");
         } catch (Throwable t) {
-            PLog.e(TAG, "创建桌面快捷方式异常", t);
+            PLog.e(TAG, "请求固定快捷方式异常", t);
             ToastHelper.show(activity, "创建快捷方式失败: " + t.getMessage());
         }
     }

@@ -13,6 +13,7 @@ import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.security.MessageDigest;
 import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -65,6 +66,7 @@ public class IconManifestPatcher {
             }
 
             List<IconSpec> specs = new ArrayList<>();
+            Set<String> usedAliases = new HashSet<>();
             for (int i = 0; i < iconFiles.size(); i++) {
                 File f = iconFiles.get(i);
                 String rawName = f.getName();
@@ -72,9 +74,16 @@ public class IconManifestPatcher {
                 String displayName = dot > 0 ? rawName.substring(0, dot) : rawName;
                 String ext = dot > 0 ? rawName.substring(dot).toLowerCase(Locale.ROOT) : ".png";
 
+                // 别名使用文件名短哈希，避免增删其他图标导致已有图标别名漂移
+                String alias = CUSTOM_ALIAS_PREFIX + shortHash(rawName);
+                if (!usedAliases.add(alias)) {
+                    alias = alias + "_" + i;
+                    usedAliases.add(alias);
+                }
+
                 IconSpec spec = new IconSpec();
                 spec.displayName = displayName;
-                spec.aliasName = CUSTOM_ALIAS_PREFIX + i;
+                spec.aliasName = alias;
                 spec.entryName = "zzz_ic_" + i;
                 spec.resPath = "res/drawable/" + spec.entryName + ext;
                 spec.assetRelPath = "icons/" + spec.entryName + ext;
@@ -89,6 +98,7 @@ public class IconManifestPatcher {
                     throw new IllegalStateException("APK 缺少 resources.arsc 或 AndroidManifest.xml");
                 }
 
+                // 1. 修补 resources.arsc（优先使用零重排原地追加，特殊格式回退 ARSCLib）
                 byte[] origArscBytes = readAll(zip.getInputStream(arscEntry));
                 byte[] patchedArscBytes = tryAppendArscInPlace(origArscBytes, specs);
 
@@ -297,6 +307,7 @@ public class IconManifestPatcher {
         for (IconSpec s : specs) newGlobalStrings.add(s.resPath);
         byte[] patchedGlobalPool = appendStringsToPool(buf, globalPoolOff, origGlobalPoolSize, newGlobalStrings);
 
+        // 定位第一个 Package (0x7f)
         int pos = globalPoolOff + origGlobalPoolSize;
         int targetPkgOff = -1;
         int targetPkgSize = 0;
@@ -341,6 +352,7 @@ public class IconManifestPatcher {
         for (IconSpec s : specs) newKeyStrings.add(s.entryName);
         byte[] patchedKeyPool = appendStringsToPool(buf, keyStringsOff, origKeyPoolSize, newKeyStrings);
 
+        // 先遍历检查 drawable 的所有 TypeSpec/Type 是否均为 flags==0x00 的标准格式，并找到默认空配置 Type
         int pkgEnd = targetPkgOff + targetPkgSize;
         int sub = targetPkgOff + pkgHeaderSize;
         int defaultDrawableTypeOff = -1;
@@ -355,7 +367,7 @@ public class IconManifestPatcher {
                 drawableEntryCount = readU32(buf, sub + 12);
             } else if (st == 0x0201 && (buf[sub + 8] & 0xFF) == drawableTypeId) {
                 int tflags = buf[sub + 9] & 0xFF;
-                if (tflags != 0) return null;
+                if (tflags != 0) return null; // 若为 SPARSE/OFFSET16 则走 ARSCLib 回退路径
                 if (firstDrawableTypeOff == -1) firstDrawableTypeOff = sub;
                 if (defaultDrawableTypeOff == -1 && isDefaultEmptyConfig(buf, sub + 20, shsz - 20)) {
                     defaultDrawableTypeOff = sub;
@@ -371,6 +383,7 @@ public class IconManifestPatcher {
             specs.get(i).resId = (pkgId << 24) | (drawableTypeId << 16) | (drawableEntryCount + i);
         }
 
+        // 重组 Package 字节流
         ByteArrayOutputStream pkgBody = new ByteArrayOutputStream(targetPkgSize + n * 64);
         pkgBody.write(buf, targetPkgOff, pkgHeaderSize);
 
@@ -390,6 +403,7 @@ public class IconManifestPatcher {
                 newKeyStringsRel = pkgBody.size();
                 pkgBody.write(patchedKeyPool);
             } else if (st == 0x0202 && (buf[sub + 8] & 0xFF) == drawableTypeId) {
+                // TypeSpec: 追加 n 个 0x00000000 flag
                 byte[] chunk = new byte[scsz + n * 4];
                 System.arraycopy(buf, sub, chunk, 0, scsz);
                 writeU32(chunk, 4, chunk.length);
@@ -402,6 +416,7 @@ public class IconManifestPatcher {
                 int dataLen = scsz - estart;
 
                 if (sub == defaultDrawableTypeOff) {
+                    // 默认配置 Type: 插入 n 个偏移，并在尾部追加 n 个 16 字节 Simple Entry
                     ByteArrayOutputStream tOut = new ByteArrayOutputStream(scsz + n * 20);
                     tOut.write(buf, sub, offsEnd);
                     for (int i = 0; i < n; i++) {
@@ -414,12 +429,14 @@ public class IconManifestPatcher {
                     tOut.write(buf, sub + estart, dataLen);
 
                     for (int i = 0; i < n; i++) {
+                        // ResTable_entry (8 bytes)
                         writeU16LE(tOut, 8);
                         writeU16LE(tOut, 0);
                         writeU32LE(tOut, origKeyStrCount + i);
+                        // Res_value (8 bytes)
                         writeU16LE(tOut, 8);
-                        tOut.write(0);
-                        tOut.write(0x03);
+                        tOut.write(0);    // res0
+                        tOut.write(0x03); // TYPE_STRING
                         writeU32LE(tOut, origGlobalStrCount + i);
                     }
 
@@ -429,6 +446,7 @@ public class IconManifestPatcher {
                     writeU32(chunk, 16, estart + n * 4);
                     pkgBody.write(chunk);
                 } else {
+                    // 非默认配置 Type: 插入 n 个 NO_ENTRY (0xFFFFFFFF)
                     ByteArrayOutputStream tOut = new ByteArrayOutputStream(scsz + n * 4);
                     tOut.write(buf, sub, offsEnd);
                     for (int i = 0; i < n; i++) {
@@ -459,6 +477,7 @@ public class IconManifestPatcher {
             writeU32(patchedPkg, 280, origKeyStrCount + n);
         }
 
+        // 拼接最终完整 resources.arsc
         ByteArrayOutputStream finalOut = new ByteArrayOutputStream(buf.length + 1024);
         finalOut.write(buf, 0, tableHeaderSize);
         finalOut.write(patchedGlobalPool);
@@ -503,16 +522,21 @@ public class IconManifestPatcher {
         byte[] addedStrBytes = newStrBytes.toByteArray();
 
         ByteArrayOutputStream out = new ByteArrayOutputStream(origChunkSize + n * 4 + addedStrBytes.length);
+        // 1. Header + 原 stringOffsets
         out.write(buf, poolOff, hsz + origStrCount * 4);
+        // 2. 新增 stringOffsets
         for (int i = 0; i < n; i++) {
             writeU32LE(out, newRelOffsets[i]);
         }
+        // 3. styleOffsets (若有) + 与字符串区之间的空隙
         int afterStrOffsets = hsz + origStrCount * 4;
         if (origStringsStart > afterStrOffsets) {
             out.write(buf, poolOff + afterStrOffsets, origStringsStart - afterStrOffsets);
         }
+        // 4. 原字符串数据区 + 新增字符串数据区
         out.write(buf, poolOff + origStringsStart, origStrDataLen);
         out.write(addedStrBytes);
+        // 5. 原 styles 数据区（原封不动）
         if (origStylesStart != 0 && origChunkSize > origStylesStart) {
             out.write(buf, poolOff + origStylesStart, origChunkSize - origStylesStart);
         }
@@ -520,7 +544,7 @@ public class IconManifestPatcher {
         byte[] res = out.toByteArray();
         writeU32(res, 4, res.length);
         writeU32(res, 8, origStrCount + n);
-        writeU32(res, 16, flags & ~1);
+        writeU32(res, 16, flags & ~1); // 清除 SORTED_FLAG 保证线性安全查找
         writeU32(res, 20, origStringsStart + n * 4);
         if (origStylesStart != 0) {
             writeU32(res, 24, origStylesStart + n * 4 + addedStrBytes.length);
@@ -650,6 +674,7 @@ public class IconManifestPatcher {
         int defaultIconResId = appIconResId;
         int defaultLabelResId = appLabelResId;
 
+        // 定位 SplashActivity，摘除其 LAUNCHER intent-filter（保留其本体启用状态与 MAINACTIVITY filter）
         ResXmlElement splashActivity = null;
         for (ResXmlElement act : app.listElements("activity")) {
             ResXmlAttribute nameAttr = act.searchAttributeByName("name");
@@ -677,6 +702,7 @@ public class IconManifestPatcher {
             throw new IllegalStateException("未解析到原包默认 icon 资源 ID");
         }
 
+        // 先移除可能已存在的同名 Zzz 别名（防重入）
         List<ResXmlElement> existingAliases = new ArrayList<>(app.listElements("activity-alias"));
         for (ResXmlElement alias : existingAliases) {
             ResXmlAttribute nameAttr = alias.searchAttributeByName("name");
@@ -688,8 +714,10 @@ public class IconManifestPatcher {
             }
         }
 
+        // 插入默认原生图标别名 (enabled=true)
         appendLauncherAlias(app, DEFAULT_ALIAS, targetActivityName, true, defaultIconResId, defaultLabelResId);
 
+        // 插入各自定义图标别名 (enabled=false)
         for (IconSpec spec : specs) {
             appendLauncherAlias(app, spec.aliasName, targetActivityName, false, spec.resId, defaultLabelResId);
         }
@@ -783,6 +811,20 @@ public class IconManifestPatcher {
 
         try (Writer w = new OutputStreamWriter(new FileOutputStream(outFile), StandardCharsets.UTF_8)) {
             w.write(sb.toString());
+        }
+    }
+
+    private static String shortHash(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] digest = md.digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(8);
+            for (int i = 0; i < 4; i++) {
+                sb.append(String.format(Locale.ROOT, "%02x", digest[i] & 0xFF));
+            }
+            return sb.toString();
+        } catch (Throwable t) {
+            return Integer.toHexString(input.hashCode());
         }
     }
 
