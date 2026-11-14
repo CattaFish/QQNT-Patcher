@@ -6213,6 +6213,22 @@
     "date": "2026-11-05",
     "channel": "豌豆荚"
   },
+  "537401671": {
+    "summary": "QQ 9.3.86.617",
+    "platform": "iOS",
+    "version": "9.3.86.617",
+    "arch": "Phone",
+    "date": "2026-11-13",
+    "channel": "AppStore"
+  },
+  "537401682": {
+    "summary": "QQ(Pad) 9.3.86.617",
+    "platform": "iOS",
+    "version": "9.3.86.617",
+    "arch": "Pad",
+    "date": "2026-11-13",
+    "channel": "AppStore"
+  },
   "537402089": {
     "summary": "QQ 9.3.85.43095-Beta",
     "platform": "Android",

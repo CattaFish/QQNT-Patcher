@@ -33,13 +33,29 @@ public class IconManifestPatcher {
     private static final int ATTR_TARGET_ACTIVITY = 0x01010202;
 
     static class IconSpec {
+        String id;
         String displayName;
-        String aliasName;
         String entryName;
         String resPath;
         String assetRelPath;
         File sourceFile;
         int resId;
+        boolean isDefault;
+    }
+
+    static class NameSpec {
+        String id;
+        String label;
+        boolean isDefault;
+    }
+
+    static class AliasSpec {
+        String iconId;
+        String nameId;
+        String aliasName;
+        int iconResId;
+        String customLabel; // null 表示沿用原包 defaultLabelResId
+        boolean enabled;
     }
 
     public static void main(String[] args) {
@@ -56,8 +72,10 @@ public class IconManifestPatcher {
 
         try {
             List<File> iconFiles = collectIconFiles(iconsDir);
-            if (iconFiles.isEmpty()) {
-                System.out.println("[IconManifestPatcher] icons 目录为空，跳过图标注入");
+            List<String> customNames = collectCustomNames(new File(iconsDir, "names.txt"));
+
+            if (iconFiles.isEmpty() && customNames.isEmpty()) {
+                System.out.println("[IconManifestPatcher] icons 与 names.txt 均为空，跳过注入");
                 return;
             }
 
@@ -65,8 +83,16 @@ public class IconManifestPatcher {
                 throw new IOException("无法创建输出目录: " + outDir.getAbsolutePath());
             }
 
-            List<IconSpec> specs = new ArrayList<>();
-            Set<String> usedAliases = new HashSet<>();
+            // 1. 构造图标列表（第 0 项固定为默认原生图标）
+            List<IconSpec> iconSpecs = new ArrayList<>();
+            IconSpec defaultIconSpec = new IconSpec();
+            defaultIconSpec.id = "default";
+            defaultIconSpec.displayName = "默认图标";
+            defaultIconSpec.isDefault = true;
+            iconSpecs.add(defaultIconSpec);
+
+            List<IconSpec> customIconSpecs = new ArrayList<>();
+            Set<String> usedIconIds = new HashSet<>();
             for (int i = 0; i < iconFiles.size(); i++) {
                 File f = iconFiles.get(i);
                 String rawName = f.getName();
@@ -74,22 +100,48 @@ public class IconManifestPatcher {
                 String displayName = dot > 0 ? rawName.substring(0, dot) : rawName;
                 String ext = dot > 0 ? rawName.substring(dot).toLowerCase(Locale.ROOT) : ".png";
 
-                // 别名使用文件名短哈希，避免增删其他图标导致已有图标别名漂移
-                String alias = CUSTOM_ALIAS_PREFIX + shortHash(rawName);
-                if (!usedAliases.add(alias)) {
-                    alias = alias + "_" + i;
-                    usedAliases.add(alias);
+                String iconId = shortHash(rawName);
+                if (!usedIconIds.add(iconId)) {
+                    iconId = iconId + "_" + i;
+                    usedIconIds.add(iconId);
                 }
 
                 IconSpec spec = new IconSpec();
+                spec.id = iconId;
                 spec.displayName = displayName;
-                spec.aliasName = alias;
                 spec.entryName = "zzz_ic_" + i;
                 spec.resPath = "res/drawable/" + spec.entryName + ext;
                 spec.assetRelPath = "icons/" + spec.entryName + ext;
                 spec.sourceFile = f;
-                specs.add(spec);
+                spec.isDefault = false;
+                iconSpecs.add(spec);
+                customIconSpecs.add(spec);
             }
+
+            // 2. 构造名称列表（第 0 项固定为默认 QQ）
+            List<NameSpec> nameSpecs = new ArrayList<>();
+            NameSpec defaultNameSpec = new NameSpec();
+            defaultNameSpec.id = "default";
+            defaultNameSpec.label = "QQ (默认)";
+            defaultNameSpec.isDefault = true;
+            nameSpecs.add(defaultNameSpec);
+
+            Set<String> usedNameIds = new HashSet<>();
+            for (int i = 0; i < customNames.size(); i++) {
+                String lbl = customNames.get(i);
+                String nameId = "n_" + shortHash("name:" + lbl);
+                if (!usedNameIds.add(nameId)) {
+                    nameId = nameId + "_" + i;
+                    usedNameIds.add(nameId);
+                }
+                NameSpec ns = new NameSpec();
+                ns.id = nameId;
+                ns.label = lbl;
+                ns.isDefault = false;
+                nameSpecs.add(ns);
+            }
+
+            List<AliasSpec> aliasSpecs = new ArrayList<>();
 
             try (ZipFile zip = new ZipFile(origApk)) {
                 ZipEntry arscEntry = zip.getEntry("resources.arsc");
@@ -98,27 +150,29 @@ public class IconManifestPatcher {
                     throw new IllegalStateException("APK 缺少 resources.arsc 或 AndroidManifest.xml");
                 }
 
-                // 1. 修补 resources.arsc（优先使用零重排原地追加，特殊格式回退 ARSCLib）
-                byte[] origArscBytes = readAll(zip.getInputStream(arscEntry));
-                byte[] patchedArscBytes = tryAppendArscInPlace(origArscBytes, specs);
+                // 3. 仅在存在自定义图片时修补 resources.arsc
+                if (!customIconSpecs.isEmpty()) {
+                    byte[] origArscBytes = readAll(zip.getInputStream(arscEntry));
+                    byte[] patchedArscBytes = tryAppendArscInPlace(origArscBytes, customIconSpecs);
 
-                if (patchedArscBytes == null) {
-                    System.out.println("[IconManifestPatcher] 检测到特殊 ARSC 格式，回退使用 ARSCLib 重建");
-                    patchedArscBytes = patchArscWithArscLib(origArscBytes, specs);
+                    if (patchedArscBytes == null) {
+                        System.out.println("[IconManifestPatcher] 检测到特殊 ARSC 格式，回退使用 ARSCLib 重建");
+                        patchedArscBytes = patchArscWithArscLib(origArscBytes, customIconSpecs);
+                    }
+
+                    File outArsc = new File(outDir, "resources.arsc");
+                    try (OutputStream os = new BufferedOutputStream(new FileOutputStream(outArsc))) {
+                        os.write(patchedArscBytes);
+                    }
                 }
 
-                File outArsc = new File(outDir, "resources.arsc");
-                try (OutputStream os = new BufferedOutputStream(new FileOutputStream(outArsc))) {
-                    os.write(patchedArscBytes);
-                }
-
-                // 2. 修补 AndroidManifest.xml
+                // 4. 修补 AndroidManifest.xml（生成 iconSpecs × nameSpecs 全组合别名）
                 AndroidManifestBlock manifest;
                 try (InputStream is = zip.getInputStream(manifestEntry)) {
                     manifest = AndroidManifestBlock.load(is);
                 }
 
-                patchManifest(manifest, specs);
+                patchManifest(manifest, iconSpecs, nameSpecs, aliasSpecs);
 
                 File outManifest = new File(outDir, "AndroidManifest.xml");
                 try (OutputStream os = new BufferedOutputStream(new FileOutputStream(outManifest))) {
@@ -126,8 +180,8 @@ public class IconManifestPatcher {
                 }
             }
 
-            // 3. 处理图标（透明轮廓图自动套纯白自适应背景）并写入 res/drawable/ 与 assets/icons/
-            for (IconSpec spec : specs) {
+            // 5. 处理图标（透明轮廓图自动套纯白自适应背景）并写入 res/drawable/ 与 assets/icons/
+            for (IconSpec spec : customIconSpecs) {
                 File resOut = new File(outDir, spec.resPath);
                 resOut.getParentFile().mkdirs();
                 writeAdaptiveWhiteIconIfNeeded(spec.sourceFile, resOut);
@@ -137,10 +191,12 @@ public class IconManifestPatcher {
                 copyFile(resOut, assetOut);
             }
 
-            // 4. 生成 assets/zzz_icons.json 运行时清单
-            writeIconsJson(new File(outDir, "assets/zzz_icons.json"), specs);
+            // 6. 生成 assets/zzz_icons.json 运行时清单
+            writeIconsJson(new File(outDir, "assets/zzz_icons.json"), iconSpecs, nameSpecs, aliasSpecs);
 
-            System.out.println("[IconManifestPatcher] OK: 成功生成 " + specs.size() + " 套自定义图标配置 (无损追加模式)");
+            System.out.println("[IconManifestPatcher] OK: 成功生成 "
+                    + customIconSpecs.size() + " 套图标 × " + nameSpecs.size()
+                    + " 个名称（共 " + aliasSpecs.size() + " 个桌面别名）");
         } catch (Throwable t) {
             System.err.println("[IconManifestPatcher] FAIL: " + t.getMessage());
             t.printStackTrace();
@@ -661,7 +717,10 @@ public class IconManifestPatcher {
     // =========================================================================
     // AndroidManifest.xml 修补逻辑
     // =========================================================================
-    private static void patchManifest(AndroidManifestBlock manifest, List<IconSpec> specs) {
+    private static void patchManifest(AndroidManifestBlock manifest,
+                                      List<IconSpec> iconSpecs,
+                                      List<NameSpec> nameSpecs,
+                                      List<AliasSpec> outAliases) {
         ResXmlElement app = manifest.getApplicationElement();
         if (app == null) {
             throw new IllegalStateException("AndroidManifest.xml 缺少 <application> 节点");
@@ -714,12 +773,29 @@ public class IconManifestPatcher {
             }
         }
 
-        // 插入默认原生图标别名 (enabled=true)
-        appendLauncherAlias(app, DEFAULT_ALIAS, targetActivityName, true, defaultIconResId, defaultLabelResId);
+        // 构建 图标 × 名称 全组合别名列表
+        for (IconSpec ic : iconSpecs) {
+            for (NameSpec nm : nameSpecs) {
+                AliasSpec as = new AliasSpec();
+                as.iconId = ic.id;
+                as.nameId = nm.id;
+                as.iconResId = ic.isDefault ? defaultIconResId : ic.resId;
+                as.customLabel = nm.isDefault ? null : nm.label;
+                as.enabled = (ic.isDefault && nm.isDefault);
 
-        // 插入各自定义图标别名 (enabled=false)
-        for (IconSpec spec : specs) {
-            appendLauncherAlias(app, spec.aliasName, targetActivityName, false, spec.resId, defaultLabelResId);
+                if (ic.isDefault && nm.isDefault) {
+                    as.aliasName = DEFAULT_ALIAS;
+                } else if (!ic.isDefault && nm.isDefault) {
+                    as.aliasName = CUSTOM_ALIAS_PREFIX + ic.id;
+                } else if (ic.isDefault) {
+                    as.aliasName = CUSTOM_ALIAS_PREFIX + "def_" + nm.id;
+                } else {
+                    as.aliasName = CUSTOM_ALIAS_PREFIX + ic.id + "_" + nm.id;
+                }
+
+                appendLauncherAlias(app, as.aliasName, targetActivityName, as.enabled, as.iconResId, defaultLabelResId, as.customLabel);
+                outAliases.add(as);
+            }
         }
 
         manifest.refresh();
@@ -745,7 +821,7 @@ public class IconManifestPatcher {
     }
 
     private static void appendLauncherAlias(ResXmlElement app, String aliasName, String targetActivity,
-                                            boolean enabled, int iconResId, int labelResId) {
+                                            boolean enabled, int iconResId, int defaultLabelResId, String customLabel) {
         ResXmlElement alias = app.newElement();
         alias.setName("activity-alias");
 
@@ -757,9 +833,12 @@ public class IconManifestPatcher {
         ResXmlAttribute iconAttr = alias.getOrCreateAndroidAttribute("icon", ATTR_ICON);
         iconAttr.setTypeAndData(ValueType.REFERENCE, iconResId);
 
-        if (labelResId != 0) {
+        if (customLabel != null && !customLabel.isEmpty()) {
+            // 直接写入非本地化字符串（nonLocalizedLabel），无需改动 resources.arsc
+            alias.getOrCreateAndroidAttribute("label", ATTR_LABEL).setValueAsString(customLabel);
+        } else if (defaultLabelResId != 0) {
             ResXmlAttribute labelAttr = alias.getOrCreateAndroidAttribute("label", ATTR_LABEL);
-            labelAttr.setTypeAndData(ValueType.REFERENCE, labelResId);
+            labelAttr.setTypeAndData(ValueType.REFERENCE, defaultLabelResId);
         }
 
         ResXmlElement filter = alias.newElement();
@@ -792,21 +871,63 @@ public class IconManifestPatcher {
         return result;
     }
 
-    private static void writeIconsJson(File outFile, List<IconSpec> specs) throws IOException {
+    private static List<String> collectCustomNames(File namesFile) {
+        List<String> names = new ArrayList<>();
+        if (namesFile == null || !namesFile.isFile()) return names;
+        Set<String> seen = new HashSet<>();
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(namesFile), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                if (line.startsWith("\uFEFF")) line = line.substring(1);
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                if ("QQ".equals(line)) continue; // 默认名称已内置
+                if (seen.add(line)) {
+                    names.add(line);
+                }
+            }
+        } catch (Throwable ignored) {}
+        return names;
+    }
+
+    private static void writeIconsJson(File outFile, List<IconSpec> iconSpecs, List<NameSpec> nameSpecs, List<AliasSpec> aliasSpecs) throws IOException {
         outFile.getParentFile().mkdirs();
         StringBuilder sb = new StringBuilder();
         sb.append("{\n");
         sb.append("  \"default_alias\": \"").append(escapeJson(DEFAULT_ALIAS)).append("\",\n");
+
         sb.append("  \"icons\": [\n");
-        for (int i = 0; i < specs.size(); i++) {
-            IconSpec s = specs.get(i);
+        for (int i = 0; i < iconSpecs.size(); i++) {
+            IconSpec s = iconSpecs.get(i);
             sb.append("    {\n");
+            sb.append("      \"id\": \"").append(escapeJson(s.id)).append("\",\n");
             sb.append("      \"name\": \"").append(escapeJson(s.displayName)).append("\",\n");
-            sb.append("      \"alias\": \"").append(escapeJson(s.aliasName)).append("\",\n");
-            sb.append("      \"asset\": \"").append(escapeJson(s.assetRelPath)).append("\"\n");
-            sb.append("    }").append(i < specs.size() - 1 ? "," : "").append("\n");
+            sb.append("      \"asset\": \"").append(escapeJson(s.assetRelPath != null ? s.assetRelPath : "")).append("\",\n");
+            sb.append("      \"is_default\": ").append(s.isDefault).append("\n");
+            sb.append("    }").append(i < iconSpecs.size() - 1 ? "," : "").append("\n");
         }
-        sb.append("  ]\n");
+        sb.append("  ],\n");
+
+        sb.append("  \"names\": [\n");
+        for (int i = 0; i < nameSpecs.size(); i++) {
+            NameSpec n = nameSpecs.get(i);
+            sb.append("    {\n");
+            sb.append("      \"id\": \"").append(escapeJson(n.id)).append("\",\n");
+            sb.append("      \"name\": \"").append(escapeJson(n.label)).append("\",\n");
+            sb.append("      \"is_default\": ").append(n.isDefault).append("\n");
+            sb.append("    }").append(i < nameSpecs.size() - 1 ? "," : "").append("\n");
+        }
+        sb.append("  ],\n");
+
+        sb.append("  \"aliases\": {\n");
+        for (int i = 0; i < aliasSpecs.size(); i++) {
+            AliasSpec a = aliasSpecs.get(i);
+            String key = a.iconId + "|" + a.nameId;
+            sb.append("    \"").append(escapeJson(key)).append("\": \"").append(escapeJson(a.aliasName)).append("\"")
+              .append(i < aliasSpecs.size() - 1 ? "," : "").append("\n");
+        }
+        sb.append("  }\n");
+
         sb.append("}\n");
 
         try (Writer w = new OutputStreamWriter(new FileOutputStream(outFile), StandardCharsets.UTF_8)) {

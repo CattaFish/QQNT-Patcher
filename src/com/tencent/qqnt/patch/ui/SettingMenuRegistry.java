@@ -32,7 +32,7 @@ public class SettingMenuRegistry {
         register(new FeatureSettingItem() {
             @Override public String getCategory() { return IPatchModule.CATEGORY_MISC; }
             @Override public String getGroupName() { return ""; }
-            @Override public String getTitle() { return "更换应用图标"; }
+            @Override public String getTitle() { return "更换应用图标与名称"; }
             @Override public String getFeatureId() { return "custom_icon"; }
             @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
                 String currentName = CustomIconHelper.getCurrentIconName(activity);
