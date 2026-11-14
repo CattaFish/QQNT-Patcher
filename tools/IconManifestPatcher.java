@@ -33,29 +33,19 @@ public class IconManifestPatcher {
     private static final int ATTR_TARGET_ACTIVITY = 0x01010202;
 
     static class IconSpec {
-        String id;
         String displayName;
+        String customLabel; // null 或空表示沿用原包默认名称 QQ
+        String aliasName;
         String entryName;
         String resPath;
         String assetRelPath;
-        File sourceFile;
+        File sourceFile;    // null 表示使用原包默认 QQ 图标
         int resId;
-        boolean isDefault;
     }
 
-    static class NameSpec {
-        String id;
-        String label;
-        boolean isDefault;
-    }
-
-    static class AliasSpec {
-        String iconId;
-        String nameId;
-        String aliasName;
-        int iconResId;
-        String customLabel; // null 表示沿用原包 defaultLabelResId
-        boolean enabled;
+    static class NameBindings {
+        final Map<String, String> fileToLabel = new LinkedHashMap<>();
+        final List<String> standaloneLabels = new ArrayList<>();
     }
 
     public static void main(String[] args) {
@@ -72,9 +62,9 @@ public class IconManifestPatcher {
 
         try {
             List<File> iconFiles = collectIconFiles(iconsDir);
-            List<String> customNames = collectCustomNames(new File(iconsDir, "names.txt"));
+            NameBindings bindings = parseNameBindings(new File(iconsDir, "names.txt"), iconFiles);
 
-            if (iconFiles.isEmpty() && customNames.isEmpty()) {
+            if (iconFiles.isEmpty() && bindings.standaloneLabels.isEmpty()) {
                 System.out.println("[IconManifestPatcher] icons 与 names.txt 均为空，跳过注入");
                 return;
             }
@@ -83,65 +73,57 @@ public class IconManifestPatcher {
                 throw new IOException("无法创建输出目录: " + outDir.getAbsolutePath());
             }
 
-            // 1. 构造图标列表（第 0 项固定为默认原生图标）
-            List<IconSpec> iconSpecs = new ArrayList<>();
-            IconSpec defaultIconSpec = new IconSpec();
-            defaultIconSpec.id = "default";
-            defaultIconSpec.displayName = "默认图标";
-            defaultIconSpec.isDefault = true;
-            iconSpecs.add(defaultIconSpec);
+            List<IconSpec> specs = new ArrayList<>();
+            List<IconSpec> imageSpecs = new ArrayList<>();
+            Set<String> usedAliases = new HashSet<>();
 
-            List<IconSpec> customIconSpecs = new ArrayList<>();
-            Set<String> usedIconIds = new HashSet<>();
+            // 1. 构建带图片的自定义方案（若有绑定名称则一并绑定到该方案）
             for (int i = 0; i < iconFiles.size(); i++) {
                 File f = iconFiles.get(i);
                 String rawName = f.getName();
                 int dot = rawName.lastIndexOf('.');
-                String displayName = dot > 0 ? rawName.substring(0, dot) : rawName;
+                String baseName = dot > 0 ? rawName.substring(0, dot) : rawName;
                 String ext = dot > 0 ? rawName.substring(dot).toLowerCase(Locale.ROOT) : ".png";
 
-                String iconId = shortHash(rawName);
-                if (!usedIconIds.add(iconId)) {
-                    iconId = iconId + "_" + i;
-                    usedIconIds.add(iconId);
+                String boundLabel = bindings.fileToLabel.get(rawName);
+                String displayName = (boundLabel != null && !boundLabel.isEmpty()) ? boundLabel : baseName;
+
+                String hashSeed = (boundLabel != null && !boundLabel.isEmpty())
+                        ? (rawName + "|" + boundLabel) : rawName;
+                String alias = CUSTOM_ALIAS_PREFIX + shortHash(hashSeed);
+                if (!usedAliases.add(alias)) {
+                    alias = alias + "_" + i;
+                    usedAliases.add(alias);
                 }
 
                 IconSpec spec = new IconSpec();
-                spec.id = iconId;
                 spec.displayName = displayName;
+                spec.customLabel = boundLabel;
+                spec.aliasName = alias;
                 spec.entryName = "zzz_ic_" + i;
                 spec.resPath = "res/drawable/" + spec.entryName + ext;
                 spec.assetRelPath = "icons/" + spec.entryName + ext;
                 spec.sourceFile = f;
-                spec.isDefault = false;
-                iconSpecs.add(spec);
-                customIconSpecs.add(spec);
+                specs.add(spec);
+                imageSpecs.add(spec);
             }
 
-            // 2. 构造名称列表（第 0 项固定为默认 QQ）
-            List<NameSpec> nameSpecs = new ArrayList<>();
-            NameSpec defaultNameSpec = new NameSpec();
-            defaultNameSpec.id = "default";
-            defaultNameSpec.label = "QQ (默认)";
-            defaultNameSpec.isDefault = true;
-            nameSpecs.add(defaultNameSpec);
-
-            Set<String> usedNameIds = new HashSet<>();
-            for (int i = 0; i < customNames.size(); i++) {
-                String lbl = customNames.get(i);
-                String nameId = "n_" + shortHash("name:" + lbl);
-                if (!usedNameIds.add(nameId)) {
-                    nameId = nameId + "_" + i;
-                    usedNameIds.add(nameId);
+            // 2. 构建无同名图片兜底的纯改名方案（使用原包默认 QQ 图标 + 自定义名称）
+            for (int i = 0; i < bindings.standaloneLabels.size(); i++) {
+                String lbl = bindings.standaloneLabels.get(i);
+                String alias = CUSTOM_ALIAS_PREFIX + "lbl_" + shortHash("label:" + lbl);
+                if (!usedAliases.add(alias)) {
+                    alias = alias + "_" + i;
+                    usedAliases.add(alias);
                 }
-                NameSpec ns = new NameSpec();
-                ns.id = nameId;
-                ns.label = lbl;
-                ns.isDefault = false;
-                nameSpecs.add(ns);
-            }
 
-            List<AliasSpec> aliasSpecs = new ArrayList<>();
+                IconSpec spec = new IconSpec();
+                spec.displayName = lbl;
+                spec.customLabel = lbl;
+                spec.aliasName = alias;
+                spec.sourceFile = null;
+                specs.add(spec);
+            }
 
             try (ZipFile zip = new ZipFile(origApk)) {
                 ZipEntry arscEntry = zip.getEntry("resources.arsc");
@@ -151,13 +133,13 @@ public class IconManifestPatcher {
                 }
 
                 // 3. 仅在存在自定义图片时修补 resources.arsc
-                if (!customIconSpecs.isEmpty()) {
+                if (!imageSpecs.isEmpty()) {
                     byte[] origArscBytes = readAll(zip.getInputStream(arscEntry));
-                    byte[] patchedArscBytes = tryAppendArscInPlace(origArscBytes, customIconSpecs);
+                    byte[] patchedArscBytes = tryAppendArscInPlace(origArscBytes, imageSpecs);
 
                     if (patchedArscBytes == null) {
                         System.out.println("[IconManifestPatcher] 检测到特殊 ARSC 格式，回退使用 ARSCLib 重建");
-                        patchedArscBytes = patchArscWithArscLib(origArscBytes, customIconSpecs);
+                        patchedArscBytes = patchArscWithArscLib(origArscBytes, imageSpecs);
                     }
 
                     File outArsc = new File(outDir, "resources.arsc");
@@ -166,13 +148,13 @@ public class IconManifestPatcher {
                     }
                 }
 
-                // 4. 修补 AndroidManifest.xml（生成 iconSpecs × nameSpecs 全组合别名）
+                // 4. 修补 AndroidManifest.xml
                 AndroidManifestBlock manifest;
                 try (InputStream is = zip.getInputStream(manifestEntry)) {
                     manifest = AndroidManifestBlock.load(is);
                 }
 
-                patchManifest(manifest, iconSpecs, nameSpecs, aliasSpecs);
+                patchManifest(manifest, specs);
 
                 File outManifest = new File(outDir, "AndroidManifest.xml");
                 try (OutputStream os = new BufferedOutputStream(new FileOutputStream(outManifest))) {
@@ -181,7 +163,7 @@ public class IconManifestPatcher {
             }
 
             // 5. 处理图标（透明轮廓图自动套纯白自适应背景）并写入 res/drawable/ 与 assets/icons/
-            for (IconSpec spec : customIconSpecs) {
+            for (IconSpec spec : imageSpecs) {
                 File resOut = new File(outDir, spec.resPath);
                 resOut.getParentFile().mkdirs();
                 writeAdaptiveWhiteIconIfNeeded(spec.sourceFile, resOut);
@@ -192,11 +174,9 @@ public class IconManifestPatcher {
             }
 
             // 6. 生成 assets/zzz_icons.json 运行时清单
-            writeIconsJson(new File(outDir, "assets/zzz_icons.json"), iconSpecs, nameSpecs, aliasSpecs);
+            writeIconsJson(new File(outDir, "assets/zzz_icons.json"), specs);
 
-            System.out.println("[IconManifestPatcher] OK: 成功生成 "
-                    + customIconSpecs.size() + " 套图标 × " + nameSpecs.size()
-                    + " 个名称（共 " + aliasSpecs.size() + " 个桌面别名）");
+            System.out.println("[IconManifestPatcher] OK: 成功生成 " + specs.size() + " 套自定义桌面方案 (无损追加模式)");
         } catch (Throwable t) {
             System.err.println("[IconManifestPatcher] FAIL: " + t.getMessage());
             t.printStackTrace();
@@ -717,10 +697,7 @@ public class IconManifestPatcher {
     // =========================================================================
     // AndroidManifest.xml 修补逻辑
     // =========================================================================
-    private static void patchManifest(AndroidManifestBlock manifest,
-                                      List<IconSpec> iconSpecs,
-                                      List<NameSpec> nameSpecs,
-                                      List<AliasSpec> outAliases) {
+    private static void patchManifest(AndroidManifestBlock manifest, List<IconSpec> specs) {
         ResXmlElement app = manifest.getApplicationElement();
         if (app == null) {
             throw new IllegalStateException("AndroidManifest.xml 缺少 <application> 节点");
@@ -773,29 +750,13 @@ public class IconManifestPatcher {
             }
         }
 
-        // 构建 图标 × 名称 全组合别名列表
-        for (IconSpec ic : iconSpecs) {
-            for (NameSpec nm : nameSpecs) {
-                AliasSpec as = new AliasSpec();
-                as.iconId = ic.id;
-                as.nameId = nm.id;
-                as.iconResId = ic.isDefault ? defaultIconResId : ic.resId;
-                as.customLabel = nm.isDefault ? null : nm.label;
-                as.enabled = (ic.isDefault && nm.isDefault);
+        // 插入默认原生图标与名称别名 (enabled=true)
+        appendLauncherAlias(app, DEFAULT_ALIAS, targetActivityName, true, defaultIconResId, defaultLabelResId, null);
 
-                if (ic.isDefault && nm.isDefault) {
-                    as.aliasName = DEFAULT_ALIAS;
-                } else if (!ic.isDefault && nm.isDefault) {
-                    as.aliasName = CUSTOM_ALIAS_PREFIX + ic.id;
-                } else if (ic.isDefault) {
-                    as.aliasName = CUSTOM_ALIAS_PREFIX + "def_" + nm.id;
-                } else {
-                    as.aliasName = CUSTOM_ALIAS_PREFIX + ic.id + "_" + nm.id;
-                }
-
-                appendLauncherAlias(app, as.aliasName, targetActivityName, as.enabled, as.iconResId, defaultLabelResId, as.customLabel);
-                outAliases.add(as);
-            }
+        // 插入各绑定方案别名 (enabled=false)
+        for (IconSpec spec : specs) {
+            int iconRes = (spec.sourceFile != null) ? spec.resId : defaultIconResId;
+            appendLauncherAlias(app, spec.aliasName, targetActivityName, false, iconRes, defaultLabelResId, spec.customLabel);
         }
 
         manifest.refresh();
@@ -871,63 +832,69 @@ public class IconManifestPatcher {
         return result;
     }
 
-    private static List<String> collectCustomNames(File namesFile) {
-        List<String> names = new ArrayList<>();
-        if (namesFile == null || !namesFile.isFile()) return names;
-        Set<String> seen = new HashSet<>();
+    private static NameBindings parseNameBindings(File namesFile, List<File> iconFiles) {
+        NameBindings bindings = new NameBindings();
+        if (namesFile == null || !namesFile.isFile()) return bindings;
+
+        // 建立文件名与去扩展名基名到实际图标文件名的映射
+        Map<String, String> nameLookup = new HashMap<>();
+        for (File f : iconFiles) {
+            String raw = f.getName();
+            int dot = raw.lastIndexOf('.');
+            String base = dot > 0 ? raw.substring(0, dot) : raw;
+            nameLookup.put(raw, raw);
+            nameLookup.putIfAbsent(base, raw);
+        }
+
+        Set<String> seenStandalone = new HashSet<>();
         try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(namesFile), StandardCharsets.UTF_8))) {
             String line;
             while ((line = br.readLine()) != null) {
                 if (line.startsWith("\uFEFF")) line = line.substring(1);
                 line = line.trim();
                 if (line.isEmpty() || line.startsWith("#")) continue;
-                if ("QQ".equals(line)) continue; // 默认名称已内置
-                if (seen.add(line)) {
-                    names.add(line);
+
+                int eq = line.indexOf('=');
+                if (eq > 0) {
+                    String key = line.substring(0, eq).trim();
+                    String val = line.substring(eq + 1).trim();
+                    if (val.isEmpty() || "QQ".equals(val)) continue;
+                    String matchedFile = nameLookup.get(key);
+                    if (matchedFile != null) {
+                        bindings.fileToLabel.put(matchedFile, val);
+                    } else if (seenStandalone.add(val)) {
+                        bindings.standaloneLabels.add(val);
+                    }
+                } else {
+                    if ("QQ".equals(line)) continue;
+                    String matchedFile = nameLookup.get(line);
+                    if (matchedFile != null) {
+                        bindings.fileToLabel.put(matchedFile, line);
+                    } else if (seenStandalone.add(line)) {
+                        bindings.standaloneLabels.add(line);
+                    }
                 }
             }
         } catch (Throwable ignored) {}
-        return names;
+        return bindings;
     }
 
-    private static void writeIconsJson(File outFile, List<IconSpec> iconSpecs, List<NameSpec> nameSpecs, List<AliasSpec> aliasSpecs) throws IOException {
+    private static void writeIconsJson(File outFile, List<IconSpec> specs) throws IOException {
         outFile.getParentFile().mkdirs();
         StringBuilder sb = new StringBuilder();
         sb.append("{\n");
         sb.append("  \"default_alias\": \"").append(escapeJson(DEFAULT_ALIAS)).append("\",\n");
-
         sb.append("  \"icons\": [\n");
-        for (int i = 0; i < iconSpecs.size(); i++) {
-            IconSpec s = iconSpecs.get(i);
+        for (int i = 0; i < specs.size(); i++) {
+            IconSpec s = specs.get(i);
             sb.append("    {\n");
-            sb.append("      \"id\": \"").append(escapeJson(s.id)).append("\",\n");
             sb.append("      \"name\": \"").append(escapeJson(s.displayName)).append("\",\n");
+            sb.append("      \"alias\": \"").append(escapeJson(s.aliasName)).append("\",\n");
             sb.append("      \"asset\": \"").append(escapeJson(s.assetRelPath != null ? s.assetRelPath : "")).append("\",\n");
-            sb.append("      \"is_default\": ").append(s.isDefault).append("\n");
-            sb.append("    }").append(i < iconSpecs.size() - 1 ? "," : "").append("\n");
+            sb.append("      \"label\": \"").append(escapeJson(s.customLabel != null ? s.customLabel : "")).append("\"\n");
+            sb.append("    }").append(i < specs.size() - 1 ? "," : "").append("\n");
         }
-        sb.append("  ],\n");
-
-        sb.append("  \"names\": [\n");
-        for (int i = 0; i < nameSpecs.size(); i++) {
-            NameSpec n = nameSpecs.get(i);
-            sb.append("    {\n");
-            sb.append("      \"id\": \"").append(escapeJson(n.id)).append("\",\n");
-            sb.append("      \"name\": \"").append(escapeJson(n.label)).append("\",\n");
-            sb.append("      \"is_default\": ").append(n.isDefault).append("\n");
-            sb.append("    }").append(i < nameSpecs.size() - 1 ? "," : "").append("\n");
-        }
-        sb.append("  ],\n");
-
-        sb.append("  \"aliases\": {\n");
-        for (int i = 0; i < aliasSpecs.size(); i++) {
-            AliasSpec a = aliasSpecs.get(i);
-            String key = a.iconId + "|" + a.nameId;
-            sb.append("    \"").append(escapeJson(key)).append("\": \"").append(escapeJson(a.aliasName)).append("\"")
-              .append(i < aliasSpecs.size() - 1 ? "," : "").append("\n");
-        }
-        sb.append("  }\n");
-
+        sb.append("  ]\n");
         sb.append("}\n");
 
         try (Writer w = new OutputStreamWriter(new FileOutputStream(outFile), StandardCharsets.UTF_8)) {

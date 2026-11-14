@@ -93,6 +93,11 @@ public class ConfigManager {
             if (ctx != null) {
                 AppContext.init(ctx);
                 FeatureConfig.ensureLoaded();
+                
+                if (FeatureConfig.has("custom_icon")) {
+                    com.tencent.qqnt.patch.util.CustomIconHelper.ensureValidLauncherAlias(ctx);
+                }
+                
                 ModuleManager.initAll(ctx);
                 
                 if (FeatureConfig.has("script")) {

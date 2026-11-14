@@ -22,25 +22,24 @@ def _collect_icon_files(icons_dir):
     return files
 
 
-def _collect_custom_names(icons_dir):
+def _read_names_txt_raw(icons_dir):
     names_file = os.path.join(icons_dir, "names.txt")
     if not os.path.isfile(names_file):
         return []
-    names = []
+    lines = []
     try:
         with open(names_file, "r", encoding="utf-8") as f:
             for line in f:
                 s = line.strip().lstrip("\ufeff")
                 if not s or s.startswith("#") or s == "QQ":
                     continue
-                if s not in names:
-                    names.append(s)
+                lines.append(s)
     except Exception:
         pass
-    return names
+    return lines
 
 
-def _compute_icon_cache_key(ctx, icon_files, custom_names):
+def _compute_icon_cache_key(ctx, icon_files, name_lines):
     h = hashlib.sha256()
     h.update((ctx.orig_apk_md5 or "").encode("utf-8"))
     patcher_src = os.path.join(ctx.tools_dir, "IconManifestPatcher.java")
@@ -51,7 +50,7 @@ def _compute_icon_cache_key(ctx, icon_files, custom_names):
         with open(fp, "rb") as f:
             while chunk := f.read(65536):
                 h.update(chunk)
-    h.update(json.dumps(custom_names, ensure_ascii=False).encode("utf-8"))
+    h.update(json.dumps(name_lines, ensure_ascii=False).encode("utf-8"))
     return h.hexdigest()[:16]
 
 
@@ -59,8 +58,8 @@ def _prepare_custom_icons(ctx, inject_dir, injected_summary):
     if "custom_icon" not in ctx.active_features:
         return
     icon_files = _collect_icon_files(ctx.icons_src_dir)
-    custom_names = _collect_custom_names(ctx.icons_src_dir)
-    if not icon_files and not custom_names:
+    name_lines = _read_names_txt_raw(ctx.icons_src_dir)
+    if not icon_files and not name_lines:
         return
 
     icon_patcher_class = os.path.join(ctx.engine_bin, "com/tencent/qqnt/patcher/IconManifestPatcher.class")
@@ -70,7 +69,7 @@ def _prepare_custom_icons(ctx, inject_dir, injected_summary):
 
     cache_root = os.path.join(ctx.work_dir, "icon_cache")
     os.makedirs(cache_root, exist_ok=True)
-    cache_key = _compute_icon_cache_key(ctx, icon_files, custom_names)
+    cache_key = _compute_icon_cache_key(ctx, icon_files, name_lines)
     cached_dir = os.path.join(cache_root, cache_key)
 
     manifest_ok = os.path.isfile(os.path.join(cached_dir, "AndroidManifest.xml"))
@@ -78,7 +77,7 @@ def _prepare_custom_icons(ctx, inject_dir, injected_summary):
     json_ok = os.path.isfile(os.path.join(cached_dir, "assets", "zzz_icons.json"))
 
     if manifest_ok and arsc_ok and json_ok:
-        ctx.log("CACHE", f"自定义图标与名称缓存命中 ({len(icon_files)} 套图标, {len(custom_names)} 个名称)")
+        ctx.log("CACHE", f"自定义图标方案缓存命中 ({len(icon_files)} 套图标, {len(name_lines)} 条名称配置)")
     else:
         # 清理旧缓存，避免堆积 9MB 级别的旧 resources.arsc
         for old in os.listdir(cache_root):
@@ -111,7 +110,7 @@ def _prepare_custom_icons(ctx, inject_dir, injected_summary):
                 injected_summary["assets"].append(rel_fp.replace(os.sep, "/")[len("assets/"):])
 
     injected_summary["custom_icons"] = len(icon_files)
-    injected_summary["custom_names"] = len(custom_names)
+    injected_summary["custom_names"] = len(name_lines)
 
 
 def run_stage4(ctx):
@@ -225,7 +224,7 @@ def run_stage4(ctx):
         so_desc = ", ".join(injected_summary["sos"])
         print(f"  {Colors.CYAN}│{Colors.RESET}  ├─ 原生 Native 库: {Colors.BOLD}{so_desc}{Colors.RESET}")
     if injected_summary["custom_icons"] > 0 or injected_summary["custom_names"] > 0:
-        print(f"  {Colors.CYAN}│{Colors.RESET}  ├─ 自定义图标名称: {Colors.BOLD}{injected_summary['custom_icons']}{Colors.RESET} 套图标 / {Colors.BOLD}{injected_summary['custom_names']}{Colors.RESET} 个名称")
+        print(f"  {Colors.CYAN}│{Colors.RESET}  ├─ 自定义桌面方案: {Colors.BOLD}{injected_summary['custom_icons']}{Colors.RESET} 套图标 / {Colors.BOLD}{injected_summary['custom_names']}{Colors.RESET} 条名称绑定")
     print(f"  {Colors.CYAN}│{Colors.RESET}  └─ 挂载静态资产  : {Colors.BOLD}{len(injected_summary['assets'])}{Colors.RESET} 项文件 (含自动装配清单)")
 
     ctx.log("OK", "装配注入目录准备完毕")
