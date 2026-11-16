@@ -9,8 +9,6 @@ import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.modules.chat.AutoRemarkApkModule;
 import com.tencent.qqnt.patch.modules.chat.DoubleTapRepeatModule;
 import com.tencent.qqnt.patch.modules.chat.ShowDownloadTimesModule;
-import com.tencent.qqnt.patch.modules.purify.AtAllNotifyBlockModule;
-import com.tencent.qqnt.patch.modules.purify.BrowserMitigationModule;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
@@ -51,12 +49,6 @@ public class PatchBridge {
     public static boolean onFollowIconClick(Object listenerObj) {
         return DoubleTapRepeatModule.onFollowIconClick(listenerObj);
     }
-    
-    public static void handleWebSecurityCallback(Object bundleObj) {
-        if (bundleObj instanceof android.os.Bundle) {
-            BrowserMitigationModule.handleWebSecurityCallback((android.os.Bundle) bundleObj);
-        }
-    }
 
     public static boolean shouldDropTroopToDo() {
         return ConfigManager.isModuleEnabled("troop_todo", false);
@@ -92,7 +84,7 @@ public class PatchBridge {
         }
         return ModuleManager.dispatchMsfPush(session, cmd, buf);
     }
-    
+
     public static void onProfileCardMoreResume(Object activity) {
         com.tencent.qqnt.patch.ui.ProfileSettingInjector.injectProfileCardMore(activity);
     }
@@ -100,7 +92,7 @@ public class PatchBridge {
     public static void onMemberSettingGroups(Object fragment, Object groupsList) {
         com.tencent.qqnt.patch.ui.ProfileSettingInjector.injectMemberSettingGroups(fragment, groupsList);
     }
-    
+
     public static List injectPttMenu(List menuList, Object component, String forwardItemClassName) {
         return com.tencent.qqnt.patch.modules.chat.ForwardPttModule.injectPttMenu(menuList, component, forwardItemClassName);
     }
@@ -116,7 +108,7 @@ public class PatchBridge {
     @SuppressWarnings("unchecked")
     public static void handleSendMsg(ArrayList elements) {
         if (elements == null || elements.isEmpty()) return;
-        
+
         // 确保冷启动环境就绪（在未注入 MSF 推送总线时提供兜底初始化）
         ConfigManager.triggerColdStartUpdateCheck();
         ModuleManager.ensureInitialized();
