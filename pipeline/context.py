@@ -167,7 +167,7 @@ class PipelineContext:
     def create_progress(self, total, title="Progress"):
         return ConsoleProgress(total=total, title=title)
 
-    def run_cmd(self, cmd, cwd=None):
+    def run_cmd(self, cmd, cwd=None, check=True):
         ret = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
         out_msg = ret.stdout.decode('utf-8', errors='ignore').strip()
         err_msg = ret.stderr.decode('utf-8', errors='ignore').strip()
@@ -177,7 +177,12 @@ class PipelineContext:
                 elif "[ERROR]" in line or "Exception" in line: self.log("ERR", line)
         if ret.returncode != 0:
             self.log("ERR", f"命令执行异常 (Code {ret.returncode}): {cmd}")
-            if err_msg: self.log("ERR", err_msg)
+            if err_msg:
+                self.log("ERR", err_msg)
+            elif out_msg:
+                self.log("ERR", out_msg)
+            if check:
+                raise SystemExit(ret.returncode if ret.returncode > 0 else 1)
             return ""
         return out_msg
 
