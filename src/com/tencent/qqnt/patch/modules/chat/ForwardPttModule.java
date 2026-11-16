@@ -14,8 +14,10 @@ import com.tencent.qqnt.patch.util.PLog;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class ForwardPttModule implements IPatchModule {
 
@@ -23,9 +25,12 @@ public class ForwardPttModule implements IPatchModule {
     private static final int MSG_TYPE_PTT = 6;
     private static final int MSG_TYPE_TEXT = 2;
     private static final int INVALID_TYPE = 114514;
+    private static final long PENDING_TIMEOUT_MS = 180000L;
 
+    private static final Object sPendingLock = new Object();
     private static volatile AIOMsgItem sPendingPttItem = null;
     private static volatile long sPendingTimestamp = 0L;
+    private static volatile Object sCachedSuccessErrorCode = null;
 
     @Override
     public String getId() {
@@ -56,11 +61,6 @@ public class ForwardPttModule implements IPatchModule {
         return ConfigManager.isModuleEnabled("forward_ptt", false);
     }
 
-    /**
-     * 【步骤 1：菜单注入与自然排序】
-     * 9.2.90 为 AIOPttContentComponent->b2()Ljava/util/List;
-     * 9.3.75 为 AIOPttContentComponent->g2()Ljava/util/List;
-     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static List injectPttMenu(List menuList, Object component, String forwardItemClassName) {
         if (!isModuleActive() || menuList == null || component == null) {
@@ -68,16 +68,12 @@ public class ForwardPttModule implements IPatchModule {
         }
 
         try {
-            // 避免重复注入
             for (Object item : menuList) {
                 if (item != null && "ForwardMenuItem".equals(extractMenuItemIdentifier(item))) {
                     return menuList;
                 }
             }
 
-            // 1. 获取 ForwardMenuItem 类构造器
-            // 9.2.90 为 com.tencent.qqnt.aio.menu.j
-            // 9.3.75 为 com.tencent.qqnt.aio.menu.o
             Constructor<?> ctor = resolveForwardMenuItemCtor(component, forwardItemClassName);
             if (ctor == null) {
                 PLog.w(TAG, "未定位到 ForwardMenuItem 构造器，放弃注入");
@@ -90,38 +86,26 @@ public class ForwardPttModule implements IPatchModule {
                 return menuList;
             }
 
-            // 2. 构造菜单实例：(Context, msgItem, component, null)
             Object menuItem = ctor.newInstance(context, msgItem, component, null);
             if (menuItem == null) {
                 return menuList;
             }
 
-            // 3. 【全动态定位】：寻找“2X倍速”或“转文字”的自然位置
-            // 2X倍速项: 9.2.90 为 aio.menu.ad, 9.3.75 为 aio.menu.aj
-            // 转文字项: 9.2.90 为 aio.menu.w/ac, 9.3.75 为 aio.menu.ac/ai
             int targetIndex = -1;
-
-            // A. 优先查找 2X 倍速项
             for (int i = 0; i < menuList.size(); i++) {
-                Object it = menuList.get(i);
-                if (isSpeedMenuItem(it)) {
-                    targetIndex = i + 1; // 放在 2X 后面！
+                if (isSpeedMenuItem(menuList.get(i))) {
+                    targetIndex = i + 1;
                     break;
                 }
             }
-
-            // B. 若当前未播放/无倍速项，退而查找“转文字”项
             if (targetIndex == -1) {
                 for (int i = 0; i < menuList.size(); i++) {
-                    Object it = menuList.get(i);
-                    if (isSpeechToTextMenuItem(it)) {
-                        targetIndex = i + 1; // 放在转文字后面
+                    if (isSpeechToTextMenuItem(menuList.get(i))) {
+                        targetIndex = i + 1;
                         break;
                     }
                 }
             }
-
-            // C. 兜底放置在 index 2
             if (targetIndex == -1) {
                 targetIndex = Math.min(2, menuList.size());
             }
@@ -136,10 +120,6 @@ public class ForwardPttModule implements IPatchModule {
         return menuList;
     }
 
-    /**
-     * 【步骤 2：转发启动放行点】
-     * 9.2.90 / 9.3.75 均为 NtMsgForwardUtils->t(...)
-     */
     public static void onStartForwardMsg(Object aioMsgItemObj) {
         if (!isModuleActive() || !(aioMsgItemObj instanceof AIOMsgItem)) {
             return;
@@ -150,78 +130,111 @@ public class ForwardPttModule implements IPatchModule {
             MsgRecord record = aioMsgItem.getMsgRecord();
             if (record == null) return;
 
-            if (record.msgType == MSG_TYPE_PTT) {
-                record.msgType = MSG_TYPE_TEXT; // 假冒文本绕过 e 表检查
-                sPendingPttItem = aioMsgItem;
-                sPendingTimestamp = System.currentTimeMillis();
-                PLog.i(TAG, "捕获语音转发请求，成功伪装为文本放行启动 (msgId=" + record.msgId + ")");
+            synchronized (sPendingLock) {
+                if (record.msgType == MSG_TYPE_PTT) {
+                    record.msgType = MSG_TYPE_TEXT;
+                    sPendingPttItem = aioMsgItem;
+                    sPendingTimestamp = System.currentTimeMillis();
+                    PLog.i(TAG, "捕获语音转发请求，临时伪装放行面板 (msgId=" + record.msgId + ")");
+                } else {
+                    sPendingPttItem = null;
+                    sPendingTimestamp = 0L;
+                }
             }
         } catch (Throwable t) {
             PLog.e(TAG, "onStartForwardMsg 异常", t);
         }
     }
 
-    /**
-     * 【步骤 3：转发分发中枢】
-     * 9.2.90 / 9.3.75 均为 AIOForwardHandler->forward(...)
-     */
-    public static void onHandleAIOForward(Object allDataObj, Object targetContactsObj, String comment) {
-        if (!isModuleActive() || sPendingPttItem == null) {
-            return;
+    public static void onEndStartForwardMsg(boolean started) {
+        try {
+            synchronized (sPendingLock) {
+                if (sPendingPttItem != null) {
+                    MsgRecord record = sPendingPttItem.getMsgRecord();
+                    if (record != null && record.msgType == MSG_TYPE_TEXT) {
+                        record.msgType = MSG_TYPE_PTT;
+                    }
+                    if (!started) {
+                        sPendingPttItem = null;
+                        sPendingTimestamp = 0L;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    public static Object onHandleAIOForward(Object allDataObj, Object targetContactsObj, String comment) {
+        if (!isModuleActive()) {
+            return null;
         }
 
-        // 超时保护（3 分钟内未转发则丢弃）
-        if (System.currentTimeMillis() - sPendingTimestamp > 180000L) {
+        final AIOMsgItem targetItem;
+        synchronized (sPendingLock) {
+            if (sPendingPttItem == null) {
+                return null;
+            }
+            if (System.currentTimeMillis() - sPendingTimestamp > PENDING_TIMEOUT_MS) {
+                sPendingPttItem = null;
+                sPendingTimestamp = 0L;
+                return null;
+            }
+            MsgRecord checkRec = sPendingPttItem.getMsgRecord();
+            long targetMsgId = checkRec != null ? checkRec.msgId : 0L;
+            if (!isCompatibleForwardData(allDataObj, targetMsgId)) {
+                sPendingPttItem = null;
+                sPendingTimestamp = 0L;
+                return null;
+            }
+            targetItem = sPendingPttItem;
             sPendingPttItem = null;
-            return;
+            sPendingTimestamp = 0L;
         }
 
         if (!(targetContactsObj instanceof List)) {
-            return;
-        }
-
-        final AIOMsgItem targetItem = sPendingPttItem;
-        sPendingPttItem = null;
-
-        final List<?> contactList = (List<?>) targetContactsObj;
-        if (contactList.isEmpty()) {
-            return;
+            return null;
         }
 
         try {
             final MsgRecord record = targetItem.getMsgRecord();
             if (record == null || record.elements == null || record.elements.isEmpty()) {
-                return;
+                return null;
             }
 
-            // 1. 恢复原始语音类型
             record.msgType = MSG_TYPE_PTT;
 
-            // 2. 提取并保留原始语音 elements
-            final ArrayList<MsgElement> elements = new ArrayList<>(record.elements);
+            final List<?> contactList = (List<?>) targetContactsObj;
+            if (contactList.isEmpty()) {
+                return null;
+            }
 
-            // 3. 解析目标联系人，并将官方 contact 的 peerType 置为无效，避免重复发送假文本
+            final ArrayList<MsgElement> elements = new ArrayList<>(record.elements);
             final List<DestTarget> destList = new ArrayList<>();
             for (Object contactItem : contactList) {
                 if (contactItem == null) continue;
-                DestTarget dt = extractAndNeutralizeContact(contactItem);
+                DestTarget dt = extractTarget(contactItem);
                 if (dt != null) {
                     destList.add(dt);
                 }
             }
 
             if (destList.isEmpty()) {
-                return;
+                return null;
+            }
+
+            Object successCode = resolveForwardSuccessCode(targetContactsObj.getClass().getClassLoader());
+            if (successCode == null) {
+                for (Object contactItem : contactList) {
+                    neutralizeContactFallback(contactItem);
+                }
             }
 
             PLog.i(TAG, "拦截语音转发成功，正在向 " + destList.size() + " 个目标分发语音");
 
-            // 4. 异步逐一底层发包
             new Thread(() -> {
                 for (DestTarget dest : destList) {
                     try {
-                        Thread.sleep(350); // 间隔防频控
-                        Contact contact = MsgSender.makeContact(dest.peerUin, dest.peerType);
+                        Thread.sleep(350);
+                        Contact contact = buildContact(dest);
                         MsgSender.sendRawElements(contact, elements);
                         PLog.i(TAG, "已成功发送语音至目标: " + dest.peerUin + " (type=" + dest.peerType + ")");
 
@@ -234,47 +247,150 @@ public class ForwardPttModule implements IPatchModule {
                 }
             }).start();
 
+            return successCode;
         } catch (Throwable t) {
             PLog.e(TAG, "onHandleAIOForward 异常", t);
+            return null;
         }
+    }
+
+    private static boolean isCompatibleForwardData(Object allDataObj, long targetMsgId) {
+        if (!(allDataObj instanceof Map)) {
+            return true;
+        }
+        Map<?, ?> map = (Map<?, ?>) allDataObj;
+        if (map.isEmpty()) {
+            return false;
+        }
+
+        boolean hasMatchedType = false;
+        for (Object val : map.values()) {
+            if (val == null) continue;
+            try {
+                Method getTypeM = val.getClass().getMethod("getDataType");
+                Object dataType = getTypeM.invoke(val);
+                if (dataType != null) {
+                    String name = dataType.toString();
+                    if ("MIX_MSG".equals(name) || "TEXT".equals(name)) {
+                        hasMatchedType = true;
+                        Long embeddedMsgId = tryExtractMsgId(val, 0);
+                        if (embeddedMsgId != null && embeddedMsgId > 0 && targetMsgId > 0 && embeddedMsgId != targetMsgId) {
+                            return false;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+        return hasMatchedType;
+    }
+
+    private static Long tryExtractMsgId(Object obj, int depth) {
+        if (obj == null || depth > 2) return null;
+        Class<?> clz = obj.getClass();
+        while (clz != null && clz != Object.class) {
+            for (Field f : clz.getDeclaredFields()) {
+                if (Modifier.isStatic(f.getModifiers())) continue;
+                try {
+                    f.setAccessible(true);
+                    if (f.getType() == long.class && "msgId".equalsIgnoreCase(f.getName())) {
+                        return f.getLong(obj);
+                    }
+                    if (!f.getType().isPrimitive() && f.getType().getName().contains("ShareData")) {
+                        Long nested = tryExtractMsgId(f.get(obj), depth + 1);
+                        if (nested != null) return nested;
+                    }
+                } catch (Throwable ignored) {}
+            }
+            clz = clz.getSuperclass();
+        }
+        return null;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static Object resolveForwardSuccessCode(ClassLoader cl) {
+        if (sCachedSuccessErrorCode != null) {
+            return sCachedSuccessErrorCode;
+        }
+        try {
+            ClassLoader loader = cl != null ? cl : AppContext.get().getClassLoader();
+            Class<?> codeClz = Class.forName(
+                    "com.tencent.mobileqq.sharepanel.forward.api.ForwardErrorCode", false, loader
+            );
+            Object val = Enum.valueOf((Class<Enum>) codeClz, "SUCCESS");
+            sCachedSuccessErrorCode = val;
+            return val;
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static Contact buildContact(DestTarget dest) {
+        if (dest.peerUid != null && !dest.peerUid.isEmpty()
+                && (dest.peerType != 2 || dest.peerUid.matches("\\d+"))) {
+            return new Contact(dest.peerType, dest.peerUid, "");
+        }
+        return MsgSender.makeContact(dest.peerUin, dest.peerType);
     }
 
     private static class DestTarget {
         String peerUin;
+        String peerUid;
         int peerType;
-        DestTarget(String uin, int type) { this.peerUin = uin; this.peerType = type; }
+        DestTarget(String uin, String uid, int type) {
+            this.peerUin = uin;
+            this.peerUid = uid;
+            this.peerType = type;
+        }
     }
 
-    private static DestTarget extractAndNeutralizeContact(Object contactItem) {
+    private static DestTarget extractTarget(Object contactItem) {
         try {
             Class<?> clz = contactItem.getClass();
-            Method getUinM = clz.getMethod("getPeerUin");
-            Method getTypeM = clz.getMethod("getPeerType");
-
-            String uin = (String) getUinM.invoke(contactItem);
-            int type = (Integer) getTypeM.invoke(contactItem);
-
-            // 破坏 peerType 使官方后续发包跳过该联系人
-            for (Field f : clz.getDeclaredFields()) {
-                if ("peerType".equals(f.getName()) || (f.getType() == int.class && !java.lang.reflect.Modifier.isStatic(f.getModifiers()))) {
-                    f.setAccessible(true);
-                    if (f.getInt(contactItem) == type) {
-                        f.setInt(contactItem, INVALID_TYPE);
-                        break;
-                    }
+            String uin = (String) clz.getMethod("getPeerUin").invoke(contactItem);
+            int type = (Integer) clz.getMethod("getPeerType").invoke(contactItem);
+            String uid = "";
+            try {
+                Object uidObj = clz.getMethod("getPeerUid").invoke(contactItem);
+                if (uidObj instanceof String) {
+                    uid = (String) uidObj;
                 }
-            }
+            } catch (Throwable ignored) {}
 
-            if (uin != null && !uin.isEmpty() && type != INVALID_TYPE) {
-                return new DestTarget(uin, type);
+            if (((uin != null && !uin.isEmpty()) || !uid.isEmpty()) && type != INVALID_TYPE) {
+                return new DestTarget(uin != null ? uin : "", uid, type);
             }
         } catch (Throwable ignored) {}
         return null;
     }
 
-    /**
-     * 全动态文案匹配：判断是否为 2X 倍速项 (不依赖类名是 ad 还是 aj)
-     */
+    private static void neutralizeContactFallback(Object contactItem) {
+        if (contactItem == null) return;
+        try {
+            Class<?> clz = contactItem.getClass();
+            int type = (Integer) clz.getMethod("getPeerType").invoke(contactItem);
+            Class<?> cur = clz;
+            while (cur != null && cur != Object.class) {
+                try {
+                    Field f = cur.getDeclaredField("peerType");
+                    if (f.getType() == int.class && !Modifier.isStatic(f.getModifiers())) {
+                        f.setAccessible(true);
+                        f.setInt(contactItem, INVALID_TYPE);
+                        return;
+                    }
+                } catch (NoSuchFieldException ignored) {}
+                cur = cur.getSuperclass();
+            }
+            for (Field f : clz.getDeclaredFields()) {
+                if (f.getType() == int.class && !Modifier.isStatic(f.getModifiers())) {
+                    f.setAccessible(true);
+                    if (f.getInt(contactItem) == type) {
+                        f.setInt(contactItem, INVALID_TYPE);
+                        return;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
     private static boolean isSpeedMenuItem(Object item) {
         if (item == null) return false;
         String text = extractMenuItemTitle(item);
@@ -285,9 +401,6 @@ public class ForwardPttModule implements IPatchModule {
         return false;
     }
 
-    /**
-     * 全动态文案匹配：判断是否为转文字项 (不依赖类名是 w/ac 还是 ac/ai)
-     */
     private static boolean isSpeechToTextMenuItem(Object item) {
         if (item == null) return false;
         String text = extractMenuItemTitle(item);
@@ -297,14 +410,10 @@ public class ForwardPttModule implements IPatchModule {
         return false;
     }
 
-    /**
-     * 全动态反射获取菜单标题文字（9.2.90 为 f(), 9.3.75 为 h()）
-     */
     private static String extractMenuItemTitle(Object item) {
         if (item == null) return "";
         Class<?> clz = item.getClass();
 
-        // 1. 遍历所有无参返回 CharSequence/String 的方法
         for (Method m : clz.getMethods()) {
             if (m.getParameterTypes().length == 0 && CharSequence.class.isAssignableFrom(m.getReturnType())) {
                 try {
@@ -320,9 +429,8 @@ public class ForwardPttModule implements IPatchModule {
             }
         }
 
-        // 2. 遍历自身声明的 String 属性
         for (Field f : clz.getDeclaredFields()) {
-            if (f.getType() == String.class && !java.lang.reflect.Modifier.isStatic(f.getModifiers())) {
+            if (f.getType() == String.class && !Modifier.isStatic(f.getModifiers())) {
                 try {
                     f.setAccessible(true);
                     Object val = f.get(item);
@@ -333,9 +441,6 @@ public class ForwardPttModule implements IPatchModule {
         return "";
     }
 
-    /**
-     * 全动态反射获取标识符（9.2.90 为 e(), 9.3.75 为 g()）
-     */
     private static String extractMenuItemIdentifier(Object item) {
         if (item == null) return "";
         Class<?> clz = item.getClass();
@@ -360,19 +465,16 @@ public class ForwardPttModule implements IPatchModule {
             if (cl == null) cl = AppContext.get().getClassLoader();
 
             Class<?> targetClz = null;
-
-            // 1. 优先使用 Python 规则直接嗅探到的类名 (9.2.90=j, 9.3.75=o)
             if (targetClassName != null && !targetClassName.isEmpty()) {
                 try {
                     targetClz = cl.loadClass(targetClassName);
                 } catch (Throwable ignored) {}
             }
 
-            // 2. 兜底扫描 com.tencent.qqnt.aio.menu. 下的类
             if (targetClz == null) {
                 String[] fallbacks = new String[]{
-                        "com.tencent.qqnt.aio.menu.o", // 9.3.75
-                        "com.tencent.qqnt.aio.menu.j", // 9.2.90
+                        "com.tencent.qqnt.aio.menu.o",
+                        "com.tencent.qqnt.aio.menu.j",
                         "com.tencent.qqnt.aio.menu.k",
                         "com.tencent.qqnt.aio.menu.l",
                         "com.tencent.qqnt.aio.menu.n"
@@ -407,7 +509,6 @@ public class ForwardPttModule implements IPatchModule {
     }
 
     private static AIOMsgItem resolveComponentMsgItem(Object component) {
-        // 9.2.90 为 a2(), 9.3.75 为 f2()
         String[] candidateMethods = new String[]{"f2", "a2", "getMsgItem"};
         for (String mName : candidateMethods) {
             try {
@@ -417,7 +518,6 @@ public class ForwardPttModule implements IPatchModule {
             } catch (Throwable ignored) {}
         }
 
-        // 递归扫描父类
         Class<?> cur = component.getClass();
         while (cur != null && cur != Object.class) {
             for (Field f : cur.getDeclaredFields()) {

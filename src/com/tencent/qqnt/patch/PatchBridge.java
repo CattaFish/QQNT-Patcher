@@ -101,8 +101,12 @@ public class PatchBridge {
         com.tencent.qqnt.patch.modules.chat.ForwardPttModule.onStartForwardMsg(aioMsgItem);
     }
 
-    public static void onHandleAIOForward(Object allDataObj, Object targetContactsObj, String comment) {
-        com.tencent.qqnt.patch.modules.chat.ForwardPttModule.onHandleAIOForward(allDataObj, targetContactsObj, comment);
+    public static void onEndStartForwardMsg(boolean started) {
+        com.tencent.qqnt.patch.modules.chat.ForwardPttModule.onEndStartForwardMsg(started);
+    }
+
+    public static Object onHandleAIOForward(Object allDataObj, Object targetContactsObj, String comment) {
+        return com.tencent.qqnt.patch.modules.chat.ForwardPttModule.onHandleAIOForward(allDataObj, targetContactsObj, comment);
     }
 
     @SuppressWarnings("unchecked")

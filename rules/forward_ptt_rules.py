@@ -128,6 +128,17 @@ def build_forward_ptt_rules(dex_data_dict):
 """
     })
 
+    rules.append({
+        "name": f"语音转发面板弹出后立即还原消息类型 ({forward_utils_cls}->{start_forward_method.split('(')[0]})",
+        "target_class": forward_utils_cls,
+        "target_method": start_forward_method,
+        "type": "REGEX_REPLACE",
+        "regex": r"(?<![\w-])return\s+([vp]\d+)",
+        "smali": r"""    move/16 v0, \1
+    invoke-static {v0}, Lcom/tencent/qqnt/patch/PatchBridge;->onEndStartForwardMsg(Z)V
+    return v0"""
+    })
+
     for _, dex_bytes in dex_data_dict.items():
         if b"AIOForwardHandler" in dex_bytes:
             p = FastDexParser(dex_bytes)
@@ -152,7 +163,11 @@ def build_forward_ptt_rules(dex_data_dict):
     move-object/16 v0, p1
     move-object/16 v1, p3
     move-object/16 v2, p4
-    invoke-static {v0, v1, v2}, Lcom/tencent/qqnt/patch/PatchBridge;->onHandleAIOForward(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/String;)V
+    invoke-static {v0, v1, v2}, Lcom/tencent/qqnt/patch/PatchBridge;->onHandleAIOForward(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/Object;
+    move-result-object v0
+    if-eqz v0, :cond_pass_aio_forward
+    return-object v0
+    :cond_pass_aio_forward
 """
     })
 
