@@ -1,6 +1,6 @@
 # QQNT-Patcher
 
-主人好喵！欢迎来到 QQNT-Patcher~ 这里是一只专门给 Android QQNT 做静态修补、去签防护与动态扩展的小工具，不用 Root 也不依赖任何 Xposed / LSPosed 框架就能直接跑起来喵！
+主人好喵！欢迎来到 QQNT-Patcher~ 这是一个专门给 Android QQNT 做修补、去签和跑脚本的小工具，不用 Root 也不用装 Xposed 或 LSPosed 框架就能直接用喵！
 
 - Telegram 频道：[ZcraftMod](https://t.me/ZcraftMod)
 - GitHub 仓库：[Cattafish/QQNT-Patcher](https://github.com/Cattafish/QQNT-Patcher)
@@ -9,140 +9,133 @@
 
 ## 项目简介
 
-QQNT-Patcher 是一套针对 Android QQNT 架构的自动化静态字节码修补、签名保护与运行时扩展工具。
-
-项目采用分阶段流水线调度：通过内存 AST 重构目标 DEX，结合 NeoApk 流式打包引擎实现原包内嵌与虚拟条目数据复用；同时集成底层去签方案与 BeanShell 3 动态脚本环境，提供免 Root 的功能增强支持。
+QQNT-Patcher 会在本地把官方 QQ 安装包拆开，通过直接修改 DEX 字节码加上各种实用功能，再搭配去签壳和 BeanShell 3 脚本环境重新打包，装上就能直接用。
 
 ---
 
-## 核心架构特性
+## 实现原理
 
-### 1. NeoApk 流式打包与数据复用
-* **宿主与虚拟条目复用**：将官方原包以内嵌形式写入 `assets/Zcraft/meow.apk`。原包中未修改的数万个资源条目直接通过虚拟指针映射其内部数据偏移，大幅降低双重打包带来的体积冗余。
-* **原生 16KB 与 4KB 页面对齐**：打包时自动处理 Native 动态库及内嵌包的 16KB 内存对齐和普通文件的 4 字节对齐，不依赖外部 `zipalign` 进程，兼容高版本 Android 系统的页面对齐要求。
-* **原地 V2 签名**：通过 `V2V3SchemeSigner` 直接在 Central Directory 前写入合法的 V2 签名块，不触碰条目数据区，避免重构签名导致的结构畸变。
-
-### 2. 底层签名防护体系
-* **V1 证书壳保留**：完整保留原包官方 `META-INF/` 签名信息，使依赖底层 maps 读取或校验安装包证书的 Native 逻辑获取到官方原版证书。
-* **系统调用动态拦截**：注入 `libzcraft.so` 并基于 xhook 对底层的 `open`、`stat`、`maps` 进行脱敏重定向；Java 层动态代理系统包管理接口，伪造签名哈希。
-* **路径穿透资产加载**：针对安装包重定向机制，通过 `PatchAssetHelper` 进行路径规范化穿透拦截，允许 App 正常加载外层 `assets/` 目录新增的脚本、图片与配置。
-
-### 3. 五阶段流水线调度
-构建总线拆分为职责清晰的阶段调度器：
-* **Stage 1 Prepare**：检查基础构建工具链，增量编译 `DexPatcher`、扩展 Java 库与脚本依赖；
-* **Stage 2 Rules**：提取原包签名指纹与 DEX 拓扑关系，动态加载并推导插桩规则；
-* **Stage 3 Transform**：基于内存 AST 批量重构目标 DEX 字节码；
-* **Stage 4 Pack**：收集修改后的 DEX、Native 库与静态资源，整理按需注入目录；
-* **Stage 5 Sign**：根据选定模式执行签名与最终装配。
-
-### 4. 插件式规则引擎
-* `rules/` 目录下的规则文件各自独立，引擎自动发现并加载；
-* 配套基于 DEX 语义特征的快速流式解析器，自动适应混淆类名与方法名的变动，添加新功能仅需新增规则文件。
+- **打包与去签**：用 NeoApk 把原版 QQ 塞进 `assets/Zcraft/meow.apk`，没改到的资源直接复用原包数据，不占多余体积，同时保留原本的 `META-INF/` 证书文件并重新做 V2 签名。运行时注入 `libzcraft.so` 和 Java 代理拦住底层 IO 和系统签名校验；我们自己加进去的 `assets/` 文件通过 `PatchAssetHelper` 直接从外层包体读取。
+- **构建流程**：打包脚本按 5 个步骤跑：检查工具并编译扩展代码 -> 提取原包信息并扫 DEX 定位要改的方法 -> 用 `DexPatcher` 修改目标 DEX -> 整理要注入的 DEX、so 库、图标和配置 -> 打包并签名。
+- **规则扫描**：各个功能的修改规则放在 `rules/` 下，运行前自动读取。大部分规则通过特征字符串动态查找类名和方法名，尽量不写死混淆名，QQ 升级后也不容易失效。
 
 ---
 
-## 版本兼容性说明
+## 兼容版本
 
-- **测试版本**：QQ `9.3.55` ~ `9.3.70`
-- **基础兼容版本**：QQ `9.2.90`+
-- **适配架构**：根据原包实际包含的 ABI 进行注入（如 64 位纯净版仅注入 `arm64-v8a`）。
-
----
-
-## 当前功能特性
-
-### 1. 聊天增强与防撤回
-- **消息防撤回**：实时拦截私聊与群聊撤回指令，递归过滤后台漫游同步包，自身主动撤回正常放行；生成支持点击跳转并高亮原消息的交互灰条。
-- **闪照破解与放行**：接收与历史闪照自动转为普通图片，解除沉浸式大图画廊对闪照资源的查看与保存限制。
-- **发送者 QQ 版本与架构识别**：在好友设置与群成员名片页直观展示对方的客户端版本、操作系统、CPU 架构、SubID 及渠道信息，内置云端增量静默 OTA 字典同步。
-- **查看本地聊天记录**：在设置中输入目标 QQ 号或群号，直接调用官方聊天记录组件调阅本地已保存的历史消息（即使被单删好友或已退群亦可查看）。
-- **自定义图片外显**：支持修改发送普通图片与商城大表情的外显文字，支持从本地词库抽取或配置 HTTP 接口轮询更新。
-- **Telegram 外部表情包**：支持加载本地外部表情包，提供 3 到 8 列布局切换，并支持按需净化隐藏官方商城大表情。
-
-### 2. 净化与系统限制解除
-- **群文件下载次数显示**：解析群文件列表回包并在文件项直接展示下载次数，自适应新旧两代渲染通道。
-- **静默全体与群待办提醒**：过滤群聊 `@全体成员` 强提醒与群待办弹窗，仅真正 `@我` 的消息触发通知。
-- **发送 APK 自动规范命名**：发送本地 `.apk` 时自动读取内部应用名与版本号命名为 `应用名_版本号.APK`，并清洗回包污染后缀。
-- **强制平板双栏模式**：动态拦截设备类型判定，开启原厂平板与折叠屏双栏布局。
-- **伪装非多窗口模式**：动态拦截多窗口检测，解除分屏状态下扫码等功能的系统限制。
-- **内置浏览器拦截解除**：拦截并放行安全检测回调，允许在内置浏览器直接打开第三方网页。
-
-### 3. 动态脚本生态
-- **免框架热插拔**：外部存储放入脚本即时生效，支持标准 Java 语法及现代 Lambda 表达式。
-- **协议收发与群管支持**：打通 MSF 传输管道，支持自定义构造发包、图文语音发送、禁言踢人、修改名片、头衔管理等操作。
-- **凭证与密钥获取**：支持提取当前账号 Skey、Pskey、Pt4Token 等鉴权凭证，自动捕获高清图片所需的 RKey 密钥。
-- **会话感知悬浮球**：进入聊天界面（AIO）时自动展现悬浮球，支持拖动停靠与一键调出脚本菜单。
-
-### 4. 原生二级设置中心
-- **设置顶层无缝集成**：在 QQ 设置顶层挂载设置卡片与动态脚本双入口，图标与夜间模式自适应。
-- **搜索索引支持**：全面接入 QQ 原生功能搜索，可在设置搜索栏直接检索功能并跳转定位。
-- **内存日志监视器**：内置环形内存日志池，支持在应用内弹窗调阅实时运行日志或一键导出本地文件。
+- **支持版本**：QQ `9.2.90~9.3.85`
+- **支持架构**：打包时会看原包里带了哪些架构的库再注入对应的 `libzcraft.so`，比如纯 64 位包只会注入 `arm64-v8a`。
 
 ---
 
-## 外部数据与脚本存放路径
+## 当前功能
 
-安装修改后的 APK 后，相关资源放置于手机存储对应目录下：
+### 聊天增强
+- **消息防撤回**：拦截私聊、群聊和漫游同步里的他人撤回，自己主动撤回正常放行，灰条支持点击跳回原消息。
+- **闪照破解**：把收到的闪照和历史闪照转成普通图片，取消画廊大图的查看和保存限制。
+- **发送者 QQ 版本识别**：在好友设置和群成员设置页面显示对方的客户端版本、系统、架构和历史捕获记录，会自动从云端同步版本字典。
+- **打开本地聊天记录**：在设置里输入好友 QQ、UID 或群号，直接调用官方界面查看本地保存的历史消息，就算被单删或已退群也能看。
+- **修改图片外显**：自定义发送图片和大表情的外显文字，支持写死固定文本、从本地 `summary.txt` 随机抽，或者配 HTTP 接口自动获取。
+- **Telegram 表情包**：读取本地外部表情包文件夹，支持调整 3 到 8 列排版，也可以顺便隐藏官方商城表情和杂项入口。
+- **群文件显示下载次数**：读取群文件回包，在文件列表里直接显示下载次数。
+- **上传 APK 自动重命名**：发送本地 `.apk` 时自动按 `应用名_版本号.APK` 重命名，并清掉回包里被加上的 `.1` 后缀。
+- **消息复读**：支持左滑消息直接复读，或者在气泡旁边显示 `+1` 按钮点击复读。
+- **语音转发**：长按语音气泡多出转发按钮，可以把语音转发给好友或群聊。
+- **文字表情混排**：输入框有文字或处于回复状态时，点击表情会先放进输入框，和文字一起发送。
+- **解除左滑回复限制**：允许对所有类型的消息左滑回复。
+- **去除回复自动艾特**：引用回复消息时，不再自动往输入框里塞 `@`。
+- **查看聊天记录回复图片**：允许查看聊天记录里引用的图片消息。
+- **喵喵助手**：发消息前按自定义规则替换文字，还可以在句尾加上语气词和符号。
+
+### 净化与限制解除
+- **屏蔽群聊 @全体成员**：过滤群聊 `@全体成员` 通知。
+- **静默群待办强提醒**：屏蔽群待办通知弹窗。
+- **隐藏主页横幅广告**：隐藏消息列表顶部的 VIP 续费、活动和游戏推广横幅，并直接把对应的广告请求拦下来。
+- **隐藏空间广告**：隐藏 QQ 空间说说流和详情页里的推广广告。
+- **查看被封禁群聊**：解除被封禁群聊进不去、看不了资料以及长按消息被限制的问题。
+- **去除相册扫码登录检验**：允许从相册选图或长按图片二维码完成登录授权。
+- **去除更新检测**：去掉关于页更新提示和强制更新弹窗，降级使用时不容易被强制踢下线。
+- **强制平板模式**：把设备类型判定改成平板，开启双栏界面，重启 QQ 生效。
+- **伪装非多窗口模式**：绕过分屏状态检测，解除分屏时无法扫码等限制。
+- **禁用内置浏览器网页拦截**：绕过安全提示跳转，直接在内置浏览器打开第三方网页。
+
+### 脚本与设置
+- **动态脚本**：内置 BeanShell 3 引擎，把脚本放进指定目录就能跑。支持消息收发监听、群管操作、发包、Cookie 与 RKey 获取、气泡长按菜单以及聊天界面的悬浮球快捷菜单。
+- **设置与日志**：在 QQ 原生设置页加上「Zzz」和「动态脚本」入口，接入设置搜索且支持结果置顶；设置里自带运行日志查看，可以按级别筛选、复制或导出成文件，也支持检查更新。
+- **更换应用图标与名称**：打包前可以把自定义图标和 `names.txt` 放进 `icons/` 目录，装上后在杂项设置里随时切换桌面图标和名字，也支持添加桌面快捷方式。
+
+---
+
+## 外部目录与脚本编写
+
+装好改过的安装包后，外部资源和脚本统一放在手机存储的这个目录里：
 
 ```text
 /sdcard/Android/media/com.tencent.mobileqq/zzz/
-├── latest.log           # 在设置中点击“导出”生成的本地运行日志
-├── summary.txt          # 本地图片外显词库（每行一条文本，可选）
-├── stickers/            # Telegram 外部表情包目录（每个子文件夹对应一个表情包）
+├── latest.log           # 在设置里导出生成的运行日志
+├── summary.txt          # 本地图片外显词库，每行写一条文本
+├── stickers/            # 外部表情包目录，每个子文件夹是一个表情包
 │   └── 示例表情包/
 │       ├── __cover__.png
 │       ├── 01.png
 │       └── 02.webp
 └── plugins/             # 动态脚本目录
     └── 示例脚本/
-        ├── info.prop    # 脚本元数据（ID、名称、作者）
+        ├── info.prop    # 脚本信息，包含 ID、名称等
         └── main.java    # 脚本入口源码
 ```
+
+如果想把自定义桌面图标或预设脚本直接打进包里，可以在构建前把图标图片和 `names.txt` 放进项目根目录的 `icons/`，把脚本放进 `preset_plugins/`。
+
+### 怎么写脚本
+
+动态脚本的语法和接口直接沿用了 QFun 模块的规范，想自己写脚本可以直接参考 QFun 的官方文档：
+
+- [QFun Plugin API 文档](https://github.com/oneQAQone/QFun/blob/main/doc/Plugin%20API.md)
 
 ---
 
 ## 环境准备
 
-运行构建环境需具备 Python 3、JDK 17、Android SDK 构建工具（d8、zipalign、apksigner）、zip 与 curl。
+构建环境需要准备 Python 3、JDK 17、Android SDK 构建工具如 d8 和 apksigner，以及 curl。
 
 ### Linux 与 WSL 环境
 ```bash
 sudo apt update
-sudo apt install python3 openjdk-17-jdk android-sdk-build-tools zipalign zip curl -y
+sudo apt install python3 openjdk-17-jdk android-sdk-build-tools curl -y
 ```
 
 ### Termux 环境
 ```bash
 pkg update
-pkg install python openjdk-17 d8 apksigner android-tools zip curl -y
+pkg install python openjdk-17 d8 apksigner android-tools curl -y
 ```
 
 ---
 
-## 快速使用说明
+## 快速开始
 
 ### 步骤 1：下载基础依赖库
 
-在项目根目录下执行以下命令，下载构建所需的依赖库至 `tools/` 目录：
+在项目根目录下运行下面的命令，把需要的依赖下载到 `tools/` 目录：
 
 ```bash
 mkdir -p tools
 
-# 1. 字节码解析工具
+# 字节码解析与资源修改工具
 curl -L -o tools/baksmali.jar https://bitbucket.org/JesusFreke/smali/downloads/baksmali-2.5.2.jar
 curl -L -o tools/smali.jar https://bitbucket.org/JesusFreke/smali/downloads/smali-2.5.2.jar
 curl -L -o tools/dexlib2.jar https://repo1.maven.org/maven2/org/smali/dexlib2/2.5.2/dexlib2-2.5.2.jar
 curl -L -o tools/guava.jar https://repo1.maven.org/maven2/com/google/guava/guava/18.0/guava-18.0.jar
+curl -L -o tools/arsclib.jar https://repo1.maven.org/maven2/io/github/reandroid/ARSCLib/1.4.0/ARSCLib-1.4.0.jar
 
-# 2. 脚本引擎与协议依赖
+# 脚本引擎与协议依赖
 curl -f -L -o tools/bsh.aar https://repo1.maven.org/maven2/io/github/copylibs/beanshell-android-lambda/3.0.0.beta10/beanshell-android-lambda-3.0.0.beta10.aar
 python3 -c "import zipfile, os; open('tools/bsh.jar', 'wb').write(zipfile.ZipFile('tools/bsh.aar').read('classes.jar')); os.remove('tools/bsh.aar')"
 curl -L -o tools/dx.jar https://repo1.maven.org/maven2/com/jakewharton/android/repackaged/dalvik-dx/9.0.0_r3/dalvik-dx-9.0.0_r3.jar
 curl -L -o tools/protobuf.jar https://repo1.maven.org/maven2/com/google/protobuf/protobuf-java/3.25.3/protobuf-java-3.25.3.jar
 
-curl -L -o tools/arsclib.jar https://repo1.maven.org/maven2/io/github/reandroid/ARSCLib/1.4.0/ARSCLib-1.4.0.jar
-
-# 3. Android 编译期桩库
+# Android 编译期桩库
 curl -L -o tools/android.jar https://raw.githubusercontent.com/Sable/android-platforms/master/android-30/android.jar
 ```
 
@@ -150,102 +143,98 @@ curl -L -o tools/android.jar https://raw.githubusercontent.com/Sable/android-pla
 
 ### 步骤 2：准备原生库与打包引擎
 
-1. **准备 `tools/killer_lib`**：放置编译完成的 `libzcraft.so` 目标架构目录（或解压自官方 Releases）；
-2. **准备 `tools/neoapk.jar`**：放置编译完成的 NeoApk 核心库单体 JAR 包。
+1. **准备 `tools/killer_lib`**：放好编译完成的各架构 `libzcraft.so`，或者直接从官方 Releases 下载解压。
+2. **准备 `tools/neoapk.jar`**：放好编译完成的 NeoApk 单体 JAR 包。
 
 ---
 
-### 步骤 3：放置官方原版 APK 并启动构建
+### 步骤 3：放入原版 APK 并开始构建
 
-将官方原版 QQ 安装包重命名为 `QQ.apk` 放置在项目根目录下：
+把官方原版 QQ 安装包改名为 `QQ.apk` 放到项目根目录下：
 
-#### 方式 A：标准去签构建
-内嵌官方原包并注入签名欺骗模块，产物免 Root 直接安装：
+#### 方式 A：默认带去签打包
+内嵌官方原包并注入去签模块，免 Root 直接安装：
 ```bash
 python3 patcher.py QQ.apk QQ_Patched.apk
 ```
 
-#### 方式 B：纯净 Debug 签名构建
-跳过去签壳注入与原包内嵌，使用标准 Debug 密钥签名（包体体积最轻，适用于系统已集成核心破解的环境）：
+#### 方式 B：Debug 签名打包
+不注入去签壳也不嵌原包，直接使用 Debug 密钥签名，包体积更小，适合系统已经做了核心破解的环境：
 ```bash
 python3 patcher.py --signer=debug QQ.apk QQ_Patched.apk
-# 或简写为
+# 也可以简写为
 python3 patcher.py --no-killer QQ.apk QQ_Patched.apk
 ```
 
-#### 方式 C：免签构建
-跳过签名流程：
+#### 方式 C：不签名打包
+跳过签名步骤，方便后续自己签名：
 ```bash
 python3 patcher.py --signer=none QQ.apk QQ_Patched.apk
-# 或简写为
+# 也可以简写为
 python3 patcher.py -n QQ.apk QQ_Patched.apk
 ```
 
-#### 方式 D：常用调试参数
+#### 常用调试参数
 ```bash
-# 彻底清空构建增量缓存
+# 清空构建缓存
 python3 patcher.py --clean
 
-# 跳过宿主 DEX 重构，仅编译注入扩展业务类
+# 跳过修改宿主 DEX，只编译注入扩展代码
 python3 patcher.py --skip-dex-patch
 
-# 仅执行指定功能的单条规则
+# 只启用指定规则
 python3 patcher.py --only "闪照"
 
-# 临时跳过指定规则
+# 跳过指定规则
 python3 patcher.py --skip "群文件"
 ```
 
 ---
 
-## 项目结构概览
+## 项目结构
 
 ```text
 QQNT-Patcher/
-├── pipeline/                             # 流水线各阶段调度实现
-│   ├── __init__.py                       # 流水线主调度流程
-│   ├── context.py                        # 全局上下文与构建参数
-│   ├── stage1_prepare.py                 # 阶段 1：环境自检与扩展构建
-│   ├── stage2_rules.py                   # 阶段 2：指纹分析与规则推导
-│   ├── stage3_transform.py               # 阶段 3：内存 AST 局部重构
-│   ├── stage4_pack.py                    # 阶段 4：产物聚合与注入整理
-│   ├── stage5_sign.py                    # 阶段 5：签名与装配
-│   └── providers/                        # 签名提供者实现
-├── rules/                                # 插桩规则插件目录
-│   ├── engine.py                         # 规则自动加载引擎
-│   ├── base_rules.py                     # 核心事件与消息总线
-│   ├── security_rules.py                 # 风控与事件拦截规则
-│   ├── setting_rules.py                  # 设置中心与搜索索引规则
-│   ├── tablet_rules.py                   # 平板模式规则
-│   ├── group_file_rules.py               # 群文件下载次数规则
-│   ├── qq_version_rules.py               # 发送者版本识别规则
-│   ├── tg_sticker_rules.py               # 外部表情包规则
-│   ├── browser_rules.py                  # 网页拦截放行规则
-│   └── parser.py                         # DEX 高效流式扫描引擎
-├── src/                                  # 运行时 Java 扩展源码
-│   └── com/tencent/qqnt/patch/
-│       ├── modules/                      # 核心业务模块
-│       ├── plugin/                       # 动态脚本引擎与兼容层
-│       ├── ui/                           # 设置界面与搜索注入
-│       └── util/                         # 资产穿透与辅助工具
-├── assets/                               # 图标与版本字典等内置资产
-├── tools/                                # 打包工具链与依赖库
-├── DexPatcher.java                       # 内存 AST 多线程局部重构器
-├── patcher.py                            # 构建入口脚本
+├── pipeline/                      # 打包流程各个步骤的脚本
+│   ├── __init__.py                # 主调度入口
+│   ├── context.py                 # 构建参数与上下文
+│   ├── features.py                # 功能开关与依赖关系
+│   ├── killer_config.py           # 去签配置
+│   ├── killer_payload.py          # 编译去签 Application DEX
+│   ├── subid_sync.py              # 同步云端 SubID 字典
+│   ├── stage1_prepare.py          # 阶段 1：检查环境与编译扩展代码
+│   ├── stage2_rules.py            # 阶段 2：读取原包指纹并生成修改规则
+│   ├── stage3_transform.py        # 阶段 3：批量修改目标 DEX
+│   ├── stage4_pack.py             # 阶段 4：整理 DEX、so 库、资产和自定义图标
+│   ├── stage5_sign.py             # 阶段 5：打包并签名
+│   └── providers/                 # 不同签名模式的实现
+├── rules/                         # 各功能的 DEX 扫描与插桩规则
+├── src/                           # 注入进 QQ 运行的 Java 源码
+├── tools/                         # 打包工具链与依赖库
+│   ├── NeoPacker.java             # 负责流式打包、复用原包条目和 V2 签名
+│   └── IconManifestPatcher.java   # 修改 Manifest 和 resources.arsc 注入桌面图标
+├── killer/                        # 去签 Application Java 模板与 stub
+├── killer_native/                 # libzcraft.so 的 C 源码与 xHook
+├── assets/                        # 图标和版本字典等内置文件
+├── icons/                         # 打包时放入的自定义桌面图标与名称配置
+├── DexPatcher.java                # 多线程反汇编、改 Smali 和重汇编 DEX
+├── patcher.py                     # 构建入口脚本
 └── README.md
 ```
 
 ---
 
-## 鸣谢与致敬
+## 鸣谢
 
-- [NeoApk / NPatch](https://github.com/HSSkyBoy/NeoApk)：提供流式 ZIP 处理与 V2 签名实现；
-- [ApkSignatureKillerEx](https://github.com/Cattafish/ApkSignatureKillerEx)：提供免 Root 去签思路与底层拦截参考；
-- [QFun](https://github.com/oneQAQone/QFun)：提供 QQNT 防撤回机制思路与脚本接口设计参考；
-- [Smali / Baksmali / Dexlib2](https://github.com/JesusFreke/smali)：提供强大的 DEX 字节码重构支持。
+- [qqDecoder](https://github.com/CattaFish/qqDecoder)：提供客户端 SubID 版本映射信息
+- [NeoApk / NPatch](https://github.com/HSSkyBoy/NeoApk)：提供流式 ZIP 处理与 V2 签名实现
+- [ApkSignatureKillerEx](https://github.com/CattaFish/ApkSignatureKillerEx)：提供免 Root 去签思路与底层拦截参考
+- [QFun](https://github.com/oneQAQone/QFun)：提供 QQNT 防撤回思路、脚本引擎与 API 设计参考
+- [Smali / Baksmali / Dexlib2](https://github.com/JesusFreke/smali)：提供 DEX 反汇编与重汇编支持
+- [ARSCLib](https://github.com/REAndroid/ARSCLib)：提供 Manifest 与资源表修改支持
 
 ---
 
 ## 免责声明
 
-本项目仅用于 Android 逆向工程、安全研究与技术交流。请勿将本项目用于任何违反法律法规或侵犯他人合法权益的场景。因使用本项目所产生的一切后果由使用者自行承担。
+本项目仅供 Android 逆向学习、安全研究与技术交流使用，请勿用于任何违反法律法规或侵犯他人合法权益的场景，由此产生的一切后果由使用者自行承担。
