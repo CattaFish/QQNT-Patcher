@@ -8,6 +8,7 @@ import com.tencent.qqnt.patch.IPatchModule;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.config.FeatureConfig;
 import com.tencent.qqnt.patch.config.UpdateHelper;
+import com.tencent.qqnt.patch.modules.misc.AccountBackupModule;
 import com.tencent.qqnt.patch.util.ChatHistoryHelper;
 import com.tencent.qqnt.patch.util.CustomIconHelper;
 import com.tencent.qqnt.patch.util.PLog;
@@ -40,6 +41,16 @@ public class SettingMenuRegistry {
                         cl, getTitle(), currentName, true, false,
                         v -> CustomIconHelper.showIconPickerDialog(activity, onRefresh)
                 );
+            }
+        });
+        
+        register(new FeatureSettingItem() {
+            @Override public String getCategory() { return IPatchModule.CATEGORY_MISC; }
+            @Override public String getGroupName() { return ""; }
+            @Override public String getTitle() { return "账号备份管理"; }
+            @Override public String getFeatureId() { return AccountBackupModule.FEATURE_ID; }
+            @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
+                return AccountBackupModule.createSettingView(cl, activity, onRefresh);
             }
         });
         

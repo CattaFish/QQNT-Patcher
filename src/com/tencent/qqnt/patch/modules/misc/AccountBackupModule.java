@@ -62,7 +62,7 @@ public class AccountBackupModule implements IPatchModule {
 
     @Override
     public String getName() {
-        return "账号凭证备份";
+        return "账号备份管理";
     }
 
     @Override
@@ -81,34 +81,30 @@ public class AccountBackupModule implements IPatchModule {
     }
 
     @Override
-    public int getOrder() {
-        return 50;
+    public boolean showInSettings() {
+        return false;
     }
 
     @Override
     public boolean hasConfig() {
-        return true;
+        return false;
     }
 
     @Override
     public List<Object> getSubSettingItems(ClassLoader cl, Activity activity, Runnable onRefresh) {
+        return Collections.emptyList();
+    }
+
+    public static Object createSettingView(ClassLoader cl, Activity activity, Runnable onRefresh) {
         Context ctx = activity != null ? activity.getApplicationContext() : AppContext.get();
         int count = ctx != null ? listBackupZips(getBackupDir(ctx)).size() : 0;
-
-        List<Object> items = new ArrayList<>();
-        items.add(NativeSettingHelper.createClickable(
-                cl, "  ↳ 账号备份管理", count + " 个备份", true, false,
+        return NativeSettingHelper.createClickable(
+                cl, "账号备份管理", count + " 个备份", true, false,
                 v -> showMainDialog(activity, onRefresh)
-        ));
-        return items;
+        );
     }
 
-    @Override
-    public void onConfigClick(Activity activity, Runnable onSaved) {
-        showMainDialog(activity, onSaved);
-    }
-
-    private void showMainDialog(Activity activity, Runnable onRefresh) {
+    public static void showMainDialog(Activity activity, Runnable onRefresh) {
         if (activity == null || activity.isFinishing()) return;
 
         Context context = activity.getApplicationContext();
@@ -188,7 +184,7 @@ public class AccountBackupModule implements IPatchModule {
         mainDialogRef[0] = dlg.show();
     }
 
-    private View buildActionRow(
+    private static View buildActionRow(
             Activity activity,
             SettingDialogBuilder dlg,
             View.OnClickListener onNewBackup,
@@ -216,7 +212,7 @@ public class AccountBackupModule implements IPatchModule {
         return row;
     }
 
-    private TextView createCardButton(
+    private static TextView createCardButton(
             Activity activity,
             SettingDialogBuilder dlg,
             String text,
@@ -243,7 +239,7 @@ public class AccountBackupModule implements IPatchModule {
         return tv;
     }
 
-    private void showBackupDialog(Activity activity, Runnable onRefresh) {
+    private static void showBackupDialog(Activity activity, Runnable onRefresh) {
         Context context = activity.getApplicationContext();
         String uin = resolveCurrentUin(context);
         File backupDir = getBackupDir(context);
@@ -300,7 +296,7 @@ public class AccountBackupModule implements IPatchModule {
         dlg.show();
     }
 
-    private void showDeleteConfirmDialog(Activity activity, File zipFile, Runnable onRefresh) {
+    private static void showDeleteConfirmDialog(Activity activity, File zipFile, Runnable onRefresh) {
         SettingDialogBuilder dlg = SettingDialogBuilder.build(activity, "删除备份");
         dlg.setSubTitle("确定删除 " + zipFile.getName() + "？");
 
@@ -319,7 +315,7 @@ public class AccountBackupModule implements IPatchModule {
         dlg.show();
     }
 
-    private void showRestoreConfirmDialog(
+    private static void showRestoreConfirmDialog(
             Activity activity,
             Context context,
             File zipFile,
