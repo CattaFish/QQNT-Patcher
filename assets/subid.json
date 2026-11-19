@@ -5675,7 +5675,8 @@
     ],
     "date": "2026-09-23",
     "arch": "X64",
-    "channel": "官方"
+    "channel": "官方",
+    "is_beta": true
   },
   "537391665": {
     "summary": "QQ(Linux-Arm) 3.2.34.53644",
@@ -5683,7 +5684,8 @@
     "version": "3.2.34.53644",
     "arch": "Arm",
     "date": "2026-09-23",
-    "channel": "官方"
+    "channel": "官方",
+    "is_beta": true
   },
   "537391666": {
     "summary": "QQ(Linux-LoongArch) 3.2.34.53644",
@@ -6245,6 +6247,14 @@
     "date": "2026-11-06",
     "channel": "官方"
   },
+  "537402551": {
+    "summary": "QQ 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Phone",
+    "date": "2026-11-11",
+    "channel": "官方"
+  },
   "537402552": {
     "summary": "QQ 9.3.85.43200",
     "platform": "Android",
@@ -6261,6 +6271,70 @@
       "应用汇"
     ]
   },
+  "537402553": {
+    "summary": "QQ 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Phone",
+    "date": "2026-11-16",
+    "channel": "vivo"
+  },
+  "537402554": {
+    "summary": "QQ 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Phone",
+    "date": "2026-11-11",
+    "channel": "华为"
+  },
+  "537402555": {
+    "summary": "QQ 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Phone",
+    "date": "2026-11-16",
+    "channel": "荣耀"
+  },
+  "537402556": {
+    "summary": "QQ 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Phone",
+    "date": "2026-11-16",
+    "channel": "小米"
+  },
+  "537402557": {
+    "summary": "QQ 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Phone",
+    "date": "2026-11-17",
+    "channel": "OPPO"
+  },
+  "537402562": {
+    "summary": "QQ 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Phone",
+    "date": "2026-11-17",
+    "channel": "豌豆荚"
+  },
+  "537402567": {
+    "summary": "QQ 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Phone",
+    "date": "2026-11-17",
+    "channel": "应用汇"
+  },
+  "537402590": {
+    "summary": "QQ(Pad) 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Pad",
+    "date": "2026-11-11",
+    "channel": "官方"
+  },
   "537402591": {
     "summary": "QQ(Pad) 9.3.85.43200",
     "platform": "Android",
@@ -6276,6 +6350,62 @@
       "应用宝",
       "应用汇"
     ]
+  },
+  "537402592": {
+    "summary": "QQ(Pad) 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Pad",
+    "date": "2026-11-16",
+    "channel": "vivo"
+  },
+  "537402593": {
+    "summary": "QQ(Pad) 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Pad",
+    "date": "2026-11-11",
+    "channel": "华为"
+  },
+  "537402594": {
+    "summary": "QQ(Pad) 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Pad",
+    "date": "2026-11-16",
+    "channel": "荣耀"
+  },
+  "537402595": {
+    "summary": "QQ(Pad) 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Pad",
+    "date": "2026-11-16",
+    "channel": "小米"
+  },
+  "537402596": {
+    "summary": "QQ(Pad) 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Pad",
+    "date": "2026-11-17",
+    "channel": "OPPO"
+  },
+  "537402601": {
+    "summary": "QQ(Pad) 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Pad",
+    "date": "2026-11-17",
+    "channel": "豌豆荚"
+  },
+  "537402606": {
+    "summary": "QQ(Pad) 9.3.85.43200",
+    "platform": "Android",
+    "version": "9.3.85.43200",
+    "arch": "Pad",
+    "date": "2026-11-17",
+    "channel": "应用汇"
   },
   "537403569": {
     "summary": "QQ(Win-X86) 9.9.37.54276",
