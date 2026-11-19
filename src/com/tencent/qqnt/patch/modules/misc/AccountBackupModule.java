@@ -86,103 +86,31 @@ public class AccountBackupModule implements IPatchModule {
     @Override
     public List<Object> getSubSettingItems(ClassLoader cl, Activity activity, Runnable onRefresh) {
         Context ctx = activity != null ? activity.getApplicationContext() : AppContext.get();
-        String uin = ctx != null ? resolveCurrentUin(ctx) : "";
         int count = ctx != null ? listBackupZips(getBackupDir(ctx)).size() : 0;
 
         List<Object> items = new ArrayList<>();
         items.add(NativeSettingHelper.createClickable(
-                cl, "  ↳ 备份当前账号", uin.isEmpty() ? "备份" : uin, true, false,
-                v -> {
-                    if (!checkModuleEnabled(activity)) return;
-                    showBackupDialog(activity, onRefresh);
-                }
-        ));
-        items.add(NativeSettingHelper.createClickable(
-                cl, "  ↳ 管理已存备份", count + " 个", true, false,
-                v -> {
-                    if (!checkModuleEnabled(activity)) return;
-                    showManageDialog(activity, onRefresh);
-                }
+                cl, "  ↳ 账号备份管理", count + " 个备份", true, false,
+                v -> showMainDialog(activity, onRefresh)
         ));
         return items;
     }
 
     @Override
     public void onConfigClick(Activity activity, Runnable onSaved) {
-        if (!checkModuleEnabled(activity)) return;
-        showManageDialog(activity, onSaved);
+        showMainDialog(activity, onSaved);
     }
 
-    private boolean checkModuleEnabled(Activity activity) {
-        if (activity == null || activity.isFinishing()) return false;
-        if (!isEnabled()) {
-            ToastHelper.show(activity, "请先开启开关");
-            return false;
-        }
-        return true;
-    }
+    private void showMainDialog(Activity activity, Runnable onRefresh) {
+        if (activity == null || activity.isFinishing()) return;
 
-    private void showBackupDialog(Activity activity, Runnable onRefresh) {
-        Context context = activity.getApplicationContext();
-        String uin = resolveCurrentUin(context);
-        File backupDir = getBackupDir(context);
-        String dirPath = backupDir.getAbsolutePath();
-        String timeSuffix = new SimpleDateFormat("MMdd_HHmm", Locale.getDefault()).format(new Date());
-        String defaultName = (uin.isEmpty() ? "qq" : uin) + "_" + timeSuffix;
-
-        SettingDialogBuilder dlg = SettingDialogBuilder.build(activity, "备份当前账号");
-        if (!uin.isEmpty()) {
-            dlg.setSubTitle("当前账号: " + uin);
-        }
-
-        dlg.addInput("文件名", defaultName, true, false, null);
-
-        dlg.addSwitch(
-                "附带设备参数",
-                "含 QIMEI 与安全配置",
-                isIncludeRiskEnabled(),
-                checked -> ConfigManager.setString(KEY_INCLUDE_RISK, checked ? "1" : "0")
-        );
-
-        dlg.addTip("路径: " + dirPath + " (点击复制)", v -> copyToClipboard(activity, dirPath));
-
-        dlg.setPositiveButton("备份", d -> {
-            String name = dlg.getInputValue(0).trim();
-            if (name.isEmpty()) name = defaultName;
-            name = name.replaceAll("[\\\\/:*?\"<>|]", "_");
-            if (!name.toLowerCase(Locale.ROOT).endsWith(".zip")) {
-                name = name + ".zip";
-            }
-
-            File outZip = new File(backupDir, name);
-            boolean includeRisk = isIncludeRiskEnabled();
-            d.dismiss();
-
-            new Thread(() -> {
-                String err = exportBackupZip(context, outZip, includeRisk);
-                AppContext.runOnUIThread(() -> {
-                    if (err == null) {
-                        ToastHelper.show(activity, "已保存: " + outZip.getName());
-                        if (onRefresh != null) onRefresh.run();
-                    } else {
-                        ToastHelper.show(activity, "备份失败: " + err);
-                    }
-                });
-            }).start();
-        });
-
-        dlg.setNegativeButton("取消", null);
-        dlg.show();
-    }
-
-    private void showManageDialog(Activity activity, Runnable onRefresh) {
         Context context = activity.getApplicationContext();
         File backupDir = getBackupDir(context);
         String dirPath = backupDir.getAbsolutePath();
         List<File> zipFiles = listBackupZips(backupDir);
         String uin = resolveCurrentUin(context);
 
-        SettingDialogBuilder dlg = SettingDialogBuilder.build(activity, "已存备份");
+        SettingDialogBuilder dlg = SettingDialogBuilder.build(activity, "账号备份管理");
         if (!uin.isEmpty()) {
             dlg.setSubTitle("当前账号: " + uin);
         }
@@ -190,7 +118,11 @@ public class AccountBackupModule implements IPatchModule {
         dlg.addTip("目录: " + dirPath + " (点击复制)", v -> copyToClipboard(activity, dirPath));
 
         if (zipFiles.isEmpty()) {
-            dlg.addTip("暂无备份文件", null);
+            dlg.addTip("暂无备份", null);
+            dlg.setPositiveButton("新建备份", d -> {
+                d.dismiss();
+                showBackupDialog(activity, onRefresh);
+            });
             dlg.setNegativeButton("关闭", null);
             dlg.show();
             return;
@@ -208,48 +140,118 @@ public class AccountBackupModule implements IPatchModule {
 
         dlg.addRadioCards(cards, 0, index -> selectedIdx[0] = index);
 
-        dlg.setPositiveButton("恢复", d -> {
+        dlg.setPositiveButton("恢复 / 管理", d -> {
             int idx = selectedIdx[0];
             if (idx >= 0 && idx < zipFiles.size()) {
                 File target = zipFiles.get(idx);
                 d.dismiss();
-                showRestoreConfirmDialog(activity, context, target);
+                showRestoreConfirmDialog(activity, context, target, onRefresh);
             }
         });
 
-        dlg.setNeutralButton("删除", d -> {
-            int idx = selectedIdx[0];
-            if (idx >= 0 && idx < zipFiles.size()) {
-                File target = zipFiles.get(idx);
-                boolean ok = target.delete();
-                ToastHelper.show(activity, ok ? "已删除" : "删除失败");
-                d.dismiss();
-                if (onRefresh != null) onRefresh.run();
-                showManageDialog(activity, onRefresh);
-            }
+        dlg.setNeutralButton("新建备份", d -> {
+            d.dismiss();
+            showBackupDialog(activity, onRefresh);
         });
 
-        dlg.setNegativeButton("取消", null);
+        dlg.setNegativeButton("关闭", null);
         dlg.show();
     }
 
-    private void showRestoreConfirmDialog(Activity activity, Context context, File zipFile) {
-        SettingDialogBuilder dlg = SettingDialogBuilder.build(activity, "恢复备份");
-        dlg.setSubTitle("确定恢复 " + zipFile.getName() + " 并重启 QQ？");
+    private void showBackupDialog(Activity activity, Runnable onRefresh) {
+        Context context = activity.getApplicationContext();
+        String uin = resolveCurrentUin(context);
+        File backupDir = getBackupDir(context);
+        String dirPath = backupDir.getAbsolutePath();
+        String timeSuffix = new SimpleDateFormat("MMdd_HHmm", Locale.getDefault()).format(new Date());
+        String defaultName = (uin.isEmpty() ? "qq" : uin) + "_" + timeSuffix;
 
-        dlg.setPositiveButton("确定", d -> {
+        SettingDialogBuilder dlg = SettingDialogBuilder.build(activity, "新建备份");
+        if (!uin.isEmpty()) {
+            dlg.setSubTitle("当前账号: " + uin);
+        }
+
+        dlg.addInput("文件名", defaultName, true, false, null);
+
+        dlg.addSwitch(
+                "附带设备参数",
+                "含 QIMEI 与安全配置",
+                isIncludeRiskEnabled(),
+                checked -> ConfigManager.setString(KEY_INCLUDE_RISK, checked ? "1" : "0")
+        );
+
+        dlg.addTip("路径: " + dirPath + " (点击复制)", v -> copyToClipboard(activity, dirPath));
+
+        dlg.setPositiveButton("保存", d -> {
+            String name = dlg.getInputValue(0).trim();
+            if (name.isEmpty()) name = defaultName;
+            name = name.replaceAll("[\\\\/:*?\"<>|]", "_");
+            if (!name.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+                name = name + ".zip";
+            }
+
+            File outZip = new File(backupDir, name);
+            boolean includeRisk = isIncludeRiskEnabled();
             d.dismiss();
-            // 确保标记写入当前 ConfigManager 所在的 SP 文件，防止清理 shared_prefs 时误删模块开关
-            ConfigManager.setString(KEY_INCLUDE_RISK, isIncludeRiskEnabled() ? "1" : "0");
+
             new Thread(() -> {
-                String err = restoreFromZipAndRestart(context, zipFile);
+                String err = exportBackupZip(context, outZip, includeRisk);
+                AppContext.runOnUIThread(() -> {
+                    if (err == null) {
+                        ToastHelper.show(activity, "已保存: " + outZip.getName());
+                        if (onRefresh != null) onRefresh.run();
+                        showMainDialog(activity, onRefresh);
+                    } else {
+                        ToastHelper.show(activity, "备份失败: " + err);
+                    }
+                });
+            }).start();
+        });
+
+        dlg.setNegativeButton("取消", d -> {
+            d.dismiss();
+            showMainDialog(activity, onRefresh);
+        });
+        dlg.show();
+    }
+
+    private void showRestoreConfirmDialog(Activity activity, Context context, File zipFile, Runnable onRefresh) {
+        final boolean[] clearAllData = new boolean[]{false};
+
+        SettingDialogBuilder dlg = SettingDialogBuilder.build(activity, zipFile.getName());
+        dlg.addSwitch(
+                "清空应用数据",
+                "删光聊天库与缓存，同步异常时开启",
+                false,
+                checked -> clearAllData[0] = checked
+        );
+
+        dlg.setPositiveButton("恢复并重启", d -> {
+            final boolean shouldClearAll = clearAllData[0];
+            d.dismiss();
+            if (shouldClearAll) {
+                ConfigManager.setString(KEY_INCLUDE_RISK, isIncludeRiskEnabled() ? "1" : "0");
+            }
+            new Thread(() -> {
+                String err = restoreFromZipAndRestart(context, zipFile, shouldClearAll);
                 if (err != null) {
                     AppContext.runOnUIThread(() -> ToastHelper.show(activity, "恢复失败: " + err));
                 }
             }).start();
         });
 
-        dlg.setNegativeButton("取消", null);
+        dlg.setNeutralButton("删除", d -> {
+            boolean ok = zipFile.delete();
+            ToastHelper.show(activity, ok ? "已删除" : "删除失败");
+            d.dismiss();
+            if (onRefresh != null) onRefresh.run();
+            showMainDialog(activity, onRefresh);
+        });
+
+        dlg.setNegativeButton("返回", d -> {
+            d.dismiss();
+            showMainDialog(activity, onRefresh);
+        });
         dlg.show();
     }
 
@@ -358,7 +360,7 @@ public class AccountBackupModule implements IPatchModule {
         return rel.replace(File.separatorChar, '/');
     }
 
-    private static String restoreFromZipAndRestart(Context context, File zipFile) {
+    private static String restoreFromZipAndRestart(Context context, File zipFile, boolean clearAllData) {
         if (!zipFile.exists() || !zipFile.isFile()) return "文件不存在";
         if (!validateBackupZip(zipFile)) return "无效的备份压缩包";
 
@@ -368,15 +370,16 @@ public class AccountBackupModule implements IPatchModule {
         if (dataRoot == null) return "数据根目录异常";
 
         try {
-            // 1. 先停掉所有后台服务并杀掉子进程 (:MSF 等)
             stopAllSelfServices(context);
             killOtherProcesses(context);
 
-            // 2. 彻底清空旧账号所有运行时目录 (对齐 Termux 清理效果，仅保留 Patcher 配置文件)
-            cleanAllQQData(filesDir, dataRoot);
+            if (clearAllData) {
+                cleanAllQQData(filesDir, dataRoot);
+            } else {
+                cleanAuthDataOnly(filesDir, dataRoot);
+            }
             if (!filesDir.exists()) filesDir.mkdirs();
 
-            // 3. 解压写入新凭证
             byte[] buf = new byte[8192];
             try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(new FileInputStream(zipFile)))) {
                 ZipEntry entry;
@@ -407,8 +410,8 @@ public class AccountBackupModule implements IPatchModule {
                 }
             }
 
-            PLog.i(TAG, "恢复完成，重启应用: " + zipFile.getName());
-            scheduleRestartAndKillSelf(context);
+            PLog.i(TAG, "恢复完成(clearAll=" + clearAllData + ")，重启应用: " + zipFile.getName());
+            scheduleRestartAndKillAll(context);
             return null;
         } catch (Throwable t) {
             PLog.e(TAG, "恢复异常", t);
@@ -436,10 +439,13 @@ public class AccountBackupModule implements IPatchModule {
             ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
             if (am == null) return;
             int myUid = Process.myUid();
-            List<ActivityManager.RunningServiceInfo> services = am.getRunningServices(100);
+            String pkg = context.getPackageName();
+            List<ActivityManager.RunningServiceInfo> services = am.getRunningServices(200);
             if (services == null) return;
             for (ActivityManager.RunningServiceInfo rsi : services) {
-                if (rsi.uid == myUid && rsi.service != null) {
+                boolean matchUid = (rsi.uid == myUid);
+                boolean matchPkg = (rsi.service != null && pkg.equals(rsi.service.getPackageName()));
+                if ((matchUid || matchPkg) && rsi.service != null) {
                     try {
                         context.stopService(new Intent().setComponent(rsi.service));
                     } catch (Throwable ignored) {}
@@ -456,11 +462,18 @@ public class AccountBackupModule implements IPatchModule {
             if (am == null) return;
             int myPid = Process.myPid();
             int myUid = Process.myUid();
+            String pkg = context.getPackageName();
             List<ActivityManager.RunningAppProcessInfo> procs = am.getRunningAppProcesses();
             if (procs == null) return;
             for (ActivityManager.RunningAppProcessInfo p : procs) {
-                if (p.pid != myPid && p.uid == myUid) {
-                    Process.killProcess(p.pid);
+                if (p.pid == myPid) continue;
+                boolean sameUid = (p.uid == myUid);
+                boolean samePkg = (p.processName != null && p.processName.startsWith(pkg));
+                if (sameUid || samePkg) {
+                    try {
+                        Process.sendSignal(p.pid, Process.SIGNAL_KILL);
+                        Process.killProcess(p.pid);
+                    } catch (Throwable ignored) {}
                 }
             }
         } catch (Throwable t) {
@@ -468,8 +481,76 @@ public class AccountBackupModule implements IPatchModule {
         }
     }
 
+    private static void finishAllTasks(Context context) {
+        if (Build.VERSION.SDK_INT < 21) return;
+        try {
+            ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (am == null) return;
+            List<ActivityManager.AppTask> tasks = am.getAppTasks();
+            if (tasks != null) {
+                for (ActivityManager.AppTask task : tasks) {
+                    try {
+                        task.finishAndRemoveTask();
+                    } catch (Throwable ignored) {}
+                }
+            }
+        } catch (Throwable t) {
+            PLog.w(TAG, "移除任务栈异常: " + t.getMessage());
+        }
+    }
+
+    private static void cleanAuthDataOnly(File filesDir, File dataRoot) {
+        String[] dirsToClear = new String[]{
+                "nt_wtlogin", "user", "uid", "qm", "5463306EE50FE3AA",
+                "com.tencent.qimei.sdk.QimeiSDK", "imei", "wlogin_device.dat",
+                "nt_openid", "kc", "msfCore"
+        };
+        for (String name : dirsToClear) {
+            deleteRecursively(new File(filesDir, name));
+        }
+
+        File[] rootFiles = filesDir.listFiles();
+        if (rootFiles != null) {
+            for (File f : rootFiles) {
+                if (f.getName().startsWith("com.tencent.mobileqq_")) {
+                    deleteRecursively(f);
+                }
+            }
+        }
+
+        File mmkvDir = new File(filesDir, "mmkv");
+        if (mmkvDir.exists() && mmkvDir.isDirectory()) {
+            File[] mmkvFiles = mmkvDir.listFiles();
+            if (mmkvFiles != null) {
+                for (File mf : mmkvFiles) {
+                    String n = mf.getName();
+                    if (n.startsWith("msf_mmkv_file")
+                            || n.startsWith("wtlogin_mmkv_file")
+                            || n.startsWith("qq_uin_uid_map")
+                            || n.startsWith("qsec_mmkv_configurations")) {
+                        mf.delete();
+                    }
+                }
+            }
+        }
+
+        File dbDir = new File(dataRoot, "databases");
+        if (dbDir.exists() && dbDir.isDirectory()) {
+            File[] dbFiles = dbDir.listFiles();
+            if (dbFiles != null) {
+                for (File df : dbFiles) {
+                    String n = df.getName();
+                    if (n.startsWith("tk_file")
+                            || n.startsWith("name_file")
+                            || n.matches("^\\d+\\.db.*$")) {
+                        df.delete();
+                    }
+                }
+            }
+        }
+    }
+
     private static void cleanAllQQData(File filesDir, File dataRoot) {
-        // 1. 清空整个内部 files 目录
         File[] filesChildren = filesDir.listFiles();
         if (filesChildren != null) {
             for (File child : filesChildren) {
@@ -477,7 +558,6 @@ public class AccountBackupModule implements IPatchModule {
             }
         }
 
-        // 2. 清空 databases、cache、code_cache 以及 app_* 目录
         deleteRecursively(new File(dataRoot, "databases"));
         deleteRecursively(new File(dataRoot, "cache"));
         deleteRecursively(new File(dataRoot, "code_cache"));
@@ -491,7 +571,6 @@ public class AccountBackupModule implements IPatchModule {
             }
         }
 
-        // 3. 清理 shared_prefs 中非 Patcher 配置文件
         File spDir = new File(dataRoot, "shared_prefs");
         if (spDir.exists() && spDir.isDirectory()) {
             File[] spFiles = spDir.listFiles();
@@ -537,7 +616,7 @@ public class AccountBackupModule implements IPatchModule {
         file.delete();
     }
 
-    private static void scheduleRestartAndKillSelf(Context context) {
+    private static void scheduleRestartAndKillAll(Context context) {
         try {
             Intent launchIntent = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
             if (launchIntent != null) {
@@ -549,17 +628,21 @@ public class AccountBackupModule implements IPatchModule {
                 PendingIntent pi = PendingIntent.getActivity(context, 9527, launchIntent, flags);
                 AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
                 if (am != null) {
-                    am.set(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + 450, pi);
+                    am.set(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + 600, pi);
                 }
             }
         } catch (Throwable t) {
             PLog.w(TAG, "调度重启异常: " + t.getMessage());
         }
 
+        finishAllTasks(context);
         stopAllSelfServices(context);
         killOtherProcesses(context);
-        Process.killProcess(Process.myPid());
-        System.exit(0);
+
+        int myPid = Process.myPid();
+        Process.sendSignal(myPid, Process.SIGNAL_KILL);
+        Process.killProcess(myPid);
+        Runtime.getRuntime().halt(0);
     }
 
     private static boolean isIncludeRiskEnabled() {
