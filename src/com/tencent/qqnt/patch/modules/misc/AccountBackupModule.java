@@ -8,10 +8,17 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Environment;
 import android.os.Process;
 import android.os.SystemClock;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.View;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.IPatchModule;
@@ -129,6 +136,8 @@ public class AccountBackupModule implements IPatchModule {
         }
 
         final int[] selectedIdx = new int[]{0};
+        final boolean[] clearAllData = new boolean[]{false};
+
         List<SettingDialogBuilder.OptionCard> cards = new ArrayList<>();
         SimpleDateFormat sdf = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault());
         for (File f : zipFiles) {
@@ -140,22 +149,98 @@ public class AccountBackupModule implements IPatchModule {
 
         dlg.addRadioCards(cards, 0, index -> selectedIdx[0] = index);
 
-        dlg.setPositiveButton("恢复 / 管理", d -> {
+        dlg.addSwitch(
+                "清空应用数据",
+                "同步异常或需彻底重置时开启",
+                false,
+                checked -> clearAllData[0] = checked
+        );
+
+        final android.app.Dialog[] mainDialogRef = new android.app.Dialog[1];
+        dlg.addCustomView(buildActionRow(
+                activity,
+                dlg,
+                v -> {
+                    if (mainDialogRef[0] != null) mainDialogRef[0].dismiss();
+                    showBackupDialog(activity, onRefresh);
+                },
+                v -> {
+                    int idx = selectedIdx[0];
+                    if (idx >= 0 && idx < zipFiles.size()) {
+                        File target = zipFiles.get(idx);
+                        if (mainDialogRef[0] != null) mainDialogRef[0].dismiss();
+                        showDeleteConfirmDialog(activity, target, onRefresh);
+                    }
+                }
+        ));
+
+        dlg.setPositiveButton("恢复", d -> {
             int idx = selectedIdx[0];
             if (idx >= 0 && idx < zipFiles.size()) {
                 File target = zipFiles.get(idx);
+                boolean shouldClearAll = clearAllData[0];
                 d.dismiss();
-                showRestoreConfirmDialog(activity, context, target, onRefresh);
+                showRestoreConfirmDialog(activity, context, target, shouldClearAll, onRefresh);
             }
         });
 
-        dlg.setNeutralButton("新建备份", d -> {
-            d.dismiss();
-            showBackupDialog(activity, onRefresh);
-        });
-
         dlg.setNegativeButton("关闭", null);
-        dlg.show();
+        mainDialogRef[0] = dlg.show();
+    }
+
+    private View buildActionRow(
+            Activity activity,
+            SettingDialogBuilder dlg,
+            View.OnClickListener onNewBackup,
+            View.OnClickListener onDeleteSelected
+    ) {
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        rowLp.topMargin = SettingDialogBuilder.dp2px(activity, 8);
+        row.setLayoutParams(rowLp);
+
+        TextView btnNew = createCardButton(activity, dlg, "新建备份", dlg.accentColor, onNewBackup);
+        LinearLayout.LayoutParams leftLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        leftLp.rightMargin = SettingDialogBuilder.dp2px(activity, 6);
+        row.addView(btnNew, leftLp);
+
+        TextView btnDel = createCardButton(activity, dlg, "删除选中", dlg.dangerColor, onDeleteSelected);
+        LinearLayout.LayoutParams rightLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        rightLp.leftMargin = SettingDialogBuilder.dp2px(activity, 6);
+        row.addView(btnDel, rightLp);
+
+        return row;
+    }
+
+    private TextView createCardButton(
+            Activity activity,
+            SettingDialogBuilder dlg,
+            String text,
+            int textColor,
+            View.OnClickListener listener
+    ) {
+        TextView tv = new TextView(activity);
+        tv.setText(text);
+        tv.setTextColor(textColor);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        tv.setTypeface(null, Typeface.BOLD);
+        tv.setGravity(Gravity.CENTER);
+        int padV = SettingDialogBuilder.dp2px(activity, 11);
+        int padH = SettingDialogBuilder.dp2px(activity, 8);
+        tv.setPadding(padH, padV, padH, padV);
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(dlg.cardBgColor);
+        bg.setCornerRadius(SettingDialogBuilder.dp2px(activity, 10));
+        bg.setStroke(SettingDialogBuilder.dp2px(activity, 1), dlg.strokeColor);
+        tv.setBackground(bg);
+
+        tv.setOnClickListener(listener);
+        return tv;
     }
 
     private void showBackupDialog(Activity activity, Runnable onRefresh) {
@@ -215,19 +300,36 @@ public class AccountBackupModule implements IPatchModule {
         dlg.show();
     }
 
-    private void showRestoreConfirmDialog(Activity activity, Context context, File zipFile, Runnable onRefresh) {
-        final boolean[] clearAllData = new boolean[]{false};
+    private void showDeleteConfirmDialog(Activity activity, File zipFile, Runnable onRefresh) {
+        SettingDialogBuilder dlg = SettingDialogBuilder.build(activity, "删除备份");
+        dlg.setSubTitle("确定删除 " + zipFile.getName() + "？");
 
-        SettingDialogBuilder dlg = SettingDialogBuilder.build(activity, zipFile.getName());
-        dlg.addSwitch(
-                "清空应用数据",
-                "删光聊天库与缓存，同步异常时开启",
-                false,
-                checked -> clearAllData[0] = checked
-        );
+        dlg.setPositiveButton("删除", d -> {
+            boolean ok = zipFile.delete();
+            ToastHelper.show(activity, ok ? "已删除" : "删除失败");
+            d.dismiss();
+            if (onRefresh != null) onRefresh.run();
+            showMainDialog(activity, onRefresh);
+        });
 
-        dlg.setPositiveButton("恢复并重启", d -> {
-            final boolean shouldClearAll = clearAllData[0];
+        dlg.setNegativeButton("取消", d -> {
+            d.dismiss();
+            showMainDialog(activity, onRefresh);
+        });
+        dlg.show();
+    }
+
+    private void showRestoreConfirmDialog(
+            Activity activity,
+            Context context,
+            File zipFile,
+            boolean shouldClearAll,
+            Runnable onRefresh
+    ) {
+        SettingDialogBuilder dlg = SettingDialogBuilder.build(activity, "确认恢复");
+        dlg.setSubTitle("恢复 " + zipFile.getName() + (shouldClearAll ? " (并清空数据)" : "") + " 并重启 QQ？");
+
+        dlg.setPositiveButton("确定", d -> {
             d.dismiss();
             if (shouldClearAll) {
                 ConfigManager.setString(KEY_INCLUDE_RISK, isIncludeRiskEnabled() ? "1" : "0");
@@ -240,15 +342,7 @@ public class AccountBackupModule implements IPatchModule {
             }).start();
         });
 
-        dlg.setNeutralButton("删除", d -> {
-            boolean ok = zipFile.delete();
-            ToastHelper.show(activity, ok ? "已删除" : "删除失败");
-            d.dismiss();
-            if (onRefresh != null) onRefresh.run();
-            showMainDialog(activity, onRefresh);
-        });
-
-        dlg.setNegativeButton("返回", d -> {
+        dlg.setNegativeButton("取消", d -> {
             d.dismiss();
             showMainDialog(activity, onRefresh);
         });
