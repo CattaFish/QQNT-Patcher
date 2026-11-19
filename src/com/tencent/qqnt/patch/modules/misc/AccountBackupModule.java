@@ -24,9 +24,11 @@ import com.tencent.qqnt.patch.util.ToastHelper;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -237,6 +239,8 @@ public class AccountBackupModule implements IPatchModule {
 
         dlg.setPositiveButton("确定", d -> {
             d.dismiss();
+            // 确保标记写入当前 ConfigManager 所在的 SP 文件，防止清理 shared_prefs 时误删模块开关
+            ConfigManager.setString(KEY_INCLUDE_RISK, isIncludeRiskEnabled() ? "1" : "0");
             new Thread(() -> {
                 String err = restoreFromZipAndRestart(context, zipFile);
                 if (err != null) {
@@ -293,6 +297,7 @@ public class AccountBackupModule implements IPatchModule {
         List<File> list = new ArrayList<>();
         addIfExists(list, new File(filesDir, "nt_wtlogin"));
         addIfExists(list, new File(filesDir, "user"));
+        addIfExists(list, new File(filesDir, "uid"));
 
         File mmkvDir = new File(filesDir, "mmkv");
         if (mmkvDir.exists() && mmkvDir.isDirectory()) {
@@ -300,7 +305,9 @@ public class AccountBackupModule implements IPatchModule {
             if (mmkvFiles != null) {
                 for (File mf : mmkvFiles) {
                     String n = mf.getName();
-                    if (n.startsWith("msf_mmkv_file") || (includeRisk && n.startsWith("qsec_mmkv_configurations"))) {
+                    if (n.startsWith("msf_mmkv_file")
+                            || n.startsWith("qq_uin_uid_map")
+                            || (includeRisk && n.startsWith("qsec_mmkv_configurations"))) {
                         list.add(mf);
                     }
                 }
@@ -361,9 +368,15 @@ public class AccountBackupModule implements IPatchModule {
         if (dataRoot == null) return "数据根目录异常";
 
         try {
+            // 1. 先停掉所有后台服务并杀掉子进程 (:MSF 等)
+            stopAllSelfServices(context);
             killOtherProcesses(context);
-            cleanOldAuthData(filesDir, dataRoot);
 
+            // 2. 彻底清空旧账号所有运行时目录 (对齐 Termux 清理效果，仅保留 Patcher 配置文件)
+            cleanAllQQData(filesDir, dataRoot);
+            if (!filesDir.exists()) filesDir.mkdirs();
+
+            // 3. 解压写入新凭证
             byte[] buf = new byte[8192];
             try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(new FileInputStream(zipFile)))) {
                 ZipEntry entry;
@@ -417,6 +430,26 @@ public class AccountBackupModule implements IPatchModule {
         return false;
     }
 
+    @SuppressWarnings("deprecation")
+    private static void stopAllSelfServices(Context context) {
+        try {
+            ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (am == null) return;
+            int myUid = Process.myUid();
+            List<ActivityManager.RunningServiceInfo> services = am.getRunningServices(100);
+            if (services == null) return;
+            for (ActivityManager.RunningServiceInfo rsi : services) {
+                if (rsi.uid == myUid && rsi.service != null) {
+                    try {
+                        context.stopService(new Intent().setComponent(rsi.service));
+                    } catch (Throwable ignored) {}
+                }
+            }
+        } catch (Throwable t) {
+            PLog.w(TAG, "停止服务异常: " + t.getMessage());
+        }
+    }
+
     private static void killOtherProcesses(Context context) {
         try {
             ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
@@ -435,53 +468,60 @@ public class AccountBackupModule implements IPatchModule {
         }
     }
 
-    private static void cleanOldAuthData(File filesDir, File dataRoot) {
-        String[] dirsToClear = new String[]{
-                "nt_wtlogin", "user", "uid", "qm", "5463306EE50FE3AA",
-                "com.tencent.qimei.sdk.QimeiSDK", "imei", "wlogin_device.dat",
-                "nt_openid", "kc", "msfCore"
-        };
-        for (String name : dirsToClear) {
-            deleteRecursively(new File(filesDir, name));
+    private static void cleanAllQQData(File filesDir, File dataRoot) {
+        // 1. 清空整个内部 files 目录
+        File[] filesChildren = filesDir.listFiles();
+        if (filesChildren != null) {
+            for (File child : filesChildren) {
+                deleteRecursively(child);
+            }
         }
 
-        File[] rootFiles = filesDir.listFiles();
-        if (rootFiles != null) {
-            for (File f : rootFiles) {
-                if (f.getName().startsWith("com.tencent.mobileqq_")) {
-                    deleteRecursively(f);
+        // 2. 清空 databases、cache、code_cache 以及 app_* 目录
+        deleteRecursively(new File(dataRoot, "databases"));
+        deleteRecursively(new File(dataRoot, "cache"));
+        deleteRecursively(new File(dataRoot, "code_cache"));
+
+        File[] rootChildren = dataRoot.listFiles();
+        if (rootChildren != null) {
+            for (File child : rootChildren) {
+                if (child.getName().startsWith("app_")) {
+                    deleteRecursively(child);
                 }
             }
         }
 
-        File mmkvDir = new File(filesDir, "mmkv");
-        if (mmkvDir.exists() && mmkvDir.isDirectory()) {
-            File[] mmkvFiles = mmkvDir.listFiles();
-            if (mmkvFiles != null) {
-                for (File mf : mmkvFiles) {
-                    String n = mf.getName();
-                    if (n.startsWith("msf_mmkv_file")
-                            || n.startsWith("wtlogin_mmkv_file")
-                            || n.startsWith("qq_uin_uid_map")
-                            || n.startsWith("qsec_mmkv_configurations")) {
-                        mf.delete();
+        // 3. 清理 shared_prefs 中非 Patcher 配置文件
+        File spDir = new File(dataRoot, "shared_prefs");
+        if (spDir.exists() && spDir.isDirectory()) {
+            File[] spFiles = spDir.listFiles();
+            if (spFiles != null) {
+                for (File sp : spFiles) {
+                    if (!isPatcherConfigFile(sp)) {
+                        sp.delete();
                     }
                 }
             }
         }
+    }
 
-        File dbDir = new File(dataRoot, "databases");
-        if (dbDir.exists() && dbDir.isDirectory()) {
-            File[] dbFiles = dbDir.listFiles();
-            if (dbFiles != null) {
-                for (File df : dbFiles) {
-                    String n = df.getName();
-                    if (n.startsWith("tk_file") || n.startsWith("name_file")) {
-                        df.delete();
-                    }
-                }
-            }
+    private static boolean isPatcherConfigFile(File spFile) {
+        String name = spFile.getName().toLowerCase(Locale.ROOT);
+        if (name.contains("zzz") || name.contains("patch")) {
+            return true;
         }
+        try (FileInputStream fis = new FileInputStream(spFile);
+             ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[4096];
+            int len;
+            while ((len = fis.read(buf)) != -1) {
+                baos.write(buf, 0, len);
+                if (baos.size() > 256 * 1024) break;
+            }
+            String content = new String(baos.toByteArray(), StandardCharsets.UTF_8);
+            return content.contains(KEY_INCLUDE_RISK) || content.contains("zzz_");
+        } catch (Throwable ignored) {}
+        return false;
     }
 
     private static void deleteRecursively(File file) {
@@ -516,6 +556,7 @@ public class AccountBackupModule implements IPatchModule {
             PLog.w(TAG, "调度重启异常: " + t.getMessage());
         }
 
+        stopAllSelfServices(context);
         killOtherProcesses(context);
         Process.killProcess(Process.myPid());
         System.exit(0);
