@@ -3,6 +3,7 @@ package com.tencent.qqnt.patch.modules.misc;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.AlarmManager;
+import android.app.Dialog;
 import android.app.PendingIntent;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -31,28 +32,45 @@ import com.tencent.qqnt.patch.util.ToastHelper;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
+import javax.crypto.Cipher;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+
 public class AccountBackupModule implements IPatchModule {
 
     private static final String TAG = "AccountBackup";
     public static final String FEATURE_ID = "account_backup";
+
     private static final String KEY_INCLUDE_RISK = "zzz_account_backup_include_risk";
+    private static final String KEY_OBFUSCATE_ENABLED = "zzz_account_backup_obfuscate";
+    private static final String KEY_OBFUSCATE_SECRET = "zzz_account_backup_obf_secret";
+
+    private static final String DEFAULT_SECRET = "QQNT_Patcher_AccountBackup_2026";
+    private static final byte[] MAGIC_ZZB1 = new byte[]{'Z', 'Z', 'B', '1'};
+    private static final byte MODE_BYTE_AES = 0x01;
+
     private static final Pattern UIN_FILE_PATTERN = Pattern.compile("^u_(\\d+)_t$");
 
     @Override
@@ -104,6 +122,53 @@ public class AccountBackupModule implements IPatchModule {
         );
     }
 
+    public static Object createObfuscateConfigView(ClassLoader cl, Activity activity, Runnable onRefresh) {
+        if (!isObfuscateEnabled()) {
+            return null;
+        }
+        String keyText = getCustomSecret().isEmpty() ? "默认" : "已自定义";
+        return NativeSettingHelper.createClickable(
+                cl, "自定义加密密钥", keyText, true, false,
+                v -> showObfuscateConfigDialog(activity, onRefresh)
+        );
+    }
+
+    public static boolean isObfuscateEnabled() {
+        return !"0".equals(ConfigManager.getString(KEY_OBFUSCATE_ENABLED, "1"));
+    }
+
+    public static void setObfuscateEnabled(boolean enabled) {
+        ConfigManager.setString(KEY_OBFUSCATE_ENABLED, enabled ? "1" : "0");
+    }
+
+    private static String getCustomSecret() {
+        return ConfigManager.getString(KEY_OBFUSCATE_SECRET, "").trim();
+    }
+
+    private static String getActiveSecret() {
+        String custom = getCustomSecret();
+        return custom.isEmpty() ? DEFAULT_SECRET : custom;
+    }
+
+    public static void showObfuscateConfigDialog(Activity activity, Runnable onRefresh) {
+        if (activity == null || activity.isFinishing()) return;
+
+        SettingDialogBuilder dlg = SettingDialogBuilder.build(activity, "自定义加密密钥");
+        dlg.setSubTitle("加密方式: AES-256");
+        dlg.addInput("密钥 (留空使用内置默认)", getCustomSecret(), true, false, null);
+
+        dlg.setPositiveButton("保存", d -> {
+            String newSecret = dlg.getInputValue(0).trim();
+            ConfigManager.setString(KEY_OBFUSCATE_SECRET, newSecret);
+            d.dismiss();
+            ToastHelper.show(activity, newSecret.isEmpty() ? "已恢复默认密钥" : "已保存自定义密钥");
+            if (onRefresh != null) onRefresh.run();
+        });
+
+        dlg.setNegativeButton("取消", null);
+        dlg.show();
+    }
+
     public static void showMainDialog(Activity activity, Runnable onRefresh) {
         if (activity == null || activity.isFinishing()) return;
 
@@ -137,10 +202,11 @@ public class AccountBackupModule implements IPatchModule {
         List<SettingDialogBuilder.OptionCard> cards = new ArrayList<>();
         SimpleDateFormat sdf = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault());
         for (File f : zipFiles) {
-            cards.add(new SettingDialogBuilder.OptionCard(
-                    f.getName(),
-                    formatFileSize(f.length()) + "  " + sdf.format(new Date(f.lastModified()))
-            ));
+            String uinInfo = inspectBackupUinsSummary(f);
+            String desc = (uinInfo.isEmpty() ? "" : uinInfo + "  ")
+                    + formatFileSize(f.length()) + "  "
+                    + sdf.format(new Date(f.lastModified()));
+            cards.add(new SettingDialogBuilder.OptionCard(f.getName(), desc));
         }
 
         dlg.addRadioCards(cards, 0, index -> selectedIdx[0] = index);
@@ -152,7 +218,7 @@ public class AccountBackupModule implements IPatchModule {
                 checked -> clearAllData[0] = checked
         );
 
-        final android.app.Dialog[] mainDialogRef = new android.app.Dialog[1];
+        final Dialog[] mainDialogRef = new Dialog[1];
         dlg.addCustomView(buildActionRow(
                 activity,
                 dlg,
@@ -176,7 +242,7 @@ public class AccountBackupModule implements IPatchModule {
                 File target = zipFiles.get(idx);
                 boolean shouldClearAll = clearAllData[0];
                 d.dismiss();
-                showRestoreConfirmDialog(activity, context, target, shouldClearAll, onRefresh);
+                showRestoreConfirmDialog(activity, context, target, shouldClearAll, zipFiles, uin, onRefresh);
             }
         });
 
@@ -320,16 +386,32 @@ public class AccountBackupModule implements IPatchModule {
             Context context,
             File zipFile,
             boolean shouldClearAll,
+            List<File> allZips,
+            String currentUin,
             Runnable onRefresh
     ) {
         SettingDialogBuilder dlg = SettingDialogBuilder.build(activity, "确认恢复");
         dlg.setSubTitle("恢复 " + zipFile.getName() + (shouldClearAll ? " (并清空数据)" : "") + " 并重启 QQ？");
+
+        final Dialog[] confirmDlgRef = new Dialog[1];
+        if (!currentUin.isEmpty() && !hasAnyBackupForUin(allZips, currentUin)) {
+            dlg.addNoticeBanner(
+                    "当前账号尚未备份",
+                    "账号 " + currentUin + " 无本地备份，继续恢复将覆盖登录状态",
+                    "立即备份",
+                    v -> {
+                        if (confirmDlgRef[0] != null) confirmDlgRef[0].dismiss();
+                        showBackupDialog(activity, onRefresh);
+                    }
+            );
+        }
 
         dlg.setPositiveButton("确定", d -> {
             d.dismiss();
             if (shouldClearAll) {
                 ConfigManager.setString(KEY_INCLUDE_RISK, isIncludeRiskEnabled() ? "1" : "0");
             }
+            ToastHelper.show(activity, "正在恢复并重启...");
             new Thread(() -> {
                 String err = restoreFromZipAndRestart(context, zipFile, shouldClearAll);
                 if (err != null) {
@@ -342,7 +424,63 @@ public class AccountBackupModule implements IPatchModule {
             d.dismiss();
             showMainDialog(activity, onRefresh);
         });
-        dlg.show();
+        confirmDlgRef[0] = dlg.show();
+    }
+
+    private static boolean hasAnyBackupForUin(List<File> allZips, String targetUin) {
+        if (allZips == null || targetUin == null || targetUin.isEmpty()) return true;
+        String marker = "user/u_" + targetUin + "_t";
+        for (File f : allZips) {
+            try {
+                byte[] zipBytes = decodePackageToPlainZip(f);
+                if (zipBytes == null) continue;
+                try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+                    ZipEntry entry;
+                    while ((entry = zis.getNextEntry()) != null) {
+                        String n = entry.getName();
+                        if (n != null && n.contains(marker)) {
+                            return true;
+                        }
+                        zis.closeEntry();
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+        return false;
+    }
+
+    private static String inspectBackupUinsSummary(File f) {
+        try {
+            byte[] zipBytes = decodePackageToPlainZip(f);
+            if (zipBytes == null) {
+                return "密钥不匹配";
+            }
+            Set<String> uins = new LinkedHashSet<>();
+            try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+                ZipEntry entry;
+                while ((entry = zis.getNextEntry()) != null) {
+                    String n = entry.getName();
+                    if (n != null) {
+                        int slash = n.lastIndexOf('/');
+                        String base = slash >= 0 ? n.substring(slash + 1) : n;
+                        Matcher m = UIN_FILE_PATTERN.matcher(base);
+                        if (m.matches()) {
+                            uins.add(m.group(1));
+                        }
+                    }
+                    zis.closeEntry();
+                }
+            }
+            if (uins.isEmpty()) return "";
+            StringBuilder sb = new StringBuilder();
+            for (String u : uins) {
+                if (sb.length() > 0) sb.append(",");
+                sb.append(u);
+            }
+            return sb.toString();
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     private static void copyToClipboard(Context context, String text) {
@@ -366,22 +504,116 @@ public class AccountBackupModule implements IPatchModule {
         List<File> targets = collectBackupTargets(filesDir, includeRisk);
         if (targets.isEmpty()) return "未找到登录凭证";
 
-        File tmpZip = new File(outZip.getParentFile(), outZip.getName() + ".tmp");
+        File tmpFile = new File(outZip.getParentFile(), outZip.getName() + ".tmp");
         try {
-            if (tmpZip.exists()) tmpZip.delete();
-            try (ZipOutputStream zos = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(tmpZip)))) {
+            ByteArrayOutputStream zipBaos = new ByteArrayOutputStream();
+            try (ZipOutputStream zos = new ZipOutputStream(new BufferedOutputStream(zipBaos))) {
                 for (File f : targets) {
                     addFileOrDirToZip(zos, dataRoot, f);
                 }
             }
+            byte[] plainZip = zipBaos.toByteArray();
+            byte[] outputBytes = isObfuscateEnabled() ? encodeZipBytes(plainZip) : plainZip;
+
+            if (tmpFile.exists()) tmpFile.delete();
+            try (FileOutputStream fos = new FileOutputStream(tmpFile)) {
+                fos.write(outputBytes);
+            }
             if (outZip.exists()) outZip.delete();
-            if (!tmpZip.renameTo(outZip)) return "保存失败";
-            PLog.i(TAG, "备份成功: " + outZip.getAbsolutePath());
+            if (!tmpFile.renameTo(outZip)) return "保存失败";
+            PLog.i(TAG, "备份成功(encrypted=" + isObfuscateEnabled() + "): " + outZip.getAbsolutePath());
             return null;
         } catch (Throwable t) {
             PLog.e(TAG, "备份异常", t);
-            if (tmpZip.exists()) tmpZip.delete();
+            if (tmpFile.exists()) tmpFile.delete();
             return t.getMessage();
+        }
+    }
+
+    private static byte[] encodeZipBytes(byte[] plainZip) throws Exception {
+        String secret = getActiveSecret();
+        byte[] iv = new byte[16];
+        new SecureRandom().nextBytes(iv);
+
+        byte[] keyBytes = sha256(secret.getBytes(StandardCharsets.UTF_8));
+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(keyBytes, "AES"), new IvParameterSpec(iv));
+        byte[] encrypted = cipher.doFinal(plainZip);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream(4 + 1 + 16 + encrypted.length);
+        out.write(MAGIC_ZZB1);
+        out.write(MODE_BYTE_AES);
+        out.write(iv);
+        out.write(encrypted);
+        return out.toByteArray();
+    }
+
+    private static byte[] decodePackageToPlainZip(File file) {
+        try {
+            byte[] raw = readAllBytes(file);
+            if (raw.length < 4) return null;
+
+            if (isZipHeader(raw)) {
+                return raw;
+            }
+
+            if (raw.length > 21
+                    && raw[0] == MAGIC_ZZB1[0]
+                    && raw[1] == MAGIC_ZZB1[1]
+                    && raw[2] == MAGIC_ZZB1[2]
+                    && raw[3] == MAGIC_ZZB1[3]
+                    && raw[4] == MODE_BYTE_AES) {
+                byte[] iv = new byte[16];
+                System.arraycopy(raw, 5, iv, 0, 16);
+                byte[] payload = new byte[raw.length - 21];
+                System.arraycopy(raw, 21, payload, 0, payload.length);
+
+                String activeSecret = getActiveSecret();
+                byte[] decoded = tryDecryptAes(iv, payload, activeSecret);
+                if (decoded != null && isZipHeader(decoded)) {
+                    return decoded;
+                }
+
+                if (!DEFAULT_SECRET.equals(activeSecret)) {
+                    decoded = tryDecryptAes(iv, payload, DEFAULT_SECRET);
+                    if (decoded != null && isZipHeader(decoded)) {
+                        return decoded;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static byte[] tryDecryptAes(byte[] iv, byte[] payload, String secret) {
+        try {
+            byte[] keyBytes = sha256(secret.getBytes(StandardCharsets.UTF_8));
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(keyBytes, "AES"), new IvParameterSpec(iv));
+            return cipher.doFinal(payload);
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static byte[] sha256(byte[] input) throws Exception {
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
+        return md.digest(input);
+    }
+
+    private static boolean isZipHeader(byte[] bytes) {
+        return bytes != null && bytes.length >= 4
+                && bytes[0] == 0x50 && bytes[1] == 0x4B && bytes[2] == 0x03 && bytes[3] == 0x04;
+    }
+
+    private static byte[] readAllBytes(File file) throws Exception {
+        try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file));
+             ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[8192];
+            int len;
+            while ((len = bis.read(buf)) != -1) {
+                baos.write(buf, 0, len);
+            }
+            return baos.toByteArray();
         }
     }
 
@@ -452,7 +684,10 @@ public class AccountBackupModule implements IPatchModule {
 
     private static String restoreFromZipAndRestart(Context context, File zipFile, boolean clearAllData) {
         if (!zipFile.exists() || !zipFile.isFile()) return "文件不存在";
-        if (!validateBackupZip(zipFile)) return "无效的备份压缩包";
+
+        byte[] plainZip = decodePackageToPlainZip(zipFile);
+        if (plainZip == null) return "加密密钥不匹配或备份已损坏";
+        if (!validatePlainZip(plainZip)) return "无效的备份压缩包";
 
         File filesDir = context.getFilesDir();
         if (filesDir == null) return "files 目录异常";
@@ -471,7 +706,7 @@ public class AccountBackupModule implements IPatchModule {
             if (!filesDir.exists()) filesDir.mkdirs();
 
             byte[] buf = new byte[8192];
-            try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(new FileInputStream(zipFile)))) {
+            try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(plainZip))) {
                 ZipEntry entry;
                 while ((entry = zis.getNextEntry()) != null) {
                     String name = entry.getName();
@@ -509,8 +744,8 @@ public class AccountBackupModule implements IPatchModule {
         }
     }
 
-    private static boolean validateBackupZip(File zipFile) {
-        try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(new FileInputStream(zipFile)))) {
+    private static boolean validatePlainZip(byte[] plainZip) {
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(plainZip))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 String n = entry.getName();
@@ -568,24 +803,6 @@ public class AccountBackupModule implements IPatchModule {
             }
         } catch (Throwable t) {
             PLog.w(TAG, "清理子进程异常: " + t.getMessage());
-        }
-    }
-
-    private static void finishAllTasks(Context context) {
-        if (Build.VERSION.SDK_INT < 21) return;
-        try {
-            ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
-            if (am == null) return;
-            List<ActivityManager.AppTask> tasks = am.getAppTasks();
-            if (tasks != null) {
-                for (ActivityManager.AppTask task : tasks) {
-                    try {
-                        task.finishAndRemoveTask();
-                    } catch (Throwable ignored) {}
-                }
-            }
-        } catch (Throwable t) {
-            PLog.w(TAG, "移除任务栈异常: " + t.getMessage());
         }
     }
 
@@ -718,14 +935,24 @@ public class AccountBackupModule implements IPatchModule {
                 PendingIntent pi = PendingIntent.getActivity(context, 9527, launchIntent, flags);
                 AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
                 if (am != null) {
-                    am.set(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + 600, pi);
+                    long triggerAt = SystemClock.elapsedRealtime() + 250;
+                    try {
+                        if (Build.VERSION.SDK_INT >= 23) {
+                            am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi);
+                        } else if (Build.VERSION.SDK_INT >= 19) {
+                            am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi);
+                        } else {
+                            am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi);
+                        }
+                    } catch (Throwable ignored) {
+                        am.set(AlarmManager.ELAPSED_REALTIME, triggerAt, pi);
+                    }
                 }
             }
         } catch (Throwable t) {
             PLog.w(TAG, "调度重启异常: " + t.getMessage());
         }
 
-        finishAllTasks(context);
         stopAllSelfServices(context);
         killOtherProcesses(context);
 

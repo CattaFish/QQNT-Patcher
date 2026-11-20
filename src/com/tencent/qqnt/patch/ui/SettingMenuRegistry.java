@@ -55,6 +55,34 @@ public class SettingMenuRegistry {
         });
         
         register(new FeatureSettingItem() {
+            @Override public String getCategory() { return IPatchModule.CATEGORY_ADVANCED; }
+            @Override public String getGroupName() { return "账号备份"; }
+            @Override public String getTitle() { return "备份加密保护"; }
+            @Override public String getFeatureId() { return AccountBackupModule.FEATURE_ID; }
+            @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
+                return NativeSettingHelper.createSwitch(
+                        cl, getTitle(), "使用 AES-256 加密凭证，关闭则导出明文 Zip",
+                        AccountBackupModule.isObfuscateEnabled(),
+                        (btn, checked) -> {
+                            AccountBackupModule.setObfuscateEnabled(checked);
+                            ToastHelper.show(activity, "备份加密保护" + (checked ? " 已开启" : " 已关闭"));
+                            if (onRefresh != null) onRefresh.run();
+                        }
+                );
+            }
+        });
+
+        register(new FeatureSettingItem() {
+            @Override public String getCategory() { return IPatchModule.CATEGORY_ADVANCED; }
+            @Override public String getGroupName() { return "账号备份"; }
+            @Override public String getTitle() { return "自定义加密密钥"; }
+            @Override public String getFeatureId() { return AccountBackupModule.FEATURE_ID; }
+            @Override public Object createView(ClassLoader cl, Activity activity, Runnable onRefresh) {
+                return AccountBackupModule.createObfuscateConfigView(cl, activity, onRefresh);
+            }
+        });
+        
+        register(new FeatureSettingItem() {
             @Override public String getCategory() { return IPatchModule.CATEGORY_CHAT; }
             @Override public String getGroupName() { return ""; }
             @Override public String getTitle() { return "打开好友聊天记录"; }
