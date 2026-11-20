@@ -17,6 +17,8 @@ import java.util.regex.Pattern;
 public class ShowDownloadTimesModule implements IPatchModule {
 
     private static final String TAG = "GroupFile";
+    private static final Object UNWRAP_FAILED = new Object();
+
     private static final Map<String, Integer> sCountMap = Collections.synchronizedMap(
             new LinkedHashMap<String, Integer>(200, 0.75f, true) {
                 @Override
@@ -109,9 +111,12 @@ public class ShowDownloadTimesModule implements IPatchModule {
         if (obj instanceof CharSequence) return obj.toString();
 
         Object val = unwrapPbValue(obj);
-        if (val instanceof CharSequence) return val.toString();
+        if (val != UNWRAP_FAILED) {
+            return (val instanceof CharSequence) ? val.toString() : null;
+        }
 
         for (Field f : getAllDeclaredFields(obj.getClass())) {
+            if (Modifier.isStatic(f.getModifiers())) continue;
             try {
                 f.setAccessible(true);
                 Object v = f.get(obj);
@@ -129,9 +134,14 @@ public class ShowDownloadTimesModule implements IPatchModule {
         if (obj instanceof Number) return ((Number) obj).intValue();
 
         Object val = unwrapPbValue(obj);
-        if (val instanceof Number) return ((Number) val).intValue();
+        if (val != UNWRAP_FAILED) {
+            if (val == null) return 0;
+            if (val instanceof Number) return ((Number) val).intValue();
+            return 0;
+        }
 
         for (Field f : getAllDeclaredFields(obj.getClass())) {
+            if (Modifier.isStatic(f.getModifiers())) continue;
             try {
                 f.setAccessible(true);
                 Object v = f.get(obj);
@@ -143,20 +153,48 @@ public class ShowDownloadTimesModule implements IPatchModule {
 
     private static Object unwrapPbValue(Object obj) {
         if (obj == null) return null;
+        Class<?> clz = obj.getClass();
+
+        // 1. 标准 PB 字段包装 (PBField / 显式 getValue)
         try {
-            Method m = obj.getClass().getMethod("get");
+            Method m = clz.getMethod("get");
             return m.invoke(obj);
         } catch (Throwable ignored) {}
         try {
-            Method m = obj.getClass().getMethod("getValue");
+            Method m = clz.getMethod("getValue");
             return m.invoke(obj);
         } catch (Throwable ignored) {}
         try {
-            Field f = obj.getClass().getDeclaredField("value");
+            Field f = clz.getDeclaredField("value");
             f.setAccessible(true);
             return f.get(obj);
         } catch (Throwable ignored) {}
-        return obj;
+
+        // 2. 混淆后的 pbandk 包装类 (如 pbandk.h: private final int a; private Object b; private final pbandk.b c;)
+        //    绝对不能把 tag 编号字段 a 当成值读取
+        for (Field f : clz.getDeclaredFields()) {
+            if (!Modifier.isStatic(f.getModifiers()) && f.getType() == Object.class) {
+                try {
+                    f.setAccessible(true);
+                    return f.get(obj);
+                } catch (Throwable ignored) {}
+            }
+        }
+        for (Method m : clz.getDeclaredMethods()) {
+            if (!Modifier.isStatic(m.getModifiers())
+                    && m.getParameterTypes().length == 0
+                    && m.getReturnType() == Object.class) {
+                String name = m.getName();
+                if (!"toString".equals(name) && !"clone".equals(name)) {
+                    try {
+                        m.setAccessible(true);
+                        return m.invoke(obj);
+                    } catch (Throwable ignored) {}
+                }
+            }
+        }
+
+        return UNWRAP_FAILED;
     }
 
     private static Pair<String, Integer> fallbackInspectByFieldTypes(Object obj) {
@@ -204,7 +242,7 @@ public class ShowDownloadTimesModule implements IPatchModule {
 
             if (originalStatus != null && originalStatus.endsWith("次")) return originalStatus;
 
-            return originalStatus + " · " + count + " 次";
+            return (originalStatus != null ? originalStatus : "") + " · " + count + " 次";
         } catch (Throwable t) {
             PLog.e(TAG, "追加群文件下载次数异常", t);
         }
@@ -228,6 +266,7 @@ public class ShowDownloadTimesModule implements IPatchModule {
     private static String searchFileIdRecursively(Object obj, int depth) {
         if (obj == null || depth > 2) return null;
 
+        String fallbackCandidate = null;
         for (Field f : getAllDeclaredFields(obj.getClass())) {
             if (Modifier.isStatic(f.getModifiers())) continue;
             try {
@@ -235,8 +274,13 @@ public class ShowDownloadTimesModule implements IPatchModule {
                 Object val = f.get(obj);
                 if (val instanceof String) {
                     String s = (String) val;
-                    if (s.startsWith("/") && s.length() > 5) {
-                        return s.replaceAll("^/+", "").trim();
+                    if (s.isEmpty()) continue;
+                    String clean = s.replaceAll("^/+", "").trim();
+                    if (sCountMap.containsKey(clean) || sCountMap.containsKey(clean.toLowerCase())) {
+                        return clean;
+                    }
+                    if (fallbackCandidate == null && s.startsWith("/") && s.length() > 5 && !isLikelyLocalPath(s)) {
+                        fallbackCandidate = clean;
                     }
                 } else if (val != null && !f.getType().isPrimitive() && !f.getType().getName().startsWith("android.")) {
                     String sub = searchFileIdRecursively(val, depth + 1);
@@ -244,7 +288,14 @@ public class ShowDownloadTimesModule implements IPatchModule {
                 }
             } catch (Throwable ignored) {}
         }
-        return null;
+        return fallbackCandidate;
+    }
+
+    private static boolean isLikelyLocalPath(String path) {
+        return path.startsWith("/storage/")
+                || path.startsWith("/sdcard/")
+                || path.startsWith("/data/")
+                || path.startsWith("/mnt/");
     }
 
     private static List<?> findListFromObject(Object obj) {
