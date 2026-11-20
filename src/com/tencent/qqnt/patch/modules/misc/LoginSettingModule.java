@@ -14,6 +14,7 @@ import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
@@ -234,15 +235,7 @@ public class LoginSettingModule implements IPatchModule {
     private static void syncNativeStyle(Context ctx, ImageView iv, TextView tv,
                                         ImageView sampleIv, TextView sampleTv) {
         if (iv != null) {
-            Drawable clonedBg = cloneBackground(ctx, sampleIv);
-            if (clonedBg != null) {
-                iv.setBackground(clonedBg);
-            } else if (iv.getBackground() == null) {
-                GradientDrawable gd = new GradientDrawable();
-                gd.setShape(GradientDrawable.OVAL);
-                gd.setStroke(dp2px(ctx, 1f), Color.parseColor("#33888888"));
-                iv.setBackground(gd);
-            }
+            iv.setBackground(buildCircleBackground(ctx, sampleIv));
 
             Drawable iconDrawable = iv.getDrawable();
             if (iconDrawable instanceof ZLineIconDrawable) {
@@ -263,6 +256,65 @@ public class LoginSettingModule implements IPatchModule {
         }
     }
 
+    /**
+     * 精确构建 1dp 细描边圆形背景，避免 clone Drawable 引发 Android 密度二次放大导致边框加粗
+     */
+    private static Drawable buildCircleBackground(Context ctx, ImageView sampleIv) {
+        int strokePx = Math.max(1, dp2px(ctx, 1f));
+        boolean isNight = isNightModeSafe();
+        int borderColor = resolveNativeBorderColor(ctx, sampleIv, isNight);
+        int pressedFill = isNight ? Color.parseColor("#1FFFFFFF") : Color.parseColor("#14000000");
+
+        GradientDrawable normalGd = new GradientDrawable();
+        normalGd.setShape(GradientDrawable.OVAL);
+        normalGd.setStroke(strokePx, borderColor);
+
+        GradientDrawable pressedGd = new GradientDrawable();
+        pressedGd.setShape(GradientDrawable.OVAL);
+        pressedGd.setColor(pressedFill);
+        pressedGd.setStroke(strokePx, borderColor);
+
+        StateListDrawable sld = new StateListDrawable();
+        sld.addState(new int[]{android.R.attr.state_pressed}, pressedGd);
+        sld.addState(new int[0], normalGd);
+        return sld;
+    }
+
+    private static int resolveNativeBorderColor(Context ctx, ImageView sampleIv, boolean isNight) {
+        if (sampleIv != null) {
+            try {
+                Drawable bg = sampleIv.getBackground();
+                if (bg != null) {
+                    int size = Math.max(24, dp2px(ctx, 48f));
+                    Rect oldBounds = new Rect(bg.getBounds());
+                    Bitmap probe = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+                    Canvas c = new Canvas(probe);
+                    bg.setBounds(0, 0, size, size);
+                    bg.draw(c);
+                    bg.setBounds(oldBounds);
+
+                    int bestPx = 0;
+                    int bestAlpha = 0;
+                    int midX = size / 2;
+                    int maxScanY = Math.min(size, dp2px(ctx, 5f) + 2);
+                    for (int y = 0; y < maxScanY; y++) {
+                        int px = probe.getPixel(midX, y);
+                        int a = Color.alpha(px);
+                        if (a > bestAlpha) {
+                            bestAlpha = a;
+                            bestPx = px;
+                        }
+                    }
+                    probe.recycle();
+                    if (bestAlpha > 0) {
+                        return bestPx;
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+        return isNight ? Color.parseColor("#29FFFFFF") : Color.parseColor("#1F000000");
+    }
+
     private static int resolveNativeIconColor(ImageView sampleIv) {
         if (sampleIv != null) {
             try {
@@ -276,31 +328,41 @@ public class LoginSettingModule implements IPatchModule {
                 Drawable d = sampleIv.getDrawable();
                 if (d != null) {
                     Rect oldBounds = new Rect(d.getBounds());
-                    Bitmap probe = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888);
+                    Bitmap probe = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888);
                     Canvas c = new Canvas(probe);
-                    d.setBounds(0, 0, 16, 16);
+                    d.setBounds(0, 0, 24, 24);
                     d.draw(c);
                     d.setBounds(oldBounds);
 
-                    for (int y = 0; y < 16; y++) {
-                        for (int x = 0; x < 16; x++) {
+                    int bestPx = 0;
+                    int bestAlpha = 0;
+                    for (int y = 0; y < 24; y++) {
+                        for (int x = 0; x < 24; x++) {
                             int px = probe.getPixel(x, y);
-                            if (Color.alpha(px) >= 180) {
-                                probe.recycle();
-                                return Color.rgb(Color.red(px), Color.green(px), Color.blue(px));
+                            int a = Color.alpha(px);
+                            if (a > bestAlpha) {
+                                bestAlpha = a;
+                                bestPx = px;
                             }
                         }
                     }
                     probe.recycle();
+                    if (bestAlpha >= 120) {
+                        return bestPx;
+                    }
                 }
             } catch (Throwable ignored) {}
         }
 
-        boolean isNight = false;
+        return isNightModeSafe() ? Color.parseColor("#EBEBF5") : Color.parseColor("#1D1D1F");
+    }
+
+    private static boolean isNightModeSafe() {
         try {
-            isNight = ThemeHelper.INSTANCE.isNightMode();
-        } catch (Throwable ignored) {}
-        return isNight ? Color.parseColor("#EBEBF5") : Color.parseColor("#1D1D1F");
+            return ThemeHelper.INSTANCE.isNightMode();
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private static class ZLineIconDrawable extends Drawable {
@@ -331,10 +393,11 @@ public class LoginSettingModule implements IPatchModule {
             float size = Math.min(w, h);
             float cx = b.exactCenterX();
             float cy = b.exactCenterY();
-            float halfW = size * 0.27f;
-            float halfH = size * 0.31f;
+            float halfW = size * 0.24f;
+            float halfH = size * 0.29f;
 
-            mPaint.setStrokeWidth(Math.max(2f, size * 0.092f));
+            // 细描边 (20dp 视口下约 1.36dp)，贴合 QQ 原生矢量线框粗细
+            mPaint.setStrokeWidth(Math.max(1.5f, size * 0.068f));
 
             mPath.reset();
             mPath.moveTo(cx - halfW, cy - halfH);
@@ -361,17 +424,6 @@ public class LoginSettingModule implements IPatchModule {
         public int getOpacity() {
             return PixelFormat.TRANSLUCENT;
         }
-    }
-
-    private static Drawable cloneBackground(Context ctx, ImageView sampleIv) {
-        if (sampleIv == null) return null;
-        try {
-            Drawable bg = sampleIv.getBackground();
-            if (bg != null && bg.getConstantState() != null) {
-                return bg.getConstantState().newDrawable(ctx.getResources()).mutate();
-            }
-        } catch (Throwable ignored) {}
-        return null;
     }
 
     private static LinearLayout findButtonsRowContainer(ViewGroup root) {
