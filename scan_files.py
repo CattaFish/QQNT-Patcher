@@ -95,6 +95,11 @@ EMOJI_WHITELIST = [
     ("src/com/tencent/qqnt/patch/ui/ZzzSettingFragment.java", "Created by Zcraft with"),
 ]
 
+# 允许默认开启的入口类模块白名单（发版静态体检放行）
+DEFAULT_ENABLED_WHITELIST = {
+    "login_setting",
+}
+
 # 匹配常见 Emoji（排除项目进度条和树形字符如 ★ ✔ ➔ 等）
 EMOJI_PATTERN = re.compile(
     "["
@@ -689,7 +694,7 @@ def run_release_checks(text_files, rules_meta, modules_meta, builtin_ids):
             id_warnings.append(f"  - 未解析到 getId(): {mm['file']}")
         elif mid not in all_known_ids:
             id_warnings.append(f"  - 模块 ID [{mid}] 未在 rules/ 或 features.py 中注册: {mm['file']}")
-        if mm["default_enabled"] is True:
+        if mm["default_enabled"] is True and mid not in DEFAULT_ENABLED_WHITELIST:
             default_on_warnings.append(f"  - 默认开启违规 (应为 false): {mm['file']} ({mid})")
 
     rule_warnings = []
