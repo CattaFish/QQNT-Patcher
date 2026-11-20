@@ -5,7 +5,6 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.os.Environment;
-import android.view.View;
 
 import com.tencent.mobileqq.data.EmoticonPackage;
 import com.tencent.mobileqq.emoticonview.EmotionPanelData;
@@ -20,10 +19,7 @@ import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.qqnt.patch.util.ToastHelper;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.OutputStreamWriter;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -49,6 +45,7 @@ public class TgStickerModule implements IPatchModule {
     );
 
     private static final Map<String, StickerPanel> sPanelMap = new ConcurrentHashMap<>();
+    private static volatile List<StickerPanel> sOrderedPanels = Collections.emptyList();
     private static volatile long sLastScanTime = 0L;
     private static final long SCAN_INTERVAL_MS = 5000L;
 
@@ -158,6 +155,7 @@ public class TgStickerModule implements IPatchModule {
                         int moved = autoCollectOrphanImages();
                         sLastScanTime = 0L;
                         sPanelMap.clear();
+                        sOrderedPanels = Collections.emptyList();
                         ToastHelper.show(activity, "已将 " + moved + " 张图片移动至「默认表情包」");
                         if (onSaved != null) onSaved.run();
                     }
@@ -173,6 +171,7 @@ public class TgStickerModule implements IPatchModule {
                     setRemoveQQMisc(tempRemoveMisc[0]);
                     sLastScanTime = 0L;
                     sPanelMap.clear();
+                    sOrderedPanels = Collections.emptyList();
                     dialog.dismiss();
                     ToastHelper.show(activity, "已保存配置 (" + tempColumns[0] + "列)");
                     if (onSaved != null) onSaved.run();
@@ -252,8 +251,8 @@ public class TgStickerModule implements IPatchModule {
 
     public static synchronized List<StickerPanel> getPanels() {
         long now = System.currentTimeMillis();
-        if (now - sLastScanTime < SCAN_INTERVAL_MS && !sPanelMap.isEmpty()) {
-            return new ArrayList<>(sPanelMap.values());
+        if (now - sLastScanTime < SCAN_INTERVAL_MS && !sOrderedPanels.isEmpty()) {
+            return new ArrayList<>(sOrderedPanels);
         }
 
         ensureStickerDir();
@@ -283,6 +282,7 @@ public class TgStickerModule implements IPatchModule {
         }
 
         sPanelMap.keySet().retainAll(currentKeys);
+        sOrderedPanels = Collections.unmodifiableList(new ArrayList<>(panels));
         sLastScanTime = now;
         return panels;
     }
@@ -427,6 +427,10 @@ public class TgStickerModule implements IPatchModule {
                 String cover = panel.getCoverPath();
                 if (cover != null && !cover.isEmpty()) {
                     try {
+                        // 仅当路径含 # 或 ? 时使用 URI 转义，防止截断同时避免影响含中文路径的兼容加载
+                        if (cover.indexOf('#') >= 0 || cover.indexOf('?') >= 0) {
+                            return new File(cover).toURI().toURL();
+                        }
                         return new URL("file://" + cover);
                     } catch (Throwable ignored) {}
                 }

@@ -482,7 +482,7 @@ public class SettingDialogBuilder {
     }
 
     public Dialog show() {
-        if (activity == null || activity.isFinishing()) return null;
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return null;
 
         Dialog dialog = new Dialog(activity);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -520,7 +520,16 @@ public class SettingDialogBuilder {
             title.setPadding(0, 0, 0, dp2px(activity, 12f));
         }
 
-        ScrollView scroll = new ScrollView(activity);
+        final int maxH = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.65f);
+        ScrollView scroll = new ScrollView(activity) {
+            @Override
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                int mode = MeasureSpec.getMode(heightMeasureSpec);
+                int size = MeasureSpec.getSize(heightMeasureSpec);
+                int targetH = (mode == MeasureSpec.UNSPECIFIED) ? maxH : Math.min(size, maxH);
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(targetH, MeasureSpec.AT_MOST));
+            }
+        };
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout scrollContent = new LinearLayout(activity);
         scrollContent.setOrientation(LinearLayout.VERTICAL);
@@ -530,8 +539,10 @@ public class SettingDialogBuilder {
         }
 
         scroll.addView(scrollContent);
-        int maxH = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.65f);
-        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
         root.addView(scroll, scrollLp);
 
         // 底部动作按钮行
@@ -598,6 +609,9 @@ public class SettingDialogBuilder {
     }
 
     public static int dp2px(Context c, float dp) {
+        if (c == null || c.getResources() == null || c.getResources().getDisplayMetrics() == null) {
+            return (int) (dp * 2f + 0.5f);
+        }
         return (int) (dp * c.getResources().getDisplayMetrics().density + 0.5f);
     }
 }

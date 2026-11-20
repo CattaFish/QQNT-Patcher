@@ -8,6 +8,7 @@ import com.tencent.qqnt.patch.util.PLog;
 
 import java.net.URLDecoder;
 import java.util.Collections;
+import java.util.Locale;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -44,13 +45,13 @@ public class BrowserMitigationModule implements IPatchModule {
         }
 
         // 1. 快速放行内部协议与非 HTTP 协议，绝不触碰 JS 注入与内部资源
-        String lowerUrl = url.toLowerCase();
+        String lowerUrl = url.toLowerCase(Locale.ROOT);
         if (lowerUrl.startsWith("javascript:") || lowerUrl.startsWith("about:") || lowerUrl.startsWith("data:") || lowerUrl.startsWith("file:")) {
             return url;
         }
 
-        // 2. 检查当前是否为腾讯的拦截中转页 (c.pc.qq.com)
-        if (url.contains(BLOCK_HOST)) {
+        // 2. 精确检查当前主机名是否为腾讯的拦截中转页 (c.pc.qq.com)
+        if (isBlockHost(url)) {
             // 熔断保护：检查当前实例是否在短时间内被频繁重定向
             Integer count = sRedirectCounters.get(webView);
             int currentCount = (count != null) ? count : 0;
@@ -89,9 +90,21 @@ public class BrowserMitigationModule implements IPatchModule {
         return url;
     }
 
+    private static boolean isBlockHost(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            if (host != null) {
+                String lowerHost = host.toLowerCase(Locale.ROOT);
+                return BLOCK_HOST.equals(lowerHost) || lowerHost.endsWith("." + BLOCK_HOST);
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
     /**
      * 健壮解析：从 c.pc.qq.com 中提取真实目标链接
-     * 兼容 pfurl / url / target 等多种腾讯历史版本参数
+     * getQueryParameter 已完成一次解码；仅在未解码成 http(s):// 时再做二次解码，防止破坏带 + 或 % 的链接
      */
     private static String extractRealUrlFromBlockUrl(String blockUrl) {
         try {
@@ -101,6 +114,9 @@ public class BrowserMitigationModule implements IPatchModule {
             for (String param : candidateParams) {
                 String val = uri.getQueryParameter(param);
                 if (!TextUtils.isEmpty(val)) {
+                    if (val.startsWith("http://") || val.startsWith("https://")) {
+                        return val;
+                    }
                     String decoded = URLDecoder.decode(val, "UTF-8");
                     if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
                         return decoded;
