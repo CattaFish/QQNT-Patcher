@@ -147,8 +147,7 @@ public class UnlockLikeLimitModule implements IPatchModule {
             byte[] cookies,
             int favoriteSource,
             int count,
-            int from,
-            String methodName
+            int from
     ) {
         if (!isModuleActive() || Boolean.TRUE.equals(sInSplitSend.get())) {
             return false;
@@ -157,9 +156,9 @@ public class UnlockLikeLimitModule implements IPatchModule {
             return false;
         }
 
-        Method sendMethod = resolveSendMethod(handlerObj.getClass(), methodName);
+        Method sendMethod = resolveSendMethod(handlerObj.getClass());
         if (sendMethod == null) {
-            PLog.w(TAG, "未找到发赞方法: " + handlerObj.getClass().getName() + "->" + methodName);
+            PLog.w(TAG, "未找到发赞方法: " + handlerObj.getClass().getName());
             return false;
         }
 
@@ -184,7 +183,7 @@ public class UnlockLikeLimitModule implements IPatchModule {
 
         return sentPackets > 0;
     }
-
+    
     private static boolean isFriendUin(String uin) {
         try {
             IRelationNTUinAndUidApi uinApi = QRoute.api(IRelationNTUinAndUidApi.class);
@@ -211,36 +210,25 @@ public class UnlockLikeLimitModule implements IPatchModule {
         }
     }
 
-    private static Method resolveSendMethod(Class<?> handlerClass, String methodName) {
+    private static Method resolveSendMethod(Class<?> handlerClass) {
         Method cached = sSendMethodCache.get(handlerClass);
         if (cached != null) {
             return cached;
         }
 
         Method found = null;
-        if (methodName != null && !methodName.isEmpty()) {
-            try {
-                found = handlerClass.getDeclaredMethod(
-                        methodName,
-                        long.class, long.class, byte[].class, int.class, int.class, int.class
-                );
-            } catch (NoSuchMethodException ignored) {}
-        }
-
-        if (found == null) {
-            for (Method m : handlerClass.getDeclaredMethods()) {
-                if (m.getReturnType() != void.class) continue;
-                Class<?>[] pts = m.getParameterTypes();
-                if (pts.length == 6
-                        && pts[0] == long.class
-                        && pts[1] == long.class
-                        && pts[2] == byte[].class
-                        && pts[3] == int.class
-                        && pts[4] == int.class
-                        && pts[5] == int.class) {
-                    found = m;
-                    break;
-                }
+        for (Method m : handlerClass.getDeclaredMethods()) {
+            if (m.getReturnType() != void.class) continue;
+            Class<?>[] pts = m.getParameterTypes();
+            if (pts.length == 6
+                    && pts[0] == long.class
+                    && pts[1] == long.class
+                    && pts[2] == byte[].class
+                    && pts[3] == int.class
+                    && pts[4] == int.class
+                    && pts[5] == int.class) {
+                found = m;
+                break;
             }
         }
 

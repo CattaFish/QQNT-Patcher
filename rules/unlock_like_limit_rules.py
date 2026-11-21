@@ -155,16 +155,8 @@ def build_unlock_like_limit_rules(dex_data_dict):
         "target_class": ch_cls,
         "target_method": f"{ch_name}{ch_proto}",
         "type": "INSERT_BEFORE",
-        "smali": f"""
-    move-object/16 v0, p0
-    move-wide/16 v1, p1
-    move-wide/16 v3, p3
-    move-object/16 v5, p5
-    move/16 v6, p6
-    move/16 v7, p7
-    move/16 v8, p8
-    const-string v9, "{ch_name}"
-    invoke-static/range {{v0 .. v9}}, Lcom/tencent/qqnt/patch/modules/misc/UnlockLikeLimitModule;->onSendFavorite(Ljava/lang/Object;JJ[BIIILjava/lang/String;)Z
+        "smali": """
+    invoke-static/range {p0 .. p8}, Lcom/tencent/qqnt/patch/modules/misc/UnlockLikeLimitModule;->onSendFavorite(Ljava/lang/Object;JJ[BIII)Z
     move-result v0
     if-eqz v0, :cond_pass_card_split_like
     return-void
@@ -190,16 +182,8 @@ def build_unlock_like_limit_rules(dex_data_dict):
         "target_class": nh_cls,
         "target_method": f"{nh_name}{nh_proto}",
         "type": "INSERT_BEFORE",
-        "smali": f"""
-    move-object/16 v0, p0
-    move-wide/16 v1, p1
-    move-wide/16 v3, p3
-    move-object/16 v5, p5
-    move/16 v6, p6
-    move/16 v7, p7
-    move/16 v8, p8
-    const-string v9, "{nh_name}"
-    invoke-static/range {{v0 .. v9}}, Lcom/tencent/qqnt/patch/modules/misc/UnlockLikeLimitModule;->onSendFavorite(Ljava/lang/Object;JJ[BIIILjava/lang/String;)Z
+        "smali": """
+    invoke-static/range {p0 .. p8}, Lcom/tencent/qqnt/patch/modules/misc/UnlockLikeLimitModule;->onSendFavorite(Ljava/lang/Object;JJ[BIII)Z
     move-result v0
     if-eqz v0, :cond_pass_nearby_split_like
     return-void
