@@ -6492,5 +6492,23 @@
     "arch": "LoongArch",
     "date": "2026-10-30",
     "channel": "官方"
+  },
+  "537406685": {
+    "summary": "QQ 9.3.90.43520-Beta",
+    "platform": "Android",
+    "version": "9.3.90.43520-Beta",
+    "is_beta": true,
+    "arch": "Phone",
+    "date": "2026-11-21",
+    "channel": "官方"
+  },
+  "537406696": {
+    "summary": "QQ(Pad) 9.3.90.43520-Beta",
+    "platform": "Android",
+    "version": "9.3.90.43520-Beta",
+    "is_beta": true,
+    "arch": "Pad",
+    "date": "2026-11-21",
+    "channel": "官方"
   }
 }
