@@ -11,7 +11,7 @@ from .parser import FastDexParser
 
 RULE_ID = "one_click_like"
 RULE_NAME = "一键点赞"
-RULE_DESC = "点击资料卡或访客页点赞时自动点满当日可赞次数"
+RULE_DESC = "在资料卡页面点赞时自动点满当日可赞次数"
 RULE_ALIASES = ["one_click_like", "like", "vote", "zan", "一键点赞", "一键20赞", "一键赞", "自动点赞", "回赞"]
 RULE_ENABLED = True
 
