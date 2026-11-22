@@ -13,11 +13,13 @@ import com.tencent.qqnt.patch.util.PLog;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ForwardPttModule implements IPatchModule {
 
@@ -31,6 +33,11 @@ public class ForwardPttModule implements IPatchModule {
     private static volatile AIOMsgItem sPendingPttItem = null;
     private static volatile long sPendingTimestamp = 0L;
     private static volatile Object sCachedSuccessErrorCode = null;
+
+    private static final ThreadLocal<Boolean> sInInjectPttMenu = new ThreadLocal<>();
+    private static final ConcurrentHashMap<Class<?>, Member> sMsgItemMemberCache = new ConcurrentHashMap<>();
+    private static volatile String sCachedForwardCtorKey = null;
+    private static volatile Constructor<?> sCachedForwardCtor = null;
 
     @Override
     public String getId() {
@@ -66,7 +73,11 @@ public class ForwardPttModule implements IPatchModule {
         if (!isModuleActive() || menuList == null || component == null) {
             return menuList;
         }
+        if (Boolean.TRUE.equals(sInInjectPttMenu.get())) {
+            return menuList;
+        }
 
+        sInInjectPttMenu.set(true);
         try {
             for (Object item : menuList) {
                 if (item != null && "ForwardMenuItem".equals(extractMenuItemIdentifier(item))) {
@@ -91,33 +102,31 @@ public class ForwardPttModule implements IPatchModule {
                 return menuList;
             }
 
-            int targetIndex = -1;
-            for (int i = 0; i < menuList.size(); i++) {
-                if (isSpeedMenuItem(menuList.get(i))) {
-                    targetIndex = i + 1;
-                    break;
-                }
-            }
-            if (targetIndex == -1) {
-                for (int i = 0; i < menuList.size(); i++) {
-                    if (isSpeechToTextMenuItem(menuList.get(i))) {
-                        targetIndex = i + 1;
-                        break;
-                    }
-                }
-            }
-            if (targetIndex == -1) {
-                targetIndex = Math.min(2, menuList.size());
-            }
-
+            int targetIndex = findInsertIndex(menuList);
             menuList.add(targetIndex, menuItem);
             PLog.i(TAG, "已成功在自然位置 (index " + targetIndex + ") 注入语音转发选项");
 
         } catch (Throwable t) {
             PLog.e(TAG, "injectPttMenu 异常", t);
+        } finally {
+            sInInjectPttMenu.remove();
         }
 
         return menuList;
+    }
+
+    private static int findInsertIndex(List<?> menuList) {
+        for (int i = 0; i < menuList.size(); i++) {
+            if (isSpeedMenuItem(menuList.get(i))) {
+                return i + 1;
+            }
+        }
+        for (int i = 0; i < menuList.size(); i++) {
+            if (isSpeechToTextMenuItem(menuList.get(i))) {
+                return i + 1;
+            }
+        }
+        return Math.min(2, menuList.size());
     }
 
     public static void onStartForwardMsg(Object aioMsgItemObj) {
@@ -279,7 +288,7 @@ public class ForwardPttModule implements IPatchModule {
                         }
                     }
                 }
-            } catch (Throwable ignored) {}
+            } catch (Exception ignored) {}
         }
         return hasMatchedType;
     }
@@ -299,7 +308,7 @@ public class ForwardPttModule implements IPatchModule {
                         Long nested = tryExtractMsgId(f.get(obj), depth + 1);
                         if (nested != null) return nested;
                     }
-                } catch (Throwable ignored) {}
+                } catch (Exception ignored) {}
             }
             clz = clz.getSuperclass();
         }
@@ -335,6 +344,7 @@ public class ForwardPttModule implements IPatchModule {
         String peerUin;
         String peerUid;
         int peerType;
+
         DestTarget(String uin, String uid, int type) {
             this.peerUin = uin;
             this.peerUid = uid;
@@ -353,12 +363,12 @@ public class ForwardPttModule implements IPatchModule {
                 if (uidObj instanceof String) {
                     uid = (String) uidObj;
                 }
-            } catch (Throwable ignored) {}
+            } catch (Exception ignored) {}
 
             if (((uin != null && !uin.isEmpty()) || !uid.isEmpty()) && type != INVALID_TYPE) {
                 return new DestTarget(uin != null ? uin : "", uid, type);
             }
-        } catch (Throwable ignored) {}
+        } catch (Exception ignored) {}
         return null;
     }
 
@@ -388,7 +398,7 @@ public class ForwardPttModule implements IPatchModule {
                     }
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Exception ignored) {}
     }
 
     private static boolean isSpeedMenuItem(Object item) {
@@ -415,6 +425,13 @@ public class ForwardPttModule implements IPatchModule {
         Class<?> clz = item.getClass();
 
         for (Method m : clz.getMethods()) {
+            int mod = m.getModifiers();
+            if (m.getDeclaringClass() == Object.class
+                    || Modifier.isStatic(mod)
+                    || m.isBridge()
+                    || m.isSynthetic()) {
+                continue;
+            }
             if (m.getParameterTypes().length == 0 && CharSequence.class.isAssignableFrom(m.getReturnType())) {
                 try {
                     m.setAccessible(true);
@@ -425,7 +442,7 @@ public class ForwardPttModule implements IPatchModule {
                             return s;
                         }
                     }
-                } catch (Throwable ignored) {}
+                } catch (Exception ignored) {}
             }
         }
 
@@ -435,7 +452,7 @@ public class ForwardPttModule implements IPatchModule {
                     f.setAccessible(true);
                     Object val = f.get(item);
                     if (val != null) return val.toString();
-                } catch (Throwable ignored) {}
+                } catch (Exception ignored) {}
             }
         }
         return "";
@@ -445,6 +462,13 @@ public class ForwardPttModule implements IPatchModule {
         if (item == null) return "";
         Class<?> clz = item.getClass();
         for (Method m : clz.getMethods()) {
+            int mod = m.getModifiers();
+            if (m.getDeclaringClass() == Object.class
+                    || Modifier.isStatic(mod)
+                    || m.isBridge()
+                    || m.isSynthetic()) {
+                continue;
+            }
             if (m.getParameterTypes().length == 0 && m.getReturnType() == String.class) {
                 try {
                     m.setAccessible(true);
@@ -453,50 +477,65 @@ public class ForwardPttModule implements IPatchModule {
                         String s = res.toString();
                         if (s.endsWith("MenuItem")) return s;
                     }
-                } catch (Throwable ignored) {}
+                } catch (Exception ignored) {}
             }
         }
         return "";
     }
 
-    private static synchronized Constructor<?> resolveForwardMenuItemCtor(Object component, String targetClassName) {
-        try {
-            ClassLoader cl = component.getClass().getClassLoader();
-            if (cl == null) cl = AppContext.get().getClassLoader();
+    private static Constructor<?> resolveForwardMenuItemCtor(Object component, String targetClassName) {
+        String cacheKey = targetClassName != null ? targetClassName : "";
+        Constructor<?> cached = sCachedForwardCtor;
+        if (cached != null && cacheKey.equals(sCachedForwardCtorKey)) {
+            return cached;
+        }
 
-            Class<?> targetClz = null;
-            if (targetClassName != null && !targetClassName.isEmpty()) {
-                try {
-                    targetClz = cl.loadClass(targetClassName);
-                } catch (Throwable ignored) {}
+        synchronized (ForwardPttModule.class) {
+            cached = sCachedForwardCtor;
+            if (cached != null && cacheKey.equals(sCachedForwardCtorKey)) {
+                return cached;
             }
 
-            if (targetClz == null) {
-                String[] fallbacks = new String[]{
-                        "com.tencent.qqnt.aio.menu.o",
-                        "com.tencent.qqnt.aio.menu.j",
-                        "com.tencent.qqnt.aio.menu.k",
-                        "com.tencent.qqnt.aio.menu.l",
-                        "com.tencent.qqnt.aio.menu.n"
-                };
-                for (String fb : fallbacks) {
+            try {
+                ClassLoader cl = component.getClass().getClassLoader();
+                if (cl == null) cl = AppContext.get().getClassLoader();
+
+                Class<?> targetClz = null;
+                if (!cacheKey.isEmpty()) {
                     try {
-                        targetClz = cl.loadClass(fb);
-                        if (targetClz != null) break;
+                        targetClz = cl.loadClass(cacheKey);
                     } catch (Throwable ignored) {}
                 }
-            }
 
-            if (targetClz != null) {
-                for (Constructor<?> c : targetClz.getConstructors()) {
-                    if (c.getParameterTypes().length == 4) {
-                        c.setAccessible(true);
-                        return c;
+                if (targetClz == null) {
+                    String[] fallbacks = new String[]{
+                            "com.tencent.qqnt.aio.menu.o",
+                            "com.tencent.qqnt.aio.menu.j",
+                            "com.tencent.qqnt.aio.menu.k",
+                            "com.tencent.qqnt.aio.menu.l",
+                            "com.tencent.qqnt.aio.menu.n"
+                    };
+                    for (String fb : fallbacks) {
+                        try {
+                            targetClz = cl.loadClass(fb);
+                            if (targetClz != null) break;
+                        } catch (Throwable ignored) {}
                     }
                 }
-            }
-        } catch (Throwable ignored) {}
-        return null;
+
+                if (targetClz != null) {
+                    for (Constructor<?> c : targetClz.getConstructors()) {
+                        if (c.getParameterTypes().length == 4) {
+                            c.setAccessible(true);
+                            sCachedForwardCtorKey = cacheKey;
+                            sCachedForwardCtor = c;
+                            return c;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+            return null;
+        }
     }
 
     private static Context resolveComponentContext(Object component) {
@@ -504,33 +543,87 @@ public class ForwardPttModule implements IPatchModule {
             Method getCtx = component.getClass().getMethod("getContext");
             Object ctx = getCtx.invoke(component);
             if (ctx instanceof Context) return (Context) ctx;
-        } catch (Throwable ignored) {}
+        } catch (Exception ignored) {}
         return AppContext.getCurrentActivity();
     }
 
     private static AIOMsgItem resolveComponentMsgItem(Object component) {
-        String[] candidateMethods = new String[]{"f2", "a2", "getMsgItem"};
-        for (String mName : candidateMethods) {
-            try {
-                Method m = component.getClass().getMethod(mName);
-                Object item = m.invoke(component);
-                if (item instanceof AIOMsgItem) return (AIOMsgItem) item;
-            } catch (Throwable ignored) {}
+        Class<?> clz = component.getClass();
+
+        Member cached = sMsgItemMemberCache.get(clz);
+        if (cached != null) {
+            AIOMsgItem item = readMsgItemFromMember(component, cached);
+            if (item != null) {
+                return item;
+            }
         }
 
-        Class<?> cur = component.getClass();
-        while (cur != null && cur != Object.class) {
+        for (Class<?> cur = clz; cur != null && cur != Object.class; cur = cur.getSuperclass()) {
             for (Field f : cur.getDeclaredFields()) {
-                if (AIOMsgItem.class.isAssignableFrom(f.getType())) {
-                    try {
-                        f.setAccessible(true);
-                        Object val = f.get(component);
-                        if (val instanceof AIOMsgItem) return (AIOMsgItem) val;
-                    } catch (Throwable ignored) {}
-                }
+                if (Modifier.isStatic(f.getModifiers())) continue;
+                if (!isCompatibleMsgItemFieldType(f.getType())) continue;
+                try {
+                    f.setAccessible(true);
+                    Object val = f.get(component);
+                    if (val instanceof AIOMsgItem) {
+                        sMsgItemMemberCache.put(clz, f);
+                        return (AIOMsgItem) val;
+                    }
+                } catch (Exception ignored) {}
             }
-            cur = cur.getSuperclass();
         }
+
+        for (Class<?> cur = clz; cur != null && cur != Object.class; cur = cur.getSuperclass()) {
+            for (Method m : cur.getDeclaredMethods()) {
+                int mod = m.getModifiers();
+                if (Modifier.isStatic(mod)
+                        || Modifier.isAbstract(mod)
+                        || m.isBridge()
+                        || m.isSynthetic()) {
+                    continue;
+                }
+                if (m.getParameterTypes().length != 0 || !isCompatibleMsgItemReturnType(m.getReturnType())) {
+                    continue;
+                }
+                try {
+                    m.setAccessible(true);
+                    Object val = m.invoke(component);
+                    if (val instanceof AIOMsgItem) {
+                        sMsgItemMemberCache.put(clz, m);
+                        return (AIOMsgItem) val;
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+
         return null;
+    }
+
+    private static AIOMsgItem readMsgItemFromMember(Object component, Member member) {
+        try {
+            Object val = (member instanceof Field)
+                    ? ((Field) member).get(component)
+                    : ((Method) member).invoke(component);
+            return (val instanceof AIOMsgItem) ? (AIOMsgItem) val : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static boolean isCompatibleMsgItemFieldType(Class<?> type) {
+        return !type.isPrimitive()
+                && (AIOMsgItem.class.isAssignableFrom(type) || type.isAssignableFrom(AIOMsgItem.class));
+    }
+
+    private static boolean isCompatibleMsgItemReturnType(Class<?> returnType) {
+        if (returnType == void.class || returnType.isPrimitive()) {
+            return false;
+        }
+        String name = returnType.getName();
+        if (name.startsWith("java.") || name.startsWith("android.")) {
+            return false;
+        }
+        return AIOMsgItem.class.isAssignableFrom(returnType)
+                || returnType.isAssignableFrom(AIOMsgItem.class);
     }
 }
