@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-新版侧滑栏精简动态规则插件
-四层协同机制：
-1. 源头判定：插桩 QQSettingMeUtils.needHideForMenu(QQSettingMeBizBean)Z，统一拦截初始化、云控刷新、模式切换与异步回调
-2. 分割线清理：在 QQSettingMeMenuPanelPartV3 的 setItems 调用前清理首尾及连续多余分割线
-3. 异步防越界：保护小金库异步回插列表时的下标范围，防止隐藏前置项后触发 IndexOutOfBoundsException
-4. 即时刷新：在 onPartResume 中检测配置变更并触发面板数据重刷，无需重启 QQ
+侧滑栏精简动态规则插件
+1. 入口过滤：插桩 QQSettingMeUtils.needHideForMenu(QQSettingMeBizBean)Z
+2. 红点屏蔽：阻断 QQSettingMeListSection(section/c) 的天书红点绑定及 PanelPartV3 的红点推送
+3. 分割线清理：在 PanelPartV3 的 setItems 调用前清理首尾及连续重复分割线
+4. 即时刷新：在 onPartResume 检测配置变更并重刷列表与 ViewHolder，免重启生效
+5. 越界保护：保护小金库异步回插列表下标
 """
 
 import struct
@@ -13,13 +13,14 @@ from .parser import FastDexParser
 
 RULE_ID = "simplify_setting_me"
 RULE_NAME = "侧滑栏精简"
-RULE_DESC = "隐藏新版侧滑栏中的指定功能入口"
-RULE_ALIASES = ["simplify_setting_me", "setting_me", "drawer", "侧滑栏", "侧滑栏精简", "精简侧滑栏", "抽屉精简"]
+RULE_DESC = "隐藏侧滑栏中的指定功能入口与红点推广"
+RULE_ALIASES = ["simplify_setting_me", "setting_me", "drawer", "侧滑栏", "侧滑栏精简", "精简侧滑栏", "侧边栏精简", "抽屉精简"]
 RULE_ENABLED = True
 
 BIZ_BEAN_CLS = "Lcom/tencent/mobileqq/activity/qqsettingme/config/QQSettingMeBizBean;"
 PANEL_PART_CLS = "Lcom/tencent/mobileqq/parts/QQSettingMeMenuPanelPartV3;"
 MENU_CONFIG_CLS = "Lcom/tencent/mobileqq/activity/qqsettingme/config/QQSettingMeMenuConfigBeanV3;"
+APP_INFO_CLS = "Lcom/tencent/mobileqq/tianshu/pb/BusinessInfoCheckUpdate$AppInfo;"
 MODULE_CLS = "Lcom/tencent/qqnt/patch/modules/purify/SimplifySettingMeModule;"
 
 
@@ -89,7 +90,9 @@ def build_simplify_setting_me_rules(dex_data_dict):
     panel_live_update_method = None
     panel_refresh_method = None
     panel_refresh_is_private = True
+    panel_red_dot_method = None
 
+    list_section_cls = None
     financial_runnable_cls = None
 
     # 1. 嗅探 QQSettingMeUtils.needHideForMenu(QQSettingMeBizBean)Z
@@ -114,7 +117,7 @@ def build_simplify_setting_me_rules(dex_data_dict):
         if hide_utils_cls:
             break
 
-    # 2. 嗅探 QQSettingMeMenuPanelPartV3 中的 getPluginID()、云控刷新方法、模式重刷方法
+    # 2. 嗅探 QQSettingMeMenuPanelPartV3 相关方法
     for _, dex_bytes in dex_data_dict.items():
         if b"QQSettingMeMenuPanelPartV3" not in dex_bytes:
             continue
@@ -126,14 +129,14 @@ def build_simplify_setting_me_rules(dex_data_dict):
         if c_idx == -1:
             continue
 
-        # 2a. 从含 "getPluginID(...)" 的方法中解析 QQSettingMeBizBean.getPluginID() 混淆名
+        # 2a. 提取 QQSettingMeBizBean.getPluginID() 混淆名
         plugin_id_caller = _find_method_strictly_referencing_string(p, c_idx, "getPluginID(...)")
         if plugin_id_caller:
             found_getter = _find_invoked_string_getter_in_code(p, plugin_id_caller[2], BIZ_BEAN_CLS)
             if found_getter:
                 get_plugin_id_method = found_getter
 
-        # 2b. 定位模式变更/主题切换数据重刷方法 (原 z9()V)
+        # 2b. 定位模式/主题切换数据重刷方法 (原 z9()V)
         refresh_info = _find_method_strictly_referencing_string(
             p, c_idx, "qq_setting_me_enable_mode_change_update_list_9175"
         )
@@ -143,15 +146,17 @@ def build_simplify_setting_me_rules(dex_data_dict):
             panel_refresh_method = f"{refresh_info[0]}()V"
             panel_refresh_is_private = (refresh_info[3] & 0x0002) != 0
 
-        # 2c. 定位 LiveData 异步更新列表方法 (原 o9(PanelPartV3, List)V)
+        # 2c. 定位 LiveData 异步更新列表方法 (原 o9) 及红点更新方法 (原 A9)
         expected_live_proto = f"({PANEL_PART_CLS}Ljava/util/List;)V"
+        expected_red_dot_proto = f"(Ljava/lang/String;{APP_INFO_CLS})V"
         for m_name, proto_desc, _, _, access_flags in p.get_class_methods(c_idx):
             if proto_desc == expected_live_proto and (access_flags & 0x0008):
                 panel_live_update_method = f"{m_name}{proto_desc}"
-                break
+            elif proto_desc == expected_red_dot_proto and (access_flags & 0x0008) == 0:
+                panel_red_dot_method = f"{m_name}{proto_desc}"
         break
 
-    # 2d. 若未从 PanelPartV3 嗅探到 getPluginID()，降级从 QQSettingMeMenuConfigBeanV3.<init>(Z)V 提取
+    # 2d. 降级从 QQSettingMeMenuConfigBeanV3.<init>(Z)V 提取 getPluginID()
     if not get_plugin_id_method:
         for _, dex_bytes in dex_data_dict.items():
             if b"QQSettingMeMenuConfigBeanV3" not in dex_bytes:
@@ -171,7 +176,27 @@ def build_simplify_setting_me_rules(dex_data_dict):
             if get_plugin_id_method:
                 break
 
-    # 3. 嗅探小金库异步回插 Runnable (含 "checkoutFinancialEntrance, needHideForMenu")
+    # 3. 嗅探侧滑栏菜单项渲染 Section (原 com/tencent/mobileqq/section/c)
+    for _, dex_bytes in dex_data_dict.items():
+        if b"getRedDotId(...)" not in dex_bytes:
+            continue
+        p = FastDexParser(dex_bytes)
+        if not p.valid:
+            continue
+        candidates = p.find_classes_referencing_string_strictly("getRedDotId(...)")
+        for cls_name, cls_idx in candidates:
+            if "mobileqq/section/" not in cls_name or "$" in cls_name:
+                continue
+            for m_name, proto_desc, _, _, _ in p.get_class_methods(cls_idx):
+                if m_name == "onBindData" and proto_desc == "(Ljava/lang/Object;ILjava/util/List;)V":
+                    list_section_cls = cls_name
+                    break
+            if list_section_cls:
+                break
+        if list_section_cls:
+            break
+
+    # 4. 嗅探小金库异步回插 Runnable
     for _, dex_bytes in dex_data_dict.items():
         if b"checkoutFinancialEntrance, needHideForMenu" not in dex_bytes:
             continue
@@ -203,10 +228,13 @@ def build_simplify_setting_me_rules(dex_data_dict):
     if not panel_refresh_method:
         panel_refresh_method = "z9()V"
         panel_refresh_is_private = True
+    if not panel_red_dot_method:
+        panel_red_dot_method = f"A9(Ljava/lang/String;{APP_INFO_CLS})V"
+    if not list_section_cls:
+        list_section_cls = "Lcom/tencent/mobileqq/section/c;"
 
     # =========================================================================
     # 规则 1：源头拦截 needHideForMenu(QQSettingMeBizBean)Z
-    # 静态方法，无隐式 this，p0 为 QQSettingMeBizBean
     # =========================================================================
     rules.append({
         "name": f"侧滑栏入口过滤 ({hide_utils_cls}->{hide_utils_method.split('(')[0]})",
@@ -228,7 +256,44 @@ def build_simplify_setting_me_rules(dex_data_dict):
     })
 
     # =========================================================================
-    # 规则 2：清理首尾与连续重复分割线 (覆盖初始化、云控刷新、模式重刷三处 setItems)
+    # 规则 2：屏蔽侧滑栏菜单项渲染时的天书红点、右侧推广文案与小图标
+    # =========================================================================
+    rules.append({
+        "name": f"侧滑栏入口红点渲染拦截 ({list_section_cls}->onBindData)",
+        "target_class": list_section_cls,
+        "target_method": "onBindData(Ljava/lang/Object;ILjava/util/List;)V",
+        "type": "REGEX_REPLACE",
+        "regex": (
+            r"(invoke-virtual\s+\{[vp]\d+\},\s*"
+            r"Lcom/tencent/mobileqq/tianshu/ui/TianshuRedTouch\$a;->[a-zA-Z0-9_]+\(\)Z\s+"
+            r"move-result\s+([vp]\d+))"
+        ),
+        "smali": (
+            r"    \1" + "\n"
+            f"    invoke-static {{p0, \\2}}, {MODULE_CLS}->filterSectionRedDot(Ljava/lang/Object;Z)Z\n"
+            r"    move-result \2"
+        ),
+    })
+
+    # =========================================================================
+    # 规则 3：阻断 PanelPartV3 异步红点推送更新 (涵盖新版 Tianshu 与旧版 RedTouch)
+    # =========================================================================
+    rules.append({
+        "name": f"侧滑栏红点推送拦截 ({PANEL_PART_CLS}->{panel_red_dot_method.split('(')[0]})",
+        "target_class": PANEL_PART_CLS,
+        "target_method": panel_red_dot_method,
+        "type": "INSERT_BEFORE",
+        "smali": f"""
+    invoke-static {{}}, {MODULE_CLS}->shouldHideRedDot()Z
+    move-result v0
+    if-eqz v0, :cond_pass_setting_me_red_dot
+    return-void
+    :cond_pass_setting_me_red_dot
+"""
+    })
+
+    # =========================================================================
+    # 规则 4：清理首尾与连续重复分割线
     # =========================================================================
     set_items_regex = (
         r"(invoke-virtual\s+\{[vp]\d+,\s*([vp]\d+)\},\s*"
@@ -254,8 +319,7 @@ def build_simplify_setting_me_rules(dex_data_dict):
         })
 
     # =========================================================================
-    # 规则 3：配置变更后返回侧滑栏自动触发重刷 (免重启生效)
-    # 非静态方法，p0 为 QQSettingMeMenuPanelPartV3 实例
+    # 规则 5：配置变更后返回侧滑栏自动触发重刷 (列表 + 红点状态均免重启生效)
     # =========================================================================
     refresh_invoke_op = "invoke-direct" if panel_refresh_is_private else "invoke-virtual"
     rules.append({
@@ -270,12 +334,14 @@ def build_simplify_setting_me_rules(dex_data_dict):
     if-eqz v0, :cond_pass_setting_me_resume
     move-object/16 v0, p0
     {refresh_invoke_op} {{v0}}, {PANEL_PART_CLS}->{panel_refresh_method}
+    move-object/16 v0, p0
+    invoke-static {{v0}}, {MODULE_CLS}->notifyPanelAdapterChanged(Ljava/lang/Object;)V
     :cond_pass_setting_me_resume
 """
     })
 
     # =========================================================================
-    # 规则 4：小金库异步回插列表下标越界保护
+    # 规则 6：小金库异步回插列表下标越界保护
     # =========================================================================
     if financial_runnable_cls:
         rules.append({
