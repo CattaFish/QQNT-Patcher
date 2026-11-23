@@ -14,7 +14,7 @@ from .parser import FastDexParser
 
 RULE_ID = "block_qq_show"
 RULE_NAME = "屏蔽超级 QQ 秀"
-RULE_DESC = "屏蔽新版 QQ 秀头像、资料卡超级 QQ 秀形象及主页入口"
+RULE_DESC = "屏蔽新版 QQ 秀头像、资料卡及主页入口"
 RULE_ALIASES = [
     "block_qq_show",
     "qq_show",
