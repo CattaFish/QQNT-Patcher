@@ -7,9 +7,8 @@ import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
 import com.tencent.qqnt.kernelpublic.nativeinterface.Contact;
 import com.tencent.qqnt.kernelpublic.nativeinterface.JsonGrayElement;
 import com.tencent.qqnt.ntrelation.friendsinfo.api.IFriendsInfoService;
+import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.IPatchModule;
-import com.tencent.qqnt.patch.plugin.MsgSender;
-import com.tencent.qqnt.patch.plugin.PluginManager;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.relation.common.api.IRelationNTUinAndUidApi;
 
@@ -56,8 +55,6 @@ public class AntiRevokeModule implements IPatchModule {
 
         // 1. 在线实时推送 (MsgPush)
         if (CMD_MSG_PUSH.equals(cmd)) {
-            dispatchNudgeAndShutUpEvents(buf);
-
             int revokeType = checkRevokeType(buf);
             if (revokeType != 0) {
                 try {
@@ -65,7 +62,7 @@ public class AntiRevokeModule implements IPatchModule {
                     // 凡是非撤回（如文件通知、状态变更）、自身撤回、校验不通过，一律放行原包（返回 buf）
                     boolean intercepted = processRecall(session, buf, revokeType);
                     if (intercepted) {
-                        return null; // 成功拦截撤回指令
+                        return null;
                     }
                 } catch (Throwable t) {
                     PLog.e(TAG, "处理实时撤回异常", t);
@@ -83,152 +80,6 @@ public class AntiRevokeModule implements IPatchModule {
         }
 
         return buf;
-    }
-
-    private static void dispatchNudgeAndShutUpEvents(byte[] buf) {
-        try {
-            byte[] qqMsgBytes = Proto.getBytes(buf, 1);
-            if (qqMsgBytes == null) return;
-            byte[] headerBytes = Proto.getBytes(qqMsgBytes, 2);
-            if (headerBytes == null) return;
-
-            long cmd1 = Proto.getVarint(headerBytes, 1);
-            long cmd2 = Proto.getVarint(headerBytes, 2);
-
-            byte[] bodyBytes = Proto.getBytes(qqMsgBytes, 3);
-            if (bodyBytes == null) return;
-            byte[] subBytes = Proto.getBytes(bodyBytes, 2);
-            if (subBytes == null) return;
-
-            if (cmd1 == 732 && cmd2 == 12) {
-                long troopUin = Proto.getVarint(subBytes, 1);
-                String opUid = Proto.getString(subBytes, 4);
-                byte[] shutUpInfo = Proto.getBytes(subBytes, 5);
-                if (shutUpInfo != null) {
-                    byte[] inner = Proto.getBytes(shutUpInfo, 3);
-                    if (inner != null) {
-                        String memberUid = Proto.getString(inner, 1);
-                        long time = Proto.getVarint(inner, 2);
-                        PluginManager.dispatchTroopShutUp(String.valueOf(troopUin), getUin(memberUid), time, getUin(opUid));
-                    }
-                }
-                return;
-            }
-
-            int chatType = 0;
-            String peerUin = "";
-            String fromUin = "";
-            String toUin = "";
-
-            byte[] head1 = Proto.getBytes(qqMsgBytes, 1);
-
-            if (cmd1 == 732 && cmd2 == 20) {
-                chatType = 2;
-                peerUin = readUin(head1, 1);
-                String content = new String(subBytes, StandardCharsets.UTF_8);
-                fromUin = extractQQ(content, "1");
-                toUin = extractQQ(content, "2");
-            } else if (cmd1 == 528 && cmd2 == 290) {
-                chatType = 1;
-                peerUin = readUin(head1, 1);
-                fromUin = peerUin;
-                toUin = extractToUinFromField7(subBytes);
-            }
-
-            if (chatType != 0) {
-                String myUin = MsgSender.getMyUin();
-                if (isValidQQ(fromUin) && isValidQQ(toUin) && (toUin.equals(myUin) || myUin.isEmpty())) {
-                    PLog.i("PaiYiPai", "成功捕获拍一拍事件: peer=" + peerUin + ", 来自=" + fromUin + ", 目标=" + toUin);
-                    PluginManager.dispatchPaiYiPai(peerUin, chatType, fromUin);
-                }
-            }
-        } catch (Throwable ignored) {}
-    }
-
-    private static String readUin(byte[] data, int targetField) {
-        if (data == null) return "";
-        ProtoReader reader = new ProtoReader(data);
-        while (reader.hasMore()) {
-            long tag = reader.readVarint();
-            int field = (int) (tag >>> 3);
-            int wire = (int) (tag & 7);
-            if (wire == 0) {
-                long val = reader.readVarint();
-                if (field == targetField) return String.valueOf(val);
-            } else if (wire == 1) {
-                reader.skip(8);
-            } else if (wire == 2) {
-                byte[] sub = reader.readBytes();
-                if (field == targetField && sub != null) {
-                    return new String(sub, StandardCharsets.UTF_8);
-                }
-            } else if (wire == 5) {
-                reader.skip(4);
-            } else {
-                break;
-            }
-        }
-        return "";
-    }
-
-    private static String extractQQ(String target, String type) {
-        if (target == null || target.isEmpty()) return "";
-        String key = "uin_str" + type;
-        int keyIndex = target.indexOf(key);
-        if (keyIndex == -1) return "";
-
-        int startIndex = keyIndex + key.length();
-        int digitStart = -1;
-        for (int i = startIndex; i < target.length(); i++) {
-            if (Character.isDigit(target.charAt(i))) {
-                digitStart = i;
-                break;
-            }
-        }
-        if (digitStart == -1) return "";
-
-        int colonIdx = target.indexOf(':', digitStart);
-        int realEnd = (colonIdx != -1) ? colonIdx : target.length();
-
-        String raw = target.substring(digitStart, realEnd).trim();
-        int end = 0;
-        while (end < raw.length() && Character.isDigit(raw.charAt(end))) {
-            end++;
-        }
-        return raw.substring(0, end);
-    }
-
-    private static String extractToUinFromField7(byte[] data) {
-        if (data == null) return "";
-        ProtoReader reader = new ProtoReader(data);
-        while (reader.hasMore()) {
-            long tag = reader.readVarint();
-            int field = (int) (tag >>> 3);
-            int wire = (int) (tag & 7);
-            if (wire == 2) {
-                byte[] itemBytes = reader.readBytes();
-                if (field == 7 && itemBytes != null) {
-                    String k = Proto.getString(itemBytes, 1);
-                    if ("uin_str2".equals(k)) {
-                        String v = Proto.getString(itemBytes, 2);
-                        if (!v.isEmpty()) return v;
-                    }
-                }
-            } else if (wire == 0) {
-                reader.readVarint();
-            } else if (wire == 1) {
-                reader.skip(8);
-            } else if (wire == 5) {
-                reader.skip(4);
-            } else {
-                break;
-            }
-        }
-        return "";
-    }
-
-    private static boolean isValidQQ(String input) {
-        return input != null && input.matches("[1-9]\\d{4,12}");
     }
 
     private static int checkRevokeType(byte[] buf) {
@@ -295,9 +146,7 @@ public class AntiRevokeModule implements IPatchModule {
         return -1;
     }
 
-    // =========================================================================
-    // 【查库预检核心】：效仿官方 BaseQQMessageFacade.e0 查本地消息是否存在
-    // =========================================================================
+    // 查库预检核心：查本地消息是否存在
     private static boolean queryMsgExists(String peerUin, int istroop, long msgSeq) {
         if (peerUin == null || peerUin.isEmpty() || msgSeq <= 0) return false;
         try {
@@ -318,6 +167,7 @@ public class AntiRevokeModule implements IPatchModule {
         String peerUin;
         int istroop; // 1 为群聊, 0 为私聊
         long msgSeq;
+
         RecallMeta(String peerUin, int istroop, long msgSeq) {
             this.peerUin = peerUin;
             this.istroop = istroop;
@@ -364,20 +214,28 @@ public class AntiRevokeModule implements IPatchModule {
                 int fn = (int) (tag >>> 3);
                 if (wire == 2) {
                     byte[] sub = reader.readBytes();
-                    if (fn == 1 && sub != null) { // msg_info
+                    if (sub == null) break;
+                    if (fn == 1) { // msg_info
                         long fromUin = Proto.getVarint(sub, 1);
                         long toUin = Proto.getVarint(sub, 2);
                         long seq = Proto.getVarint(sub, 3);
                         if (seq > 0 && (fromUin > 10000L || toUin > 10000L)) {
-                            String myUin = MsgSender.getMyUin();
-                            String peer = (myUin != null && myUin.equals(String.valueOf(fromUin))) ? String.valueOf(toUin) : String.valueOf(fromUin);
+                            String myUin = AppContext.getCurrentUin();
+                            String peer = (myUin != null && myUin.equals(String.valueOf(fromUin)))
+                                    ? String.valueOf(toUin)
+                                    : String.valueOf(fromUin);
                             return new RecallMeta(peer, 0, seq);
                         }
                     }
-                } else if (wire == 0) reader.readVarint();
-                else if (wire == 1) reader.skip(8);
-                else if (wire == 5) reader.skip(4);
-                else break;
+                } else if (wire == 0) {
+                    reader.readVarint();
+                } else if (wire == 1) {
+                    reader.skip(8);
+                } else if (wire == 5) {
+                    reader.skip(4);
+                } else {
+                    break;
+                }
             }
         } catch (Throwable ignored) {}
         return null;
@@ -403,8 +261,8 @@ public class AntiRevokeModule implements IPatchModule {
 
     /**
      * 判定漫游同步中的撤回节点是否应该被过滤抹除：
-     * 只有当本地手机里【确实存在原消息】时，才过滤抹除撤回事件以保全原消息；
-     * 若本地根本没有原消息（彻底停止QQ期间被撤回），绝对不过滤，放行让官方原生画灰条！
+     * 只有当本地确实存在原消息时，才过滤抹除撤回事件以保全原消息；
+     * 若本地没有原消息（离线期间被撤回），放行让官方原生画灰条。
      */
     private static boolean shouldDropRecallNodeInSync(byte[] sub) {
         if (sub == null || sub.length < 5) return false;
@@ -417,10 +275,10 @@ public class AntiRevokeModule implements IPatchModule {
                 boolean exists = queryMsgExists(meta.peerUin, 1, meta.msgSeq);
                 if (exists) {
                     PLog.i(TAG, "漫游同步命中本地原消息 (group=" + meta.peerUin + ", seq=" + meta.msgSeq + ")，拦截撤回指令保护原消息");
-                    return true; // 本地有 -> 丢弃撤回指令
+                    return true;
                 } else {
                     PLog.i(TAG, "漫游同步未命中本地原消息 (group=" + meta.peerUin + ", seq=" + meta.msgSeq + ")，放行撤回指令让官方画原生灰条");
-                    return false; // 本地无 -> 放行撤回指令
+                    return false;
                 }
             }
         }
@@ -432,10 +290,10 @@ public class AntiRevokeModule implements IPatchModule {
                 boolean exists = queryMsgExists(meta.peerUin, 0, meta.msgSeq);
                 if (exists) {
                     PLog.i(TAG, "漫游同步命中本地私聊消息 (peer=" + meta.peerUin + ", seq=" + meta.msgSeq + ")，拦截撤回指令保护原消息");
-                    return true; // 本地有 -> 丢弃撤回指令
+                    return true;
                 } else {
                     PLog.i(TAG, "漫游同步未命中本地私聊消息 (peer=" + meta.peerUin + ", seq=" + meta.msgSeq + ")，放行撤回指令让官方画原生灰条");
-                    return false; // 本地无 -> 放行撤回指令
+                    return false;
                 }
             }
         }
@@ -457,16 +315,14 @@ public class AntiRevokeModule implements IPatchModule {
                 if (wire == 2) {
                     int l = (int) reader.readVarint();
                     int subStart = reader.getPos();
-                    if (subStart + l <= data.length) {
+                    if (l >= 0 && subStart + l <= data.length) {
                         byte[] sub = Proto.subArray(data, subStart, l);
                         reader.skip(l);
 
-                        // 智能决策一：本地有原消息，丢弃此撤回节点，原消息保全！
                         if (shouldDropRecallNodeInSync(sub)) {
                             continue;
                         }
 
-                        // 智能决策二：是撤回节点但本地无原消息，完整写入同步流放行，让官方原生补灰条！
                         if (isDirectRecallNode(sub)) {
                             Proto.writeVarint(out, tag);
                             Proto.writeVarint(out, sub.length);
@@ -482,7 +338,9 @@ public class AntiRevokeModule implements IPatchModule {
                         } else {
                             out.write(data, start, reader.getPos() - start);
                         }
-                    } else break;
+                    } else {
+                        break;
+                    }
                 } else if (wire == 0) {
                     reader.readVarint();
                     out.write(data, start, reader.getPos() - start);
@@ -492,7 +350,9 @@ public class AntiRevokeModule implements IPatchModule {
                 } else if (wire == 5) {
                     reader.skip(4);
                     out.write(data, start, reader.getPos() - start);
-                } else break;
+                } else {
+                    break;
+                }
             }
             return out.toByteArray();
         } catch (Throwable t) {
@@ -503,7 +363,7 @@ public class AntiRevokeModule implements IPatchModule {
     /**
      * 解析撤回通知并实施拦截与灰条构建
      * @return true 代表确为他人发起的合法撤回，已成功拦截并生成灰条；
-     *         false 代表非撤回通知（如文件通知、公告）、本人主动撤回或解析不合法，放行原包。
+     *         false 代表非撤回通知、本人主动撤回或解析不合法，放行原包。
      */
     private static boolean processRecall(IQQNTWrapperSession session, byte[] buf, int revokeType) {
         if (session == null) return false;
@@ -521,53 +381,50 @@ public class AntiRevokeModule implements IPatchModule {
         if (opBytes == null || opBytes.length == 0) return false;
 
         String selfUid = Proto.getString(headerBytes, 6);
-        String myUin = MsgSender.getMyUin();
+        String myUin = AppContext.getCurrentUin();
 
         if (revokeType == 1) {
             byte[] opBytesSkip7 = (opBytes.length > 7) ? Proto.subArray(opBytes, 7) : opBytes;
 
-            // 1. 【核心防御一】：严格校验 NotifyMsgBody 的 opt_enum_type (Tag 1) 必须等于 7 (群撤回)
-            // 文件通知、群待办、公告等非撤回通知枚举绝对不等于 7，在此直接一票否决放行！
+            // 校验 NotifyMsgBody 的 opt_enum_type (Tag 1) 必须等于 7 (群撤回)
             long optEnumType = Proto.getVarint(opBytesSkip7, 1);
             if (optEnumType != ENUM_TYPE_GROUP_RECALL) {
                 return false;
             }
 
-            // 2. 【核心防御二】：必须包含真实的 opt_msg_recall 结构体 (Tag 11)
+            // 必须包含真实的 opt_msg_recall 结构体 (Tag 11)
             byte[] tag11 = Proto.getBytes(opBytesSkip7, 11);
             if (tag11 == null || tag11.length == 0) {
                 return false;
             }
 
-            // 3. 【核心防御三】：提取被撤回气泡的真实序号与发送人
-            // Tag 1: uint64_uin / operatorUid (操作撤回的人)
+            // Tag 1: operatorUid (操作撤回的人)
             String operatorUid = Proto.getString(tag11, 1);
 
-            // Tag 3: uint32_recalled_msg_list (MessageMeta)
+            // Tag 3: recalled_msg_list (MessageMeta)
             byte[] tag3 = Proto.getBytes(tag11, 3);
             if (tag3 == null || tag3.length == 0) {
                 return false;
             }
 
-            // MessageMeta: Tag 1 为 uint32_seq (被撤回消息序号), Tag 6 为 uint64_author_uin (原发送人)
+            // MessageMeta: Tag 1 为 seq (被撤回消息序号), Tag 6 为原发送人 UID
             long msgSeq = Proto.getVarint(tag3, 1);
             String senderUid = Proto.getString(tag3, 6);
             if (senderUid == null || senderUid.isEmpty()) {
                 senderUid = operatorUid;
             }
 
-            // 必须具备有效序列号与操作人 UID，否则绝不视为有效消息撤回
             if (msgSeq <= 0 || operatorUid.isEmpty()) {
                 return false;
             }
 
-            // 本人主动撤回放行，让官方逻辑正常处理
+            // 本人主动撤回放行
             if (selfUid != null && !selfUid.isEmpty() && selfUid.equals(operatorUid)) {
                 PLog.d(TAG, "本人主动执行群撤回操作，放行原包");
                 return false;
             }
 
-            // 提取群号 (优先从 NotifyMsgBody 的 Tag 4 取，备选从 header 取)
+            // 提取群号
             String groupCode = "";
             long g4 = Proto.getVarint(opBytesSkip7, 4);
             if (g4 > 10000L) {
@@ -586,7 +443,7 @@ public class AntiRevokeModule implements IPatchModule {
                 return false;
             }
 
-            // 防重判定：若同一个 seq 已经处理过，直接拦截阻断避免重复弹灰条
+            // 防重判定
             String cacheKey = "grp_" + groupCode + "_seq_" + msgSeq;
             if (!sRevokedCache.add(cacheKey)) {
                 return true;
@@ -627,7 +484,6 @@ public class AntiRevokeModule implements IPatchModule {
             }
             if (operatorUid.isEmpty()) operatorUid = Proto.getString(headerBytes, 2);
 
-            // 私聊撤回同样严格要求具备合法序列号与对方 UID
             if (msgSeq <= 0 || operatorUid.isEmpty()) {
                 return false;
             }
@@ -755,7 +611,9 @@ public class AntiRevokeModule implements IPatchModule {
         }
 
         void skip(int n) {
-            pos = Math.min(limit, pos + n);
+            if (n > 0) {
+                pos = Math.min(limit, pos + n);
+            }
         }
 
         long readVarint() {
@@ -800,6 +658,7 @@ public class AntiRevokeModule implements IPatchModule {
                     reader.skip(8);
                 } else if (wire == 2) {
                     byte[] sub = reader.readBytes();
+                    if (sub == null) break;
                     if (field == targetField) return sub;
                 } else if (wire == 5) {
                     reader.skip(4);
@@ -828,7 +687,9 @@ public class AntiRevokeModule implements IPatchModule {
                 } else if (wire == 1) {
                     reader.skip(8);
                 } else if (wire == 2) {
-                    reader.skip(reader.readBytes() != null ? 0 : 0);
+                    int len = (int) reader.readVarint();
+                    if (len < 0) break;
+                    reader.skip(len);
                 } else if (wire == 5) {
                     reader.skip(4);
                 } else {

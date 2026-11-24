@@ -75,6 +75,10 @@ public class PluginManager {
 
         reloadAll(context, null);
     }
+    
+    public static boolean hasActivePlugins() {
+        return !sLoadedPlugins.isEmpty();
+    }
 
     public static List<PluginItem> scanAllPlugins(Context context) {
         List<PluginItem> items = new ArrayList<>();

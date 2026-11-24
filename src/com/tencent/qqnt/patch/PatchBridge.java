@@ -82,6 +82,9 @@ public class PatchBridge {
         if (session != null) {
             com.tencent.qqnt.patch.plugin.MsgSender.setSession(session);
         }
+        try {
+            com.tencent.qqnt.patch.plugin.MsfPushEventHandler.onMsfPush(cmd, buf);
+        } catch (Throwable ignored) {}
         return ModuleManager.dispatchMsfPush(session, cmd, buf);
     }
 

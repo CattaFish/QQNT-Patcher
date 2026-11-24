@@ -67,6 +67,23 @@ public class AppContext {
             } catch (Throwable ignored) {}
         }
     }
+    
+    public static String getCurrentUin() {
+        try {
+            Object runtime = getAppRuntime();
+            if (runtime != null) {
+                try {
+                    Object uin = runtime.getClass().getMethod("getCurrentAccountUin").invoke(runtime);
+                    if (uin != null && !String.valueOf(uin).isEmpty()) {
+                        return String.valueOf(uin);
+                    }
+                } catch (NoSuchMethodException ignored) {}
+                Object uin2 = runtime.getClass().getMethod("getAccount").invoke(runtime);
+                if (uin2 != null) return String.valueOf(uin2);
+            }
+        } catch (Throwable ignored) {}
+        return "";
+    }
 
     public static Activity getCurrentActivity() {
         if (sCurrentActivity != null && sCurrentActivity.get() != null) {

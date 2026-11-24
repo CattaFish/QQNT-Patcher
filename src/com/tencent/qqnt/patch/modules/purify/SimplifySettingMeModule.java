@@ -166,7 +166,7 @@ public class SimplifySettingMeModule implements IPatchModule {
         final Set<String> pending = new LinkedHashSet<>(getHiddenIds());
         final boolean[] pendingHideRed = new boolean[]{ isHideRedDotConfigOn() };
 
-        SettingDialogBuilder builder = SettingDialogBuilder.build(activity, "侧边栏精简");
+        SettingDialogBuilder builder = SettingDialogBuilder.build(activity, "侧滑栏精简");
 
         builder.addSwitch("隐藏红点推广", null, pendingHideRed[0], checked -> pendingHideRed[0] = checked);
 

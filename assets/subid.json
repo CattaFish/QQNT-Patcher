@@ -6493,6 +6493,37 @@
     "date": "2026-10-30",
     "channel": "官方"
   },
+  "537404051": {
+    "summary": "QQ(Win-X86) 9.9.38.54985",
+    "platform": "Windows",
+    "version": "9.9.38.54985",
+    "arch": "X86",
+    "date": "2026-11-23",
+    "channel": "官方"
+  },
+  "537404052": {
+    "summary": "QQ(Win-X64) 9.9.38.54985",
+    "platform": "Windows",
+    "version": "9.9.38.54985",
+    "arch": "X64",
+    "date": "2026-11-23",
+    "channel": "官方"
+  },
+  "537404064": {
+    "summary": "QQ(Win-Arm) 9.9.38.54985",
+    "platform": "Windows",
+    "version": "9.9.38.54985",
+    "arch": "Arm",
+    "date": "2026-11-23",
+    "channel": "官方"
+  },
+  "537404076": {
+    "summary": "QQ(Mac) 7.0.4.54985",
+    "platform": "macOS",
+    "version": "7.0.4.54985",
+    "date": "2026-11-23",
+    "channel": "官方"
+  },
   "537406685": {
     "summary": "QQ 9.3.90.43520-Beta",
     "platform": "Android",
