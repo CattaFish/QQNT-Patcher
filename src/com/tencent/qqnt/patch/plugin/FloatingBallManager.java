@@ -3,10 +3,8 @@ package com.tencent.qqnt.patch.plugin;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
-import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -25,30 +23,17 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.tencent.qqnt.patch.AppContext;
-import com.tencent.qqnt.patch.ConfigManager;
-import com.tencent.qqnt.patch.PLog;
+import com.tencent.qqnt.patch.config.ConfigManager;
+import com.tencent.qqnt.patch.util.PatchAssetHelper;
 
-import java.io.InputStream;
-import java.lang.ref.WeakReference;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class FloatingBallManager {
 
-    private static final String TAG = "FloatingBall";
     private static volatile boolean sRegistered = false;
     private static final Handler sMainHandler = new Handler(Looper.getMainLooper());
-
-    private static WeakReference<Object> sCurrentAIODelegate = null;
-
-    public static volatile int sActiveChatType = 0;
-    public static volatile String sActivePeerUid = "";
-    public static volatile String sActivePeerUin = "";
-    public static volatile String sActivePeerName = "";
-    public static volatile boolean sInAIO = false;
 
     private static PopupWindow sPopupWindow = null;
     private static View sFloatBtn = null;
@@ -73,17 +58,9 @@ public class FloatingBallManager {
 
     public static void onAIODelegateShow(Object delegate) {
         if (delegate == null) return;
-        sCurrentAIODelegate = new WeakReference<>(delegate);
-        sInAIO = true;
-
-        refreshContactFromDelegate(delegate);
-
-        // 核心：分发 chatInterface 事件给所有正在运行的脚本
-        PluginManager.dispatchChatInterface(sActiveChatType, sActivePeerUin, sActivePeerName);
-
         sMainHandler.post(() -> {
             Activity act = resolveCurrentActivity();
-            if (act != null && sInAIO && isAIOActivity(act)) {
+            if (act != null && AioSessionTracker.isInAIO() && isAIOActivity(act)) {
                 hideView();
                 showView(act);
             }
@@ -91,94 +68,11 @@ public class FloatingBallManager {
     }
 
     public static void onAIODelegateHide() {
-        sInAIO = false;
-        sActiveChatType = 0;
-        sActivePeerUid = "";
-        sActivePeerUin = "";
-        sActivePeerName = "";
-        sCurrentAIODelegate = null;
         sMainHandler.post(FloatingBallManager::hideView);
     }
 
-    public static void onAIOMsgItemBind(Object msgRecordObj) {}
-
-    public static void refreshContactFromDelegate(Object delegate) {
-        if (delegate == null) return;
-        try {
-            Class<?> clz = delegate.getClass();
-            int chatType = 0;
-            long peerUin = 0L;
-            String peerId = "";
-            String chatName = "";
-
-            try {
-                Field fD = clz.getDeclaredField("D");
-                fD.setAccessible(true);
-                peerUin = fD.getLong(delegate);
-
-                Field fF = clz.getDeclaredField("F");
-                fF.setAccessible(true);
-                chatType = fF.getInt(delegate);
-
-                Field fC = clz.getDeclaredField("C");
-                fC.setAccessible(true);
-                Object cVal = fC.get(delegate);
-                if (cVal != null) peerId = cVal.toString();
-
-                Field fE = clz.getDeclaredField("E");
-                fE.setAccessible(true);
-                Object eVal = fE.get(delegate);
-                if (eVal != null) chatName = eVal.toString();
-            } catch (Throwable ignored) {}
-
-            if (peerUin == 0L || chatType == 0) {
-                try {
-                    Field fContainer = clz.getDeclaredField("d");
-                    fContainer.setAccessible(true);
-                    Object container = fContainer.get(delegate);
-                    if (container != null) {
-                        Method mGetIntent = container.getClass().getMethod("getIntent");
-                        Intent intent = (Intent) mGetIntent.invoke(container);
-                        if (intent != null) {
-                            long iUin = intent.getLongExtra("key_peerUin", 0L);
-                            int iType = intent.getIntExtra("key_chat_type", 0);
-                            String iId = intent.getStringExtra("key_peerId");
-                            String iName = intent.getStringExtra("key_chat_name");
-
-                            if (iUin > 0L) peerUin = iUin;
-                            if (iType != 0) chatType = iType;
-                            if (iId != null && !iId.isEmpty()) peerId = iId;
-                            if (iName != null && !iName.isEmpty()) chatName = iName;
-                        }
-                    }
-                } catch (Throwable ignored) {}
-            }
-
-            if (chatType != 0) {
-                sActiveChatType = chatType;
-            } else {
-                sActiveChatType = (peerUin > 0L && String.valueOf(peerUin).length() >= 6) ? 2 : 1;
-            }
-
-            sActivePeerUid = peerId;
-            sActivePeerName = chatName;
-
-            if (peerUin > 0L) {
-                sActivePeerUin = String.valueOf(peerUin);
-            } else if (!peerId.isEmpty()) {
-                if (sActiveChatType == 1 && peerId.startsWith("u_")) {
-                    sActivePeerUin = MsgSender.getUinFromUid(peerId);
-                } else {
-                    sActivePeerUin = peerId;
-                }
-            }
-        } catch (Throwable t) {
-            PLog.e(TAG, "解析当前界面会话参数异常", t);
-        }
-    }
-
     private static void showView(Activity activity) {
-        if (activity == null || !ConfigManager.isFloatingBallEnabled() || !sInAIO) return;
+        if (activity == null || !ConfigManager.isFloatingBallEnabled() || !AioSessionTracker.isInAIO()) return;
         if (sPopupWindow != null && sPopupWindow.isShowing()) return;
 
         try {
@@ -191,7 +85,7 @@ public class FloatingBallManager {
             sLastY = sp.getInt("float_y", (int) (screenH * 0.62f));
 
             ImageView imageView = new ImageView(activity);
-            Bitmap bmp = com.tencent.qqnt.patch.PatchAssetHelper.getBitmap(activity, "zzz_icon.png");
+            Bitmap bmp = PatchAssetHelper.getBitmap(activity, "zzz_icon.png");
             if (bmp != null) imageView.setImageBitmap(bmp);
 
             imageView.setLayoutParams(new ViewGroup.LayoutParams(size, size));
@@ -202,12 +96,12 @@ public class FloatingBallManager {
             sPopupWindow.setFocusable(false);
             sPopupWindow.setElevation(0f);
 
-            setupTouchListener(activity, sp, size);
+            setupTouchListener(activity, sp);
 
             View decor = activity.getWindow().getDecorView();
             decor.post(() -> {
                 try {
-                    if (sInAIO && sPopupWindow != null && !activity.isFinishing() && !activity.isDestroyed()) {
+                    if (AioSessionTracker.isInAIO() && sPopupWindow != null && !activity.isFinishing() && !activity.isDestroyed()) {
                         sPopupWindow.showAtLocation(decor, Gravity.NO_GRAVITY, sLastX, sLastY);
                     }
                 } catch (Throwable ignored) {}
@@ -225,7 +119,7 @@ public class FloatingBallManager {
         } catch (Throwable ignored) {}
     }
 
-    private static void setupTouchListener(Activity activity, SharedPreferences sp, int size) {
+    private static void setupTouchListener(Activity activity, SharedPreferences sp) {
         if (sFloatBtn == null) return;
         sFloatBtn.setOnTouchListener(new View.OnTouchListener() {
             private float touchStartX, touchStartY;
@@ -271,7 +165,7 @@ public class FloatingBallManager {
         Activity act = resolveCurrentActivity();
         if (act != null) {
             act.runOnUiThread(() -> {
-                if (ConfigManager.isFloatingBallEnabled() && sInAIO && isAIOActivity(act)) {
+                if (ConfigManager.isFloatingBallEnabled() && AioSessionTracker.isInAIO() && isAIOActivity(act)) {
                     showView(act);
                 } else {
                     hideView();
@@ -282,9 +176,7 @@ public class FloatingBallManager {
 
     private static void showActionMenu(Activity activity) {
         if (activity == null) return;
-        if (sCurrentAIODelegate != null && sCurrentAIODelegate.get() != null) {
-            refreshContactFromDelegate(sCurrentAIODelegate.get());
-        }
+        AioSessionTracker.refreshFromCurrentDelegate();
 
         List<PluginManager.PluginItem> plugins = PluginManager.scanAllPlugins(activity);
         List<ActionItem> actions = new ArrayList<>();
@@ -346,8 +238,9 @@ public class FloatingBallManager {
 
                 btn.setOnClickListener(v -> {
                     dialog.dismiss();
-                    int cType = sActiveChatType != 0 ? sActiveChatType : 2;
-                    String peerUin = sActivePeerUin;
+                    int cType = AioSessionTracker.getActiveChatType();
+                    if (cType == 0) cType = 2;
+                    String peerUin = AioSessionTracker.getActivePeerUin();
                     PluginManager.invokePluginMenu(action.pluginId, action.callback, cType, peerUin, action.actionName);
                 });
                 root.addView(btn, lp);

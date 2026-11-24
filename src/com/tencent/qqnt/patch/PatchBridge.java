@@ -142,10 +142,17 @@ public class PatchBridge {
     }
 
     public static void handleAIOShow(Object delegate) {
+        ConfigManager.triggerColdStartUpdateCheck();
+        try {
+            com.tencent.qqnt.patch.plugin.AioSessionTracker.onAIOShow(delegate);
+        } catch (Throwable ignored) {}
         ModuleManager.dispatchAIOShow(delegate);
     }
 
     public static void handleAIOHide() {
+        try {
+            com.tencent.qqnt.patch.plugin.AioSessionTracker.onAIOHide();
+        } catch (Throwable ignored) {}
         ModuleManager.dispatchAIOHide();
     }
 

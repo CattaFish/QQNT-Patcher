@@ -1,7 +1,6 @@
 package com.tencent.qqnt.patch.modules.chat;
 
 import android.content.Context;
-import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
 import com.tencent.qqnt.patch.IPatchModule;
 import com.tencent.qqnt.patch.plugin.FloatingBallManager;
 
@@ -12,11 +11,6 @@ public class FloatingBallModule implements IPatchModule {
     @Override
     public void onInit(Context context) {
         FloatingBallManager.init(context);
-    }
-
-    @Override
-    public void onAIOMsgItem(MsgRecord record) {
-        FloatingBallManager.onAIOMsgItemBind(record);
     }
 
     @Override
