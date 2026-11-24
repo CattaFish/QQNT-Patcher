@@ -12,6 +12,7 @@ import android.view.View;
 
 import com.tencent.qqnt.patch.IPatchModule;
 import com.tencent.qqnt.patch.ModuleManager;
+import com.tencent.qqnt.patch.PatchBootstrap;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.plugin.PluginManager;
 import com.tencent.qqnt.patch.util.ToastHelper;
@@ -78,7 +79,7 @@ public class ZzzSettingFragment {
 
     public static boolean onHijackViewCreated(Object fragment, View view, Bundle bundle) {
         try {
-            ConfigManager.triggerColdStartUpdateCheck();
+            PatchBootstrap.ensureStarted();
 
             Method getActivityMethod = fragment.getClass().getMethod("getActivity");
             Activity activity = (Activity) getActivityMethod.invoke(fragment);

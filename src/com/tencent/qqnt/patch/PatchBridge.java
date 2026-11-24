@@ -27,13 +27,6 @@ public class PatchBridge {
         return ConfigManager.isModuleEnabled(featureId, false);
     }
 
-    public static boolean isRecordsReplyCheckEnabled() { return isEnabled("records_reply_check"); }
-    public static boolean isUnlockSwipeReplyEnabled() { return isEnabled("unlock_swipe_reply"); }
-    public static boolean isDisableUpgradeEnabled() { return isEnabled("disable_upgrade"); }
-    public static boolean isTabletModeEnabled() { return isEnabled("tablet"); }
-    public static boolean isDisableSplitScreenLimit() { return isEnabled("multi_window"); }
-    public static boolean isRemoveReplyAtEnabled() { return isEnabled("remove_reply_at"); }
-
     public static boolean isSwipeRepeatEnabled() {
         return DoubleTapRepeatModule.isSwipeModeActive();
     }
@@ -51,7 +44,7 @@ public class PatchBridge {
     }
 
     public static boolean shouldDropTroopToDo() {
-        return ConfigManager.isModuleEnabled("troop_todo", false);
+        return isEnabled("troop_todo");
     }
 
     public static void handleDispatchRespMsg(Object msfMessagePair) {
@@ -78,7 +71,7 @@ public class PatchBridge {
     }
 
     public static byte[] handleMsfPush(IQQNTWrapperSession session, String cmd, byte[] buf) {
-        ConfigManager.triggerColdStartUpdateCheck();
+        PatchBootstrap.ensureStarted();
         if (session != null) {
             com.tencent.qqnt.patch.plugin.MsgSender.setSession(session);
         }
@@ -117,7 +110,7 @@ public class PatchBridge {
         if (elements == null || elements.isEmpty()) return;
 
         // 确保冷启动环境就绪（在未注入 MSF 推送总线时提供兜底初始化）
-        ConfigManager.triggerColdStartUpdateCheck();
+        PatchBootstrap.ensureStarted();
         ModuleManager.ensureInitialized();
 
         try {
@@ -142,7 +135,7 @@ public class PatchBridge {
     }
 
     public static void handleAIOShow(Object delegate) {
-        ConfigManager.triggerColdStartUpdateCheck();
+        PatchBootstrap.ensureStarted();
         try {
             com.tencent.qqnt.patch.plugin.AioSessionTracker.onAIOShow(delegate);
         } catch (Throwable ignored) {}

@@ -83,27 +83,42 @@ public class ModuleManager {
     }
 
     private static void registerFallbackBuiltinModules() {
+        // chat
         register(new com.tencent.qqnt.patch.modules.chat.AntiRevokeModule());
-        register(new com.tencent.qqnt.patch.modules.chat.FlashPicModule());
-        register(new com.tencent.qqnt.patch.modules.chat.MeowModule());
-        register(new com.tencent.qqnt.patch.modules.chat.FloatingBallModule());
-        register(new com.tencent.qqnt.patch.modules.purify.TabletModeModule());
-        register(new com.tencent.qqnt.patch.modules.purify.AtAllNotifyBlockModule());
-        register(new com.tencent.qqnt.patch.modules.purify.TroopTodoModule());
         register(new com.tencent.qqnt.patch.modules.chat.AutoRemarkApkModule());
-        register(new com.tencent.qqnt.patch.modules.chat.ShowDownloadTimesModule());
-        register(new com.tencent.qqnt.patch.modules.chat.ModifyPicSummaryModule());
-        register(new com.tencent.qqnt.patch.modules.purify.DisableSplitScreenLimitModule());
-        register(new com.tencent.qqnt.patch.modules.chat.TgStickerModule());
-        register(new com.tencent.qqnt.patch.modules.purify.BrowserMitigationModule());
-        register(new com.tencent.qqnt.patch.modules.purify.DisableUpgradeModule());
-        register(new com.tencent.qqnt.patch.modules.chat.QQVersionModule());
         register(new com.tencent.qqnt.patch.modules.chat.DoubleTapRepeatModule());
-        register(new com.tencent.qqnt.patch.modules.chat.UnlockSwipeReplyModule());
+        register(new com.tencent.qqnt.patch.modules.chat.FlashPicModule());
+        register(new com.tencent.qqnt.patch.modules.chat.FloatingBallModule());
+        register(new com.tencent.qqnt.patch.modules.chat.ForwardPttModule());
+        register(new com.tencent.qqnt.patch.modules.chat.MeowModule());
+        register(new com.tencent.qqnt.patch.modules.chat.MixedEmoAndTextModule());
+        register(new com.tencent.qqnt.patch.modules.chat.ModifyPicSummaryModule());
+        register(new com.tencent.qqnt.patch.modules.chat.QQVersionModule());
         register(new com.tencent.qqnt.patch.modules.chat.RecordsReplyCheckModule());
         register(new com.tencent.qqnt.patch.modules.chat.RemoveReplyAtModule());
-        register(new com.tencent.qqnt.patch.modules.chat.ForwardPttModule());
-        register(new com.tencent.qqnt.patch.modules.chat.MixedEmoAndTextModule());
+        register(new com.tencent.qqnt.patch.modules.chat.ShowDownloadTimesModule());
+        register(new com.tencent.qqnt.patch.modules.chat.TgStickerModule());
+        register(new com.tencent.qqnt.patch.modules.chat.UnlockSwipeReplyModule());
+
+        // purify
+        register(new com.tencent.qqnt.patch.modules.purify.AtAllNotifyBlockModule());
+        register(new com.tencent.qqnt.patch.modules.purify.BlockQQShowModule());
+        register(new com.tencent.qqnt.patch.modules.purify.BlockedTroopModule());
+        register(new com.tencent.qqnt.patch.modules.purify.BrowserMitigationModule());
+        register(new com.tencent.qqnt.patch.modules.purify.DisableSplitScreenLimitModule());
+        register(new com.tencent.qqnt.patch.modules.purify.DisableUpgradeModule());
+        register(new com.tencent.qqnt.patch.modules.purify.MainPageAdBlockModule());
+        register(new com.tencent.qqnt.patch.modules.purify.QZoneAdBlockModule());
+        register(new com.tencent.qqnt.patch.modules.purify.RemoveQrLoginAuthModule());
+        register(new com.tencent.qqnt.patch.modules.purify.SimplifySettingMeModule());
+        register(new com.tencent.qqnt.patch.modules.purify.TabletModeModule());
+        register(new com.tencent.qqnt.patch.modules.purify.TroopTodoModule());
+
+        // misc
+        register(new com.tencent.qqnt.patch.modules.misc.AccountBackupModule());
+        register(new com.tencent.qqnt.patch.modules.misc.LoginSettingModule());
+        register(new com.tencent.qqnt.patch.modules.misc.OneClickLikeModule());
+        register(new com.tencent.qqnt.patch.modules.misc.UnlockLikeLimitModule());
     }
 
     public static void initAll(Context context) {

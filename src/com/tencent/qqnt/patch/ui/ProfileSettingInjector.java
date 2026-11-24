@@ -24,7 +24,7 @@ import com.tencent.qqnt.patch.modules.chat.QQVersionModule;
 import com.tencent.qqnt.patch.modules.chat.QQVersionModule.UserDeviceRecord;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.qqnt.patch.util.ToastHelper;
-import me.yxp.qfun.utils.ui.ThemeHelper;
+import com.tencent.qqnt.patch.util.ThemeHelper;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -177,7 +177,7 @@ public class ProfileSettingInjector {
      * 主详情弹窗：展示全部版本信息，捕获时间位于版本属性之后、历史捕获正上方
      */
     private static void showDetailDialog(Activity activity, String uin, long subId) {
-        boolean isNight = ThemeHelper.INSTANCE.isNightMode();
+        boolean isNight = ThemeHelper.isNightMode();
 
         int bgColor = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
         int textColor = isNight ? Color.WHITE : Color.parseColor("#1D1D1F");
@@ -410,7 +410,7 @@ public class ProfileSettingInjector {
      * 独立子弹窗：历史捕获（无蓝色描边，无 Emoji，删除历史编号）
      */
     private static void showHistoryDialog(Activity activity, String uin) {
-        boolean isNight = ThemeHelper.INSTANCE.isNightMode();
+        boolean isNight = ThemeHelper.isNightMode();
 
         int bgColor = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
         int textColor = isNight ? Color.WHITE : Color.parseColor("#1D1D1F");

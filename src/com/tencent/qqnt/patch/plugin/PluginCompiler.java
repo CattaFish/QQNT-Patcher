@@ -4,7 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.ContextWrapper;
 import com.tencent.qqnt.kernelpublic.nativeinterface.Contact;
-import com.tencent.qqnt.patch.PLog;
+import com.tencent.qqnt.patch.util.PLog;
 
 import bsh.BshMethod;
 import bsh.Interpreter;

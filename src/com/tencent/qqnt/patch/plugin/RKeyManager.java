@@ -1,6 +1,6 @@
 package com.tencent.qqnt.patch.plugin;
 
-import com.tencent.qqnt.patch.PLog;
+import com.tencent.qqnt.patch.util.PLog;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;

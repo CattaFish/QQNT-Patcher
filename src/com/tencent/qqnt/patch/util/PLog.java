@@ -26,7 +26,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.tencent.qqnt.patch.config.ConfigManager;
-import me.yxp.qfun.utils.ui.ThemeHelper;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -224,7 +223,7 @@ public class PLog {
 
         boolean isNight = false;
         try {
-            isNight = ThemeHelper.INSTANCE.isNightMode();
+            isNight = ThemeHelper.isNightMode();
         } catch (Throwable ignored) {}
 
         int dialogBgColor     = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
@@ -509,7 +508,7 @@ public class PLog {
     private static void updateCapsule(TextView tv, boolean selected) {
         boolean isNight = false;
         try {
-            isNight = ThemeHelper.INSTANCE.isNightMode();
+            isNight = ThemeHelper.isNightMode();
         } catch (Throwable ignored) {}
 
         GradientDrawable gd = new GradientDrawable();

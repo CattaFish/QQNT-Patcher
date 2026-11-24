@@ -4,7 +4,7 @@ import android.view.View;
 import com.tencent.mobileqq.aio.msg.AIOMsgItem;
 import com.tencent.qqnt.aio.menu.ui.f;
 import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
-import com.tencent.qqnt.patch.PLog;
+import com.tencent.qqnt.patch.util.PLog;
 import me.yxp.qfun.plugin.bean.MsgData;
 
 import java.lang.reflect.Field;

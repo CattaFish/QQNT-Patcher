@@ -2,8 +2,8 @@ package com.tencent.qqnt.patch.plugin;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import com.tencent.qqnt.patch.ConfigManager;
-import com.tencent.qqnt.patch.PLog;
+import com.tencent.qqnt.patch.config.ConfigManager;
+import com.tencent.qqnt.patch.util.PLog;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -28,7 +28,7 @@ public class PresetPluginInstaller {
 
         // 1. 检查 assets/preset_plugins.zip 是否存在
         boolean hasAsset = false;
-        try (InputStream is = com.tencent.qqnt.patch.PatchAssetHelper.openStream(context, ASSET_NAME)) {
+        try (InputStream is = com.tencent.qqnt.patch.util.PatchAssetHelper.openStream(context, ASSET_NAME)) {
             if (is != null) hasAsset = true;
         } catch (Throwable ignored) {
             hasAsset = false;
@@ -65,7 +65,7 @@ public class PresetPluginInstaller {
 
         try {
             // A. 第一层解压：释放 assets/preset_plugins.zip
-            try (InputStream is = com.tencent.qqnt.patch.PatchAssetHelper.openStream(context, ASSET_NAME)) {
+            try (InputStream is = com.tencent.qqnt.patch.util.PatchAssetHelper.openStream(context, ASSET_NAME)) {
                 unzip(is, tempExtractDir);
             }
 
@@ -113,7 +113,7 @@ public class PresetPluginInstaller {
     }
 
     private static long calculateAssetCrc(Context context, String assetName) {
-        try (InputStream is = com.tencent.qqnt.patch.PatchAssetHelper.openStream(context, assetName)) {
+        try (InputStream is = com.tencent.qqnt.patch.util.PatchAssetHelper.openStream(context, assetName)) {
             CRC32 crc = new CRC32();
             byte[] buf = new byte[8192];
             int len;

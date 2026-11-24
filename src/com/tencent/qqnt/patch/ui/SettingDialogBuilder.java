@@ -17,7 +17,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import me.yxp.qfun.utils.ui.ThemeHelper;
+import com.tencent.qqnt.patch.util.ThemeHelper;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -88,7 +88,7 @@ public class SettingDialogBuilder {
     public SettingDialogBuilder(Activity activity, CharSequence title) {
         this.activity = activity;
         this.titleText = title;
-        this.isNight = ThemeHelper.INSTANCE.isNightMode();
+        this.isNight = ThemeHelper.isNightMode();
 
         this.bgColor      = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
         this.textColor    = isNight ? Color.WHITE : Color.parseColor("#1D1D1F");

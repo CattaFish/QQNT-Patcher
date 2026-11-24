@@ -10,7 +10,7 @@ import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
 import com.tencent.qqnt.kernel.nativeinterface.TextElement;
 import com.tencent.qqnt.patch.ConfigManager;
-import com.tencent.qqnt.patch.PLog;
+import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.qqnt.patch.plugin.bean.MsgData;
 
 import java.io.ByteArrayOutputStream;
@@ -321,7 +321,7 @@ public class PluginManager {
                 dexBytes = readFileToByteArray(customDex);
             }
             if (dexBytes == null || dexBytes.length == 0) {
-                try (InputStream is = com.tencent.qqnt.patch.PatchAssetHelper.openStream(context, "bsh.dex");
+                try (InputStream is = com.tencent.qqnt.patch.util.PatchAssetHelper.openStream(context, "bsh.dex");
                      ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
                     byte[] buf = new byte[8192];
                     int n;

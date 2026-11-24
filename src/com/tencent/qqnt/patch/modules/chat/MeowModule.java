@@ -24,7 +24,7 @@ import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.ui.NativeSettingHelper;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.qqnt.patch.util.ToastHelper;
-import me.yxp.qfun.utils.ui.ThemeHelper;
+import com.tencent.qqnt.patch.util.ThemeHelper;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -261,7 +261,7 @@ public class MeowModule implements IPatchModule {
         if (activity == null || activity.isFinishing()) return;
         ensureConfigLoaded();
 
-        boolean isNight = ThemeHelper.INSTANCE.isNightMode();
+        boolean isNight = ThemeHelper.isNightMode();
 
         int bgColor      = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
         int textColor    = isNight ? Color.WHITE : Color.parseColor("#1D1D1F");

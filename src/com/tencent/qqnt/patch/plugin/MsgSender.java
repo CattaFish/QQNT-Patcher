@@ -58,18 +58,7 @@ public class MsgSender {
     }
 
     public static String getMyUin() {
-        try {
-            Class<?> mobileQQClz = Class.forName("mqq.app.MobileQQ");
-            Object mobileQQ = mobileQQClz.getMethod("getMobileQQ").invoke(null);
-            if (mobileQQ != null) {
-                Object runtime = mobileQQ.getClass().getMethod("peekAppRuntime").invoke(mobileQQ);
-                if (runtime != null) {
-                    String uin = (String) runtime.getClass().getMethod("getCurrentAccountUin").invoke(runtime);
-                    if (uin != null && !uin.isEmpty()) return uin;
-                }
-            }
-        } catch (Throwable ignored) {}
-        return "";
+        return com.tencent.qqnt.patch.AppContext.getCurrentUin();
     }
 
     public static void sendMsg(String peerUin, String content, int chatType) {

@@ -8,8 +8,8 @@ import android.util.Log;
 import android.widget.Toast;
 
 import com.tencent.qqnt.kernelpublic.nativeinterface.Contact;
-import com.tencent.qqnt.patch.PLog;
-import com.tencent.qqnt.patch.ToastHelper;
+import com.tencent.qqnt.patch.util.PLog;
+import com.tencent.qqnt.patch.util.ToastHelper;
 import me.yxp.qfun.plugin.bean.ForbidInfo;
 import me.yxp.qfun.plugin.bean.FriendInfo;
 import me.yxp.qfun.plugin.bean.GroupInfo;

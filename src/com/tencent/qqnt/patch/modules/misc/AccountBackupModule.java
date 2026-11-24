@@ -24,7 +24,6 @@ import android.widget.TextView;
 import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.IPatchModule;
 import com.tencent.qqnt.patch.config.ConfigManager;
-import com.tencent.qqnt.patch.plugin.MsgSender;
 import com.tencent.qqnt.patch.ui.NativeSettingHelper;
 import com.tencent.qqnt.patch.ui.SettingDialogBuilder;
 import com.tencent.qqnt.patch.util.PLog;
@@ -968,7 +967,7 @@ public class AccountBackupModule implements IPatchModule {
 
     private static String resolveCurrentUin(Context context) {
         try {
-            String uin = MsgSender.getMyUin();
+            String uin = AppContext.getCurrentUin();
             if (uin != null && !uin.trim().isEmpty() && !"0".equals(uin.trim())) {
                 return uin.trim();
             }

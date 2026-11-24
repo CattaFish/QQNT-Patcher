@@ -25,11 +25,12 @@ import android.widget.TextView;
 
 import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.IPatchModule;
+import com.tencent.qqnt.patch.PatchBootstrap;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.config.FeatureConfig;
 import com.tencent.qqnt.patch.ui.ZzzSettingFragment;
 import com.tencent.qqnt.patch.util.PLog;
-import me.yxp.qfun.utils.ui.ThemeHelper;
+import com.tencent.qqnt.patch.util.ThemeHelper;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -191,7 +192,7 @@ public class LoginSettingModule implements IPatchModule {
 
         View.OnClickListener clickListener = v -> {
             try {
-                ConfigManager.triggerColdStartUpdateCheck();
+                PatchBootstrap.ensureStarted();
                 Activity act = resolveActivity(hostView.getContext());
                 Context targetCtx = (act != null) ? act : hostView.getContext();
                 ZzzSettingFragment.startCore(targetCtx);
@@ -359,7 +360,7 @@ public class LoginSettingModule implements IPatchModule {
 
     private static boolean isNightModeSafe() {
         try {
-            return ThemeHelper.INSTANCE.isNightMode();
+            return ThemeHelper.isNightMode();
         } catch (Throwable ignored) {
             return false;
         }

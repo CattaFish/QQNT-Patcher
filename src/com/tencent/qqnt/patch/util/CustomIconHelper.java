@@ -37,7 +37,6 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.tencent.qqnt.patch.ui.SettingDialogBuilder;
-import me.yxp.qfun.utils.ui.ThemeHelper;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -250,7 +249,7 @@ public class CustomIconHelper {
 
         boolean isNight = false;
         try {
-            isNight = ThemeHelper.INSTANCE.isNightMode();
+            isNight = ThemeHelper.isNightMode();
         } catch (Throwable ignored) {}
 
         int bgColor      = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;

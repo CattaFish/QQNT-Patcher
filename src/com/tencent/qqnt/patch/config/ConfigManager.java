@@ -3,11 +3,8 @@ package com.tencent.qqnt.patch.config;
 import android.content.Context;
 import android.content.SharedPreferences;
 import com.tencent.qqnt.patch.AppContext;
-import com.tencent.qqnt.patch.ModuleManager;
-import com.tencent.qqnt.patch.plugin.PluginManager;
 import com.tencent.qqnt.patch.util.PLog;
 
-import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,7 +29,6 @@ public class ConfigManager {
 
     private static final Map<String, Boolean> sFlagCache = new ConcurrentHashMap<>();
     private static volatile boolean sCacheLoaded = false;
-    private static boolean sColdStartChecked = false;
 
     private static final Map<String, String> ID_ALIASES = new HashMap<>();
     static {
@@ -60,7 +56,7 @@ public class ConfigManager {
         }
     }
 
-    private static void ensureCacheLoaded() {
+    public static void ensureCacheLoaded() {
         if (sCacheLoaded) return;
         synchronized (sFlagCache) {
             if (sCacheLoaded) return;
@@ -77,64 +73,6 @@ public class ConfigManager {
                 sCacheLoaded = true;
             }
         }
-    }
-
-    public static synchronized void triggerColdStartUpdateCheck() {
-        if (sColdStartChecked) return;
-        sColdStartChecked = true;
-
-        ensureCacheLoaded();
-        PLog.i("Core", "QQNT-Patcher " + VERSION + " 引擎冷启动初始化完成");
-
-        UpdateHelper.checkUpdateSilent();
-
-        try {
-            Context ctx = AppContext.get();
-            if (ctx != null) {
-                AppContext.init(ctx);
-                FeatureConfig.ensureLoaded();
-                
-                if (FeatureConfig.has("custom_icon")) {
-                    com.tencent.qqnt.patch.util.CustomIconHelper.ensureValidLauncherAlias(ctx);
-                }
-                
-                ModuleManager.initAll(ctx);
-                
-                if (FeatureConfig.has("script")) {
-                    PluginManager.init(ctx);
-                } else {
-                    PLog.i("Core", "构建清单未包含 [script]，已跳过动态脚本引擎载入");
-                }
-
-                cleanLegacyTmpFilesAsync(ctx);
-            }
-        } catch (Throwable t) {
-            PLog.e("Core", "启动引擎异常", t);
-        }
-    }
-
-    private static void cleanLegacyTmpFilesAsync(Context context) {
-        new Thread(() -> {
-            try {
-                Thread.sleep(15000);
-                File filesDir = context.getFilesDir();
-                File dataDir = filesDir != null ? filesDir.getParentFile() : null;
-                if (dataDir != null && dataDir.exists()) {
-                    File[] files = dataDir.listFiles();
-                    if (files != null) {
-                        long now = System.currentTimeMillis();
-                        for (File f : files) {
-                            if (f.isFile() && f.getName().contains(".apk.tmp.") && (now - f.lastModified() > 30000)) {
-                                long mb = f.length() / (1024 * 1024);
-                                if (f.delete()) {
-                                    PLog.i("Core", "已自动清理历史残留临时文件: " + f.getName() + " (" + mb + "MB)");
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (Throwable ignored) {}
-        }).start();
     }
 
     public static boolean isModuleEnabled(String moduleId, boolean defValue) {
