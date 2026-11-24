@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """FastDexParser: DEX 字节码流式解析引擎与语义扫描器 (高性能优化版)"""
+import re
 import struct
 
 class FastDexParser:
@@ -298,3 +299,117 @@ class FastDexParser:
                 if found: break
             if found: matched_classes.append((cls_name, i))
         return matched_classes
+
+    def find_method_info_referencing_string(
+        self,
+        class_idx: int,
+        target_string: str,
+        required_proto: str = None,
+        skip_static: bool = False,
+    ):
+        """
+        扫描类中严格引用指定字符串的方法。
+        命中返回 (m_name, proto_desc, code_off, access_flags)，未命中返回 None。
+        """
+        if not self.valid:
+            return None
+        s_id = self.find_string_id(target_string)
+        if s_id == -1:
+            return None
+        s_16 = struct.pack('<H', s_id) if s_id <= 65535 else None
+        s_32 = struct.pack('<I', s_id)
+
+        for m_name, proto_desc, _, code_off, access_flags in self.get_class_methods(class_idx):
+            if skip_static and (access_flags & 0x0008):
+                continue
+            if required_proto and proto_desc != required_proto:
+                continue
+            if code_off == 0 or code_off + 16 >= len(self.data):
+                continue
+            insns_size = struct.unpack_from('<I', self.data, code_off + 12)[0]
+            insns = self.data[code_off + 16 : code_off + 16 + insns_size * 2]
+
+            if (s_16 and s_16 not in insns) and (s_32 not in insns):
+                continue
+
+            k = 0
+            len_insns = len(insns)
+            while k < len_insns - 1:
+                op = insns[k]
+                if op == 0x1A and k + 4 <= len_insns:  # const-string
+                    if s_16 and insns[k + 2 : k + 4] == s_16:
+                        return (m_name, proto_desc, code_off, access_flags)
+                    k += 4
+                    continue
+                elif op == 0x1B and k + 6 <= len_insns:  # const-string/jumbo
+                    if insns[k + 2 : k + 6] == s_32:
+                        return (m_name, proto_desc, code_off, access_flags)
+                    k += 6
+                    continue
+                k += 2
+        return None
+
+    def find_method_referencing_string(
+        self,
+        class_idx: int,
+        target_string: str,
+        required_proto: str = None,
+        skip_static: bool = False,
+    ):
+        """扫描类中严格引用指定字符串的方法，命中返回 'name(args)ret'，否则返回 None。"""
+        info = self.find_method_info_referencing_string(
+            class_idx,
+            target_string,
+            required_proto=required_proto,
+            skip_static=skip_static,
+        )
+        return f"{info[0]}{info[1]}" if info else None
+
+
+def parse_semver(ver_str):
+    """解析语义化版本号 (major, minor, patch)，失败返回 None。"""
+    if not ver_str:
+        return None
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", ver_str)
+    if m:
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    return None
+
+
+def locate_class_and_method(
+    dex_data_dict,
+    default_class: str,
+    marker_str: str,
+    expected_proto: str = None,
+    fallback_scan: bool = True,
+):
+    """优先按默认类名嗅探，可选回退全 DEX 字符串反查。返回 (cls_name, m_name, proto_desc)。"""
+    marker_bytes = marker_str.encode("utf-8")
+
+    for _, dex_bytes in dex_data_dict.items():
+        if marker_bytes not in dex_bytes:
+            continue
+        p = FastDexParser(dex_bytes)
+        if not p.valid:
+            continue
+
+        c_idx = p.find_class_index(default_class)
+        if c_idx != -1:
+            info = p.find_method_info_referencing_string(
+                c_idx, marker_str, required_proto=expected_proto
+            )
+            if info:
+                return default_class, info[0], info[1]
+
+        if fallback_scan:
+            candidates = p.find_classes_referencing_string_strictly(marker_str)
+            for cls_name, cls_idx in candidates:
+                if "$" in cls_name:
+                    continue
+                info = p.find_method_info_referencing_string(
+                    cls_idx, marker_str, required_proto=expected_proto
+                )
+                if info:
+                    return cls_name, info[0], info[1]
+
+    return None, None, None

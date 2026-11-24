@@ -1,17 +1,17 @@
 package com.tencent.qqnt.patch.plugin;
 
 import android.content.Context;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 
 import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
 import com.tencent.qqnt.kernel.nativeinterface.MsgRecord;
 import com.tencent.qqnt.kernel.nativeinterface.TextElement;
-import com.tencent.qqnt.patch.ConfigManager;
-import com.tencent.qqnt.patch.util.PLog;
+import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.plugin.bean.MsgData;
+import com.tencent.qqnt.patch.util.PLog;
+import com.tencent.qqnt.patch.util.PatchAssetHelper;
+import com.tencent.qqnt.patch.util.StorageHelper;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -19,7 +19,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.lang.reflect.Constructor;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -32,14 +31,26 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 public class PluginManager {
 
-    private static final String TAG = "QQ_DEBUG";
     private static volatile boolean sInitialized = false;
+    private static final Object sLifecycleLock = new Object();
     private static final List<PluginCompiler> sLoadedPlugins = new CopyOnWriteArrayList<>();
-    private static final ExecutorService sWorkerPool = Executors.newCachedThreadPool();
+
+    private static final ExecutorService sWorkerPool = new ThreadPoolExecutor(
+            1, 4, 60L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>()
+    );
+    private static final ExecutorService sMsgPool = new ThreadPoolExecutor(
+            1, 4, 60L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(256),
+            new ThreadPoolExecutor.DiscardOldestPolicy()
+    );
+
     private static volatile ClassLoader sBshClassLoader = null;
 
     private static final Set<Long> sHandledMsgIds = Collections.synchronizedSet(
@@ -75,7 +86,7 @@ public class PluginManager {
 
         reloadAll(context, null);
     }
-    
+
     public static boolean hasActivePlugins() {
         return !sLoadedPlugins.isEmpty();
     }
@@ -110,7 +121,6 @@ public class PluginManager {
                         } catch (Throwable ignored) {}
                     }
 
-                    // ★ 自动智能探测：如果脚本包含 Hook，则生成第二行提醒标注
                     if (detectPluginUsesHook(dir)) {
                         item.hasHook = true;
                         item.subName = "注意：包含动态Hook，免框架模式下可能失效或仅部分可用";
@@ -156,6 +166,20 @@ public class PluginManager {
         return false;
     }
 
+    private static void stopPluginByIdLocked(String pluginId) {
+        if (pluginId == null) return;
+        List<PluginCompiler> toRemove = new ArrayList<>();
+        for (PluginCompiler compiler : sLoadedPlugins) {
+            if (pluginId.equals(compiler.getPluginId())) {
+                toRemove.add(compiler);
+            }
+        }
+        for (PluginCompiler compiler : toRemove) {
+            try { compiler.stop(); } catch (Throwable ignored) {}
+            sLoadedPlugins.remove(compiler);
+        }
+    }
+
     public static void setPluginActive(final Context context, final String pluginId, final boolean enabled) {
         setPluginActive(context, pluginId, enabled, null);
     }
@@ -164,26 +188,24 @@ public class PluginManager {
         ConfigManager.setPluginEnabled(pluginId, enabled);
         sWorkerPool.execute(() -> {
             try {
-                if (enabled) {
-                    File pluginsDir = getPluginsStorageDir(context);
-                    File dir = new File(pluginsDir, pluginId);
-                    if (dir.isDirectory() && new File(dir, "main.java").exists()) {
-                        ClassLoader bshLoader = getOrCreateBshClassLoader(context);
-                        PluginCompiler compiler = new PluginCompiler(context, dir, bshLoader);
-                        if (compiler.start()) {
-                            sLoadedPlugins.add(compiler);
-                            PLog.i("Plugin", "动态开启脚本成功: " + pluginId);
-                        } else {
-                            PLog.e("Plugin", "动态开启脚本失败: " + pluginId);
+                synchronized (sLifecycleLock) {
+                    if (enabled) {
+                        stopPluginByIdLocked(pluginId);
+                        File pluginsDir = getPluginsStorageDir(context);
+                        File dir = new File(pluginsDir, pluginId);
+                        if (dir.isDirectory() && new File(dir, "main.java").exists()) {
+                            ClassLoader bshLoader = getOrCreateBshClassLoader(context);
+                            PluginCompiler compiler = new PluginCompiler(context, dir, bshLoader);
+                            if (compiler.start()) {
+                                sLoadedPlugins.add(compiler);
+                                PLog.i("Plugin", "动态开启脚本成功: " + pluginId);
+                            } else {
+                                PLog.e("Plugin", "动态开启脚本失败: " + pluginId);
+                            }
                         }
-                    }
-                } else {
-                    for (PluginCompiler compiler : sLoadedPlugins) {
-                        if (pluginId.equals(compiler.getPluginId())) {
-                            compiler.stop();
-                            sLoadedPlugins.remove(compiler);
-                            PLog.i("Plugin", "动态卸载脚本成功: " + pluginId);
-                        }
+                    } else {
+                        stopPluginByIdLocked(pluginId);
+                        PLog.i("Plugin", "动态卸载脚本成功: " + pluginId);
                     }
                 }
             } finally {
@@ -218,7 +240,7 @@ public class PluginManager {
 
     public static void dispatchChatInterface(final int cType, final String peerUin, final String name) {
         if (sLoadedPlugins.isEmpty()) return;
-        sWorkerPool.execute(() -> {
+        sMsgPool.execute(() -> {
             for (PluginCompiler compiler : sLoadedPlugins) {
                 compiler.chatInterface(cType, peerUin, name);
             }
@@ -227,7 +249,7 @@ public class PluginManager {
 
     public static void dispatchPaiYiPai(final String peerUin, final int chatType, final String opUin) {
         if (sLoadedPlugins.isEmpty()) return;
-        sWorkerPool.execute(() -> {
+        sMsgPool.execute(() -> {
             for (PluginCompiler compiler : sLoadedPlugins) {
                 compiler.onPaiYiPai(peerUin, chatType, opUin);
             }
@@ -236,7 +258,7 @@ public class PluginManager {
 
     public static void dispatchTroopShutUp(final String troopUin, final String memberUin, final long time, final String opUin) {
         if (sLoadedPlugins.isEmpty()) return;
-        sWorkerPool.execute(() -> {
+        sMsgPool.execute(() -> {
             for (PluginCompiler compiler : sLoadedPlugins) {
                 compiler.shutUpGroup(troopUin, memberUin, time, opUin);
             }
@@ -245,7 +267,7 @@ public class PluginManager {
 
     public static void dispatchTroopJoin(final String troopUin, final String memberUin) {
         if (sLoadedPlugins.isEmpty()) return;
-        sWorkerPool.execute(() -> {
+        sMsgPool.execute(() -> {
             for (PluginCompiler compiler : sLoadedPlugins) {
                 compiler.joinGroup(troopUin, memberUin);
             }
@@ -254,7 +276,7 @@ public class PluginManager {
 
     public static void dispatchTroopQuit(final String troopUin, final String memberUin) {
         if (sLoadedPlugins.isEmpty()) return;
-        sWorkerPool.execute(() -> {
+        sMsgPool.execute(() -> {
             for (PluginCompiler compiler : sLoadedPlugins) {
                 compiler.quitGroup(troopUin, memberUin);
             }
@@ -263,7 +285,7 @@ public class PluginManager {
 
     public static void dispatchRecvMsg(final List<?> msgList) {
         if (msgList == null || msgList.isEmpty() || sLoadedPlugins.isEmpty()) return;
-        sWorkerPool.execute(() -> {
+        sMsgPool.execute(() -> {
             try {
                 for (Object obj : msgList) {
                     if (obj instanceof MsgRecord) {
@@ -321,12 +343,14 @@ public class PluginManager {
                 dexBytes = readFileToByteArray(customDex);
             }
             if (dexBytes == null || dexBytes.length == 0) {
-                try (InputStream is = com.tencent.qqnt.patch.util.PatchAssetHelper.openStream(context, "bsh.dex");
+                try (InputStream is = PatchAssetHelper.openStream(context, "bsh.dex");
                      ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-                    byte[] buf = new byte[8192];
-                    int n;
-                    while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
-                    dexBytes = bos.toByteArray();
+                    if (is != null) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
+                        dexBytes = bos.toByteArray();
+                    }
                 }
             }
 
@@ -387,10 +411,12 @@ public class PluginManager {
     }
 
     public static void stopAllPlugins() {
-        List<PluginCompiler> copyList = new ArrayList<>(sLoadedPlugins);
-        sLoadedPlugins.clear();
-        for (PluginCompiler compiler : copyList) {
-            try { compiler.stop(); } catch (Throwable ignored) {}
+        synchronized (sLifecycleLock) {
+            List<PluginCompiler> copyList = new ArrayList<>(sLoadedPlugins);
+            sLoadedPlugins.clear();
+            for (PluginCompiler compiler : copyList) {
+                try { compiler.stop(); } catch (Throwable ignored) {}
+            }
         }
     }
 
@@ -402,30 +428,32 @@ public class PluginManager {
         PLog.i("Plugin", "正在重新扫描与重载全部脚本...");
         sWorkerPool.execute(() -> {
             try {
-                stopAllPlugins();
-                ClassLoader loader = getOrCreateBshClassLoader(context);
+                synchronized (sLifecycleLock) {
+                    stopAllPlugins();
+                    ClassLoader loader = getOrCreateBshClassLoader(context);
 
-                File pluginsDir = getPluginsStorageDir(context);
-                if (!pluginsDir.exists()) pluginsDir.mkdirs();
+                    File pluginsDir = getPluginsStorageDir(context);
+                    if (!pluginsDir.exists()) pluginsDir.mkdirs();
 
-                File[] subDirs = pluginsDir.listFiles();
-                if (subDirs == null) return;
+                    File[] subDirs = pluginsDir.listFiles();
+                    if (subDirs == null) return;
 
-                int count = 0;
-                for (File dir : subDirs) {
-                    if (dir.isDirectory()) {
-                        String id = dir.getName();
-                        File mainScript = new File(dir, "main.java");
-                        if (mainScript.exists() && ConfigManager.isPluginEnabled(id)) {
-                            PluginCompiler compiler = new PluginCompiler(context, dir, loader);
-                            if (compiler.start()) {
-                                sLoadedPlugins.add(compiler);
-                                count++;
+                    int count = 0;
+                    for (File dir : subDirs) {
+                        if (dir.isDirectory()) {
+                            String id = dir.getName();
+                            File mainScript = new File(dir, "main.java");
+                            if (mainScript.exists() && ConfigManager.isPluginEnabled(id)) {
+                                PluginCompiler compiler = new PluginCompiler(context, dir, loader);
+                                if (compiler.start()) {
+                                    sLoadedPlugins.add(compiler);
+                                    count++;
+                                }
                             }
                         }
                     }
+                    PLog.i("Plugin", "全部脚本重载完成，当前生效运行中: " + count + " 个");
                 }
-                PLog.i("Plugin", "全部脚本重载完成，当前生效运行中: " + count + " 个");
             } catch (Throwable t) {
                 PLog.e("Plugin", "reloadAll 异常: " + t.getMessage(), t);
             } finally {
@@ -437,12 +465,6 @@ public class PluginManager {
     }
 
     public static File getPluginsStorageDir(Context context) {
-        File mediaDir = null;
-        try {
-            File[] mediaDirs = context.getExternalMediaDirs();
-            if (mediaDirs != null && mediaDirs.length > 0 && mediaDirs[0] != null) mediaDir = mediaDirs[0];
-        } catch (Throwable ignored) {}
-        if (mediaDir == null) mediaDir = new File(Environment.getExternalStorageDirectory(), "Android/media/" + context.getPackageName());
-        return new File(mediaDir, "zzz/plugins");
+        return StorageHelper.getZzzSubDir(context, "plugins", false);
     }
 }

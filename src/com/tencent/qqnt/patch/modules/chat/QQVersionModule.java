@@ -2,15 +2,16 @@ package com.tencent.qqnt.patch.modules.chat;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import com.tencent.qqnt.kernel.nativeinterface.IQQNTWrapperSession;
 import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.IPatchModule;
 import com.tencent.qqnt.patch.config.ConfigManager;
+import com.tencent.qqnt.patch.util.MiniProto;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.qqnt.patch.util.PatchAssetHelper;
+import com.tencent.qqnt.patch.util.StorageHelper;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -113,15 +114,15 @@ public class QQVersionModule implements IPatchModule {
         }
 
         try {
-            byte[] body = (buf.length >= 4 && (buf[0] & 0xFF) == 0) ? subArray(buf, 4) : buf;
-            byte[] qqMsg = getProtoBytes(body, 1);
+            byte[] body = (buf.length >= 4 && (buf[0] & 0xFF) == 0) ? MiniProto.subArray(buf, 4) : buf;
+            byte[] qqMsg = MiniProto.getBytes(body, 1);
             if (qqMsg == null) return buf;
 
-            byte[] head = getProtoBytes(qqMsg, 1);
+            byte[] head = MiniProto.getBytes(qqMsg, 1);
             if (head == null) return buf;
 
-            long uin = getProtoVarint(head, 1);
-            long subId = getProtoVarint(head, 4);
+            long uin = MiniProto.getVarint(head, 1);
+            long subId = MiniProto.getVarint(head, 4);
 
             if (subId > 0 && uin > 10000L) {
                 recordSubid(String.valueOf(uin), subId, System.currentTimeMillis());
@@ -553,90 +554,6 @@ public class QQVersionModule implements IPatchModule {
         } catch (Throwable ignored) {}
     }
 
-    private static File getZzzDir(Context context) {
-        File dir = null;
-        try {
-            File[] mDirs = context.getExternalMediaDirs();
-            if (mDirs != null && mDirs.length > 0 && mDirs[0] != null) dir = mDirs[0];
-        } catch (Throwable ignored) {}
-        if (dir == null) dir = new File(Environment.getExternalStorageDirectory(), "Android/media/" + context.getPackageName());
-        File zzz = new File(dir, "zzz");
-        if (!zzz.exists()) zzz.mkdirs();
-        return zzz;
-    }
-
-    private static File getCacheFile(Context context) { return new File(getZzzDir(context), "subid_cache.json"); }
-    private static File getExternalDictionaryFile(Context context) { return new File(getZzzDir(context), "subid_dict.json"); }
-
-    private static byte[] subArray(byte[] src, int start) {
-        if (src == null || start >= src.length) return new byte[0];
-        byte[] d = new byte[src.length - start];
-        System.arraycopy(src, start, d, 0, d.length);
-        return d;
-    }
-
-    private static byte[] getProtoBytes(byte[] data, int targetField) {
-        if (data == null) return null;
-        int pos = 0, limit = data.length;
-        while (pos < limit) {
-            long[] tagRes = readVarint(data, pos, limit);
-            if (tagRes == null) break;
-            int fn = (int) (tagRes[0] >>> 3), wt = (int) (tagRes[0] & 7);
-            pos = (int) tagRes[1];
-            if (wt == 2) {
-                long[] lenRes = readVarint(data, pos, limit);
-                if (lenRes == null) break;
-                int len = (int) lenRes[0];
-                pos = (int) lenRes[1];
-                if (pos + len > limit) break;
-                if (fn == targetField) {
-                    byte[] b = new byte[len];
-                    System.arraycopy(data, pos, b, 0, len);
-                    return b;
-                }
-                pos += len;
-            } else if (wt == 0) {
-                long[] vRes = readVarint(data, pos, limit);
-                if (vRes == null) break;
-                pos = (int) vRes[1];
-            } else if (wt == 1) pos += 8;
-            else if (wt == 5) pos += 4;
-            else break;
-        }
-        return null;
-    }
-
-    private static long getProtoVarint(byte[] data, int targetField) {
-        if (data == null) return 0L;
-        int pos = 0, limit = data.length;
-        while (pos < limit) {
-            long[] res = readVarint(data, pos, limit);
-            if (res == null) break;
-            int fn = (int) (res[0] >>> 3), wt = (int) (res[0] & 7);
-            pos = (int) res[1];
-            if (wt == 0) {
-                long[] vRes = readVarint(data, pos, limit);
-                if (vRes == null) break;
-                pos = (int) vRes[1];
-                if (fn == targetField) return vRes[0];
-            } else if (wt == 2) {
-                long[] lenRes = readVarint(data, pos, limit);
-                if (lenRes == null) break;
-                pos = (int) lenRes[1] + (int) lenRes[0];
-            } else if (wt == 1) pos += 8;
-            else if (wt == 5) pos += 4;
-            else break;
-        }
-        return 0L;
-    }
-
-    private static long[] readVarint(byte[] data, int pos, int limit) {
-        long result = 0;
-        for (int shift = 0; shift < 64 && pos < limit; shift += 7) {
-            byte b = data[pos++];
-            result |= (long) (b & 0x7F) << shift;
-            if ((b & 0x80) == 0) return new long[]{result, pos};
-        }
-        return null;
-    }
+    private static File getCacheFile(Context context) { return StorageHelper.getZzzFile(context, "subid_cache.json"); }
+    private static File getExternalDictionaryFile(Context context) { return StorageHelper.getZzzFile(context, "subid_dict.json"); }
 }

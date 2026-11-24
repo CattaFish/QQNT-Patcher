@@ -17,6 +17,8 @@ public class PatchAssetHelper {
 
     private static final Map<String, Bitmap> sBitmapCache = new ConcurrentHashMap<>();
     private static volatile String sCachedRealApkPath = null;
+    private static final Object sZipLock = new Object();
+    private static volatile ZipFile sCachedApkZip = null;
 
     public static InputStream openStream(Context context, String assetName) {
         if (context == null || assetName == null || assetName.isEmpty()) return null;
@@ -26,18 +28,16 @@ public class PatchAssetHelper {
         } catch (Throwable ignored) {}
 
         try {
-            String apkPath = getRealApkPath(context);
-            if (apkPath != null) {
-                String bypassPath = apkPath.contains("/base.apk") ? apkPath.replace("/base.apk", "/./base.apk") : apkPath;
-                File f = new File(bypassPath);
-                if (!f.exists()) f = new File(apkPath);
-
-                try (ZipFile zip = new ZipFile(f)) {
-                    String entryPath = assetName.startsWith("assets/") ? assetName : ("assets/" + assetName);
+            ZipFile zip = getApkZipFile(context);
+            if (zip != null) {
+                String entryPath = assetName.startsWith("assets/") ? assetName : ("assets/" + assetName);
+                synchronized (sZipLock) {
                     ZipEntry entry = zip.getEntry(entryPath);
                     if (entry != null) {
+                        long size = entry.getSize();
+                        int initSize = (size > 0 && size < Integer.MAX_VALUE) ? (int) size : 8192;
                         try (InputStream is = zip.getInputStream(entry);
-                             ByteArrayOutputStream bos = new ByteArrayOutputStream((int) entry.getSize())) {
+                             ByteArrayOutputStream bos = new ByteArrayOutputStream(initSize)) {
                             byte[] buf = new byte[8192];
                             int n;
                             while ((n = is.read(buf)) != -1) {
@@ -52,6 +52,30 @@ public class PatchAssetHelper {
             PLog.w("AssetHelper", "穿透读取资产 [" + assetName + "] 异常: " + t.getMessage());
         }
         return null;
+    }
+
+    private static ZipFile getApkZipFile(Context context) {
+        ZipFile zf = sCachedApkZip;
+        if (zf != null) return zf;
+        synchronized (sZipLock) {
+            zf = sCachedApkZip;
+            if (zf != null) return zf;
+            try {
+                String apkPath = getRealApkPath(context);
+                if (apkPath != null) {
+                    String bypassPath = apkPath.contains("/base.apk")
+                            ? apkPath.replace("/base.apk", "/./base.apk")
+                            : apkPath;
+                    File f = new File(bypassPath);
+                    if (!f.exists()) f = new File(apkPath);
+                    zf = new ZipFile(f);
+                    sCachedApkZip = zf;
+                }
+            } catch (Throwable t) {
+                PLog.w("AssetHelper", "打开宿主 APK ZipFile 异常: " + t.getMessage());
+            }
+            return zf;
+        }
     }
 
     public static Bitmap getBitmap(Context context, String assetName) {

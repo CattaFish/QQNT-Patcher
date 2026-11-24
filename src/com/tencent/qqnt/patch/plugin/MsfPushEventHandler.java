@@ -2,6 +2,7 @@ package com.tencent.qqnt.patch.plugin;
 
 import com.tencent.mobileqq.qroute.QRoute;
 import com.tencent.qqnt.patch.config.FeatureConfig;
+import com.tencent.qqnt.patch.util.MiniProto;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.relation.common.api.IRelationNTUinAndUidApi;
 
@@ -20,28 +21,28 @@ public class MsfPushEventHandler {
 
     private static void dispatchNudgeAndShutUpEvents(byte[] buf) {
         try {
-            byte[] qqMsgBytes = Proto.getBytes(buf, 1);
+            byte[] qqMsgBytes = MiniProto.getBytes(buf, 1);
             if (qqMsgBytes == null) return;
-            byte[] headerBytes = Proto.getBytes(qqMsgBytes, 2);
+            byte[] headerBytes = MiniProto.getBytes(qqMsgBytes, 2);
             if (headerBytes == null) return;
 
-            long cmd1 = Proto.getVarint(headerBytes, 1);
-            long cmd2 = Proto.getVarint(headerBytes, 2);
+            long cmd1 = MiniProto.getVarint(headerBytes, 1);
+            long cmd2 = MiniProto.getVarint(headerBytes, 2);
 
-            byte[] bodyBytes = Proto.getBytes(qqMsgBytes, 3);
+            byte[] bodyBytes = MiniProto.getBytes(qqMsgBytes, 3);
             if (bodyBytes == null) return;
-            byte[] subBytes = Proto.getBytes(bodyBytes, 2);
+            byte[] subBytes = MiniProto.getBytes(bodyBytes, 2);
             if (subBytes == null) return;
 
             if (cmd1 == 732 && cmd2 == 12) {
-                long troopUin = Proto.getVarint(subBytes, 1);
-                String opUid = Proto.getString(subBytes, 4);
-                byte[] shutUpInfo = Proto.getBytes(subBytes, 5);
+                long troopUin = MiniProto.getVarint(subBytes, 1);
+                String opUid = MiniProto.getString(subBytes, 4);
+                byte[] shutUpInfo = MiniProto.getBytes(subBytes, 5);
                 if (shutUpInfo != null) {
-                    byte[] inner = Proto.getBytes(shutUpInfo, 3);
+                    byte[] inner = MiniProto.getBytes(shutUpInfo, 3);
                     if (inner != null) {
-                        String memberUid = Proto.getString(inner, 1);
-                        long time = Proto.getVarint(inner, 2);
+                        String memberUid = MiniProto.getString(inner, 1);
+                        long time = MiniProto.getVarint(inner, 2);
                         PluginManager.dispatchTroopShutUp(
                                 String.valueOf(troopUin),
                                 getUin(memberUid),
@@ -58,7 +59,7 @@ public class MsfPushEventHandler {
             String fromUin = "";
             String toUin = "";
 
-            byte[] head1 = Proto.getBytes(qqMsgBytes, 1);
+            byte[] head1 = MiniProto.getBytes(qqMsgBytes, 1);
 
             if (cmd1 == 732 && cmd2 == 20) {
                 chatType = 2;
@@ -97,7 +98,7 @@ public class MsfPushEventHandler {
 
     private static String readUin(byte[] data, int targetField) {
         if (data == null) return "";
-        ProtoReader reader = new ProtoReader(data);
+        MiniProto.Reader reader = new MiniProto.Reader(data);
         while (reader.hasMore()) {
             long tag = reader.readVarint();
             int field = (int) (tag >>> 3);
@@ -151,7 +152,7 @@ public class MsfPushEventHandler {
 
     private static String extractToUinFromField7(byte[] data) {
         if (data == null) return "";
-        ProtoReader reader = new ProtoReader(data);
+        MiniProto.Reader reader = new MiniProto.Reader(data);
         while (reader.hasMore()) {
             long tag = reader.readVarint();
             int field = (int) (tag >>> 3);
@@ -160,9 +161,9 @@ public class MsfPushEventHandler {
                 byte[] itemBytes = reader.readBytes();
                 if (itemBytes == null) break;
                 if (field == 7) {
-                    String k = Proto.getString(itemBytes, 1);
+                    String k = MiniProto.getString(itemBytes, 1);
                     if ("uin_str2".equals(k)) {
-                        String v = Proto.getString(itemBytes, 2);
+                        String v = MiniProto.getString(itemBytes, 2);
                         if (!v.isEmpty()) return v;
                     }
                 }
@@ -181,102 +182,5 @@ public class MsfPushEventHandler {
 
     private static boolean isValidQQ(String input) {
         return input != null && input.matches("[1-9]\\d{4,12}");
-    }
-
-    private static class ProtoReader {
-        private final byte[] data;
-        private int pos;
-        private final int limit;
-
-        ProtoReader(byte[] data) {
-            this.data = data;
-            this.pos = 0;
-            this.limit = data != null ? data.length : 0;
-        }
-
-        boolean hasMore() {
-            return data != null && pos < limit;
-        }
-
-        void skip(int n) {
-            if (n > 0) {
-                pos = Math.min(limit, pos + n);
-            }
-        }
-
-        long readVarint() {
-            long result = 0;
-            for (int shift = 0; shift < 64 && pos < limit; shift += 7) {
-                byte b = data[pos++];
-                result |= (long) (b & 0x7F) << shift;
-                if ((b & 0x80) == 0) break;
-            }
-            return result;
-        }
-
-        byte[] readBytes() {
-            int len = (int) readVarint();
-            if (len < 0 || pos + len > limit) return null;
-            byte[] dest = new byte[len];
-            System.arraycopy(data, pos, dest, 0, len);
-            pos += len;
-            return dest;
-        }
-    }
-
-    private static class Proto {
-        static byte[] getBytes(byte[] data, int targetField) {
-            if (data == null) return null;
-            ProtoReader reader = new ProtoReader(data);
-            while (reader.hasMore()) {
-                long tag = reader.readVarint();
-                int field = (int) (tag >>> 3);
-                int wire = (int) (tag & 7);
-                if (wire == 0) {
-                    reader.readVarint();
-                } else if (wire == 1) {
-                    reader.skip(8);
-                } else if (wire == 2) {
-                    byte[] sub = reader.readBytes();
-                    if (sub == null) break;
-                    if (field == targetField) return sub;
-                } else if (wire == 5) {
-                    reader.skip(4);
-                } else {
-                    break;
-                }
-            }
-            return null;
-        }
-
-        static String getString(byte[] data, int targetField) {
-            byte[] b = getBytes(data, targetField);
-            return b != null ? new String(b, StandardCharsets.UTF_8) : "";
-        }
-
-        static long getVarint(byte[] data, int targetField) {
-            if (data == null) return 0;
-            ProtoReader reader = new ProtoReader(data);
-            while (reader.hasMore()) {
-                long tag = reader.readVarint();
-                int field = (int) (tag >>> 3);
-                int wire = (int) (tag & 7);
-                if (wire == 0) {
-                    long val = reader.readVarint();
-                    if (field == targetField) return val;
-                } else if (wire == 1) {
-                    reader.skip(8);
-                } else if (wire == 2) {
-                    int len = (int) reader.readVarint();
-                    if (len < 0) break;
-                    reader.skip(len);
-                } else if (wire == 5) {
-                    reader.skip(4);
-                } else {
-                    break;
-                }
-            }
-            return 0;
-        }
     }
 }

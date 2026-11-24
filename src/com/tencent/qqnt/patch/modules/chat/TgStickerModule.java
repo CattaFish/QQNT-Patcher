@@ -1,22 +1,20 @@
 package com.tencent.qqnt.patch.modules.chat;
 
 import android.app.Activity;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
-import android.os.Environment;
 
 import com.tencent.mobileqq.data.EmoticonPackage;
 import com.tencent.mobileqq.emoticonview.EmotionPanelData;
 import com.tencent.mobileqq.emoticonview.EmotionPanelInfo;
 import com.tencent.mobileqq.emoticonview.FavoriteEmoticonInfo;
-import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.IPatchModule;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.ui.NativeSettingHelper;
 import com.tencent.qqnt.patch.ui.SettingDialogBuilder;
 import com.tencent.qqnt.patch.util.PLog;
+import com.tencent.qqnt.patch.util.StorageHelper;
 import com.tencent.qqnt.patch.util.ToastHelper;
+import com.tencent.qqnt.patch.util.UiUtils;
 
 import java.io.File;
 import java.net.URL;
@@ -142,7 +140,7 @@ public class TgStickerModule implements IPatchModule {
         builder.addTip("[存储路径] " + stickerPath + " (点击复制)\n"
                 + "[目录规范] stickers/表情包名称/图片文件\n"
                 + "[当前状态] 已识别 " + currentPanels.size() + " 个表情包", v -> {
-            copyToClipboard(activity, stickerPath);
+            UiUtils.copyToClipboard(activity, "sticker_path", stickerPath);
             ToastHelper.show(activity, "已复制路径");
         });
 
@@ -179,15 +177,6 @@ public class TgStickerModule implements IPatchModule {
                 .show();
     }
 
-    private static void copyToClipboard(Context context, String text) {
-        try {
-            ClipboardManager cm = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
-            if (cm != null) {
-                cm.setPrimaryClip(ClipData.newPlainText("sticker_path", text));
-            }
-        } catch (Throwable ignored) {}
-    }
-
     public static int getPanelColumns() {
         String val = ConfigManager.getString(KEY_PANEL_COLUMNS, "5");
         try {
@@ -212,23 +201,7 @@ public class TgStickerModule implements IPatchModule {
     }
 
     public static File getStickerBaseDir() {
-        Context context = AppContext.get();
-        File mediaDir = null;
-        if (context != null) {
-            try {
-                File[] mediaDirs = context.getExternalMediaDirs();
-                if (mediaDirs != null && mediaDirs.length > 0 && mediaDirs[0] != null) {
-                    mediaDir = mediaDirs[0];
-                }
-            } catch (Throwable ignored) {}
-            if (mediaDir == null) {
-                mediaDir = new File(Environment.getExternalStorageDirectory(), "Android/media/" + context.getPackageName());
-            }
-        } else {
-            mediaDir = new File(Environment.getExternalStorageDirectory(), "Android/media/com.tencent.mobileqq");
-        }
-        File zzzDir = new File(mediaDir, "zzz");
-        return new File(zzzDir, "stickers");
+        return StorageHelper.getZzzSubDir(null, "stickers", false);
     }
 
     private static void ensureStickerDir() {

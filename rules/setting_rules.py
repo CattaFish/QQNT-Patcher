@@ -10,34 +10,11 @@ RULE_DESC = "原生设置中心与搜索索引"
 RULE_ALIASES = ["settings", "设置", "设置中心", "zzz"]
 RULE_ENABLED = True
 
-def _find_method_strictly_referencing_string(p, class_idx, target_string):
-    s_id = p.find_string_id(target_string)
-    if s_id == -1: return None
-    s_16 = struct.pack('<H', s_id) if s_id <= 65535 else None
-    s_32 = struct.pack('<I', s_id)
-
-    methods = p.get_class_methods(class_idx)
-    for m_name, proto_desc, _, code_off, _ in methods:
-        if code_off == 0 or code_off + 16 >= len(p.data): continue
-        insns_size = struct.unpack_from('<I', p.data, code_off + 12)[0]
-        insns = p.data[code_off + 16 : code_off + 16 + insns_size * 2]
-        k = 0
-        len_insns = len(insns)
-        while k < len_insns - 1:
-            op = insns[k]
-            if op == 0x1A and k + 4 <= len_insns:
-                if s_16 and insns[k + 2 : k + 4] == s_16: return f"{m_name}{proto_desc}"
-                k += 4; continue
-            elif op == 0x1B and k + 6 <= len_insns:
-                if insns[k + 2 : k + 6] == s_32: return f"{m_name}{proto_desc}"
-                k += 6; continue
-            k += 2
-    return None
 
 def _find_search_method_dynamically(p, class_idx):
-    m = _find_method_strictly_referencing_string(p, class_idx, "webNodes")
+    m = p.find_method_referencing_string(class_idx, "webNodes")
     if m: return m
-    m = _find_method_strictly_referencing_string(p, class_idx, "105693")
+    m = p.find_method_referencing_string(class_idx, "105693")
     if m: return m
 
     t_id = p.find_type_id("Lcom/tencent/mobileqq/setting/search/node/b;")
@@ -53,6 +30,7 @@ def _find_search_method_dynamically(p, class_idx):
                     return f"{m_name}{proto_desc}"
                 k += 2
     return None
+
 
 def build_setting_rules(dex_data_dict):
     rules = []
@@ -106,7 +84,7 @@ def build_setting_rules(dex_data_dict):
     invoke-static {\2}, Lcom/tencent/qqnt/patch/ui/SettingSearchInjector;->inject(Ljava/lang/Object;)V"""
                         })
 
-                    render_m = _find_method_strictly_referencing_string(p, c_idx, "have no search result content: ")
+                    render_m = p.find_method_referencing_string(c_idx, "have no search result content: ")
                     if render_m:
                         rules.append({
                             "name": f"搜索结果渲染置顶 (FunctionSearchFragment->{render_m})",
@@ -134,6 +112,7 @@ def build_setting_rules(dex_data_dict):
             break
 
     return rules
+
 
 def resolve_rules(dex_data_dict, meta=None):
     return build_setting_rules(dex_data_dict)

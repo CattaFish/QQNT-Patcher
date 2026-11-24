@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """去签壳入口注入与热修复禁用规则插件 (自适应: 9.1.75- QFix 架构 vs 9.1.75+ Tinker 架构)"""
 
-import re
+from .parser import parse_semver
 
 RULE_ID = "tinker"
 RULE_NAME = "去签壳挂载与热修复禁用"
 RULE_DESC = "去签壳挂载与热修复禁用"
 RULE_ALIASES = ["热修", "热修复", "tinker_disable", "tinker", "qfix"]
 RULE_ENABLED = True
+
 
 def _load_cfg():
     try:
@@ -16,12 +17,6 @@ def _load_cfg():
     except Exception:
         return None
 
-def parse_semver(ver_str):
-    if not ver_str: return None
-    m = re.search(r"(\d+)\.(\d+)\.(\d+)", ver_str)
-    if m:
-        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
-    return None
 
 def build_tinker_rules(dex_data_dict, meta):
     KC = _load_cfg()
@@ -90,6 +85,7 @@ def build_tinker_rules(dex_data_dict, meta):
             })
 
     return rules
+
 
 def resolve_rules(dex_data_dict, meta=None):
     return build_tinker_rules(dex_data_dict, meta)

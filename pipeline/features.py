@@ -48,10 +48,6 @@ BUILTIN_FEATURES = {
         "desc": "查看本地聊天记录 (私聊/群聊)",
         "aliases": ["chat_history", "history", "聊天记录", "历史记录"],
     },
-    "mixed_emo": {
-        "desc": "发送文字表情复合消息 (图文混排)",
-        "aliases": ["mixed_emo", "文字表情混排", "复合消息", "表情暂存", "图文混排"],
-    },
     "custom_icon": {
         "desc": "自定义应用图标 (杂项)",
         "aliases": ["custom_icon", "icon", "icons", "图标", "换图标", "应用图标"],

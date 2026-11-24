@@ -2,17 +2,16 @@ package com.tencent.qqnt.patch.modules.chat;
 
 import android.app.Activity;
 import android.content.Context;
-import android.os.Environment;
 import android.view.View;
 import android.widget.EditText;
 
 import com.tencent.qqnt.kernel.nativeinterface.MsgElement;
-import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.IPatchModule;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.ui.NativeSettingHelper;
 import com.tencent.qqnt.patch.ui.SettingDialogBuilder;
 import com.tencent.qqnt.patch.util.PLog;
+import com.tencent.qqnt.patch.util.StorageHelper;
 import com.tencent.qqnt.patch.util.ToastHelper;
 
 import org.json.JSONArray;
@@ -150,7 +149,7 @@ public class ModifyPicSummaryModule implements IPatchModule {
             if (f.exists() && f.isFile()) return f;
         }
 
-        File zzzDir = getZzzBaseDir();
+        File zzzDir = StorageHelper.getZzzDir(null);
         if (zzzDir.exists() && zzzDir.isDirectory()) {
             File defaultTxt = new File(zzzDir, "summary.txt");
             if (defaultTxt.exists() && defaultTxt.isFile()) {
@@ -336,26 +335,5 @@ public class ModifyPicSummaryModule implements IPatchModule {
             ToastHelper.show(activity, "已保存图片外显配置");
             if (onSaved != null) onSaved.run();
         }).show();
-    }
-
-    private static File getZzzBaseDir() {
-        Context context = AppContext.get();
-        File mediaDir = null;
-        if (context != null) {
-            try {
-                File[] mediaDirs = context.getExternalMediaDirs();
-                if (mediaDirs != null && mediaDirs.length > 0 && mediaDirs[0] != null) {
-                    mediaDir = mediaDirs[0];
-                }
-            } catch (Throwable ignored) {}
-            if (mediaDir == null) {
-                mediaDir = new File(Environment.getExternalStorageDirectory(), "Android/media/" + context.getPackageName());
-            }
-        } else {
-            mediaDir = new File(Environment.getExternalStorageDirectory(), "Android/media/com.tencent.mobileqq");
-        }
-        File zzzDir = new File(mediaDir, "zzz");
-        if (!zzzDir.exists()) zzzDir.mkdirs();
-        return zzzDir;
     }
 }

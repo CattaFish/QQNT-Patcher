@@ -6,7 +6,6 @@
 2. 网络请求层（源头）：TianShuManager 发起拉取判定时直接掐断，不向服务端发包
 """
 
-import struct
 from .parser import FastDexParser
 
 RULE_ID = "main_ad"
@@ -14,43 +13,6 @@ RULE_NAME = "隐藏主页横幅广告"
 RULE_DESC = "隐藏消息列表顶部的VIP续费、活动与游戏推广横幅"
 RULE_ALIASES = ["main_ad", "main_banner", "主页横幅", "主页广告", "顶部横幅", "banner_ad"]
 RULE_ENABLED = True
-
-
-def _find_method_strictly_referencing_string(p, class_idx, target_string):
-    """通过特征字符串精准扫描方法，避免直接硬编码被混淆的方法名"""
-    s_id = p.find_string_id(target_string)
-    if s_id == -1: 
-        return None
-    s_16 = struct.pack('<H', s_id) if s_id <= 65535 else None
-    s_32 = struct.pack('<I', s_id)
-
-    methods = p.get_class_methods(class_idx)
-    for m_name, proto_desc, _, code_off, _ in methods:
-        if code_off == 0 or code_off + 16 >= len(p.data): 
-            continue
-        insns_size = struct.unpack_from('<I', p.data, code_off + 12)[0]
-        insns = p.data[code_off + 16 : code_off + 16 + insns_size * 2]
-
-        # 快速预检，如果不包含该字符串 ID 的字节序直接跳过
-        if (s_16 and s_16 not in insns) and (s_32 not in insns): 
-            continue
-
-        k = 0
-        len_insns = len(insns)
-        while k < len_insns - 1:
-            op = insns[k]
-            if op == 0x1A and k + 4 <= len_insns:  # const-string
-                if s_16 and insns[k + 2 : k + 4] == s_16: 
-                    return f"{m_name}{proto_desc}"
-                k += 4
-                continue
-            elif op == 0x1B and k + 6 <= len_insns:  # const-string/jumbo
-                if insns[k + 2 : k + 6] == s_32: 
-                    return f"{m_name}{proto_desc}"
-                k += 6
-                continue
-            k += 2
-    return None
 
 
 def build_main_ad_rules(dex_data_dict):
@@ -67,16 +29,16 @@ def build_main_ad_rules(dex_data_dict):
     for _, dex_bytes in dex_data_dict.items():
         if b"updateBannerState|[" in dex_bytes:
             p = FastDexParser(dex_bytes)
-            if not p.valid: 
+            if not p.valid:
                 continue
 
             c_idx = p.find_class_index(banner_manager_cls)
             if c_idx != -1:
-                target_m = _find_method_strictly_referencing_string(p, c_idx, "updateBannerState|[")
+                target_m = p.find_method_referencing_string(c_idx, "updateBannerState|[")
                 if target_m and target_m.endswith(")V"):
                     update_state_method = target_m
                     break
-        if update_state_method: 
+        if update_state_method:
             break
 
     # 嗅探失败时的兜底签名
@@ -108,16 +70,16 @@ def build_main_ad_rules(dex_data_dict):
     for _, dex_bytes in dex_data_dict.items():
         if b"next_request_time_" in dex_bytes:
             p = FastDexParser(dex_bytes)
-            if not p.valid: 
+            if not p.valid:
                 continue
 
             c_idx = p.find_class_index(tianshu_manager_cls)
             if c_idx != -1:
-                target_m = _find_method_strictly_referencing_string(p, c_idx, "next_request_time_")
+                target_m = p.find_method_referencing_string(c_idx, "next_request_time_")
                 if target_m and target_m.endswith(")Z"):
                     is_request_enable_method = target_m
                     break
-        if is_request_enable_method: 
+        if is_request_enable_method:
             break
 
     if not is_request_enable_method:

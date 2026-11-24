@@ -158,7 +158,6 @@ public class App extends Application {
 
         public static Object a(Class cls, Object obj, String str, Object... objArr)
                 throws NoSuchMethodException, IllegalAccessException, InvocationTargetException {
-            int i = 0;
             if (obj != null && !cls.isInstance(obj)) {
                 throw new IllegalArgumentException("this object is not an instance of the given class");
             }
@@ -173,23 +172,31 @@ public class App extends Application {
                 if (str.equals(declaredMethod.getName())) {
                     Class<?>[] parameterTypes = declaredMethod.getParameterTypes();
                     if (parameterTypes.length == objArr.length) {
-                        while (i < parameterTypes.length) {
-                            if (parameterTypes[i].isPrimitive()) {
-                                Class<?> cls2 = parameterTypes[i];
-                                i = ((cls2 != Integer.TYPE || (objArr[i] instanceof Integer))
-                                        && (cls2 != Byte.TYPE || (objArr[i] instanceof Byte))
-                                        && ((cls2 != Character.TYPE || (objArr[i] instanceof Character))
-                                        && ((cls2 != Boolean.TYPE || (objArr[i] instanceof Boolean))
-                                        && ((cls2 != Double.TYPE || (objArr[i] instanceof Double))
-                                        && ((cls2 != Float.TYPE || (objArr[i] instanceof Float))
-                                        && ((cls2 != Long.TYPE || (objArr[i] instanceof Long))
-                                        && (cls2 != Short.TYPE || (objArr[i] instanceof Short)))))))) ? i + 1 : 0;
-                            } else {
-                                Object obj2 = objArr[i];
-                                if (obj2 == null || parameterTypes[i].isInstance(obj2)) { }
+                        boolean match = true;
+                        for (int i = 0; i < parameterTypes.length; i++) {
+                            Class<?> pt = parameterTypes[i];
+                            Object arg = objArr[i];
+                            if (pt.isPrimitive()) {
+                                boolean ok = (pt == Integer.TYPE && arg instanceof Integer)
+                                        || (pt == Byte.TYPE && arg instanceof Byte)
+                                        || (pt == Character.TYPE && arg instanceof Character)
+                                        || (pt == Boolean.TYPE && arg instanceof Boolean)
+                                        || (pt == Double.TYPE && arg instanceof Double)
+                                        || (pt == Float.TYPE && arg instanceof Float)
+                                        || (pt == Long.TYPE && arg instanceof Long)
+                                        || (pt == Short.TYPE && arg instanceof Short);
+                                if (!ok) {
+                                    match = false;
+                                    break;
+                                }
+                            } else if (arg != null && !pt.isInstance(arg)) {
+                                match = false;
+                                break;
                             }
                         }
-                        return declaredMethod.invoke(obj, objArr);
+                        if (match) {
+                            return declaredMethod.invoke(obj, objArr);
+                        }
                     }
                 }
             }
@@ -198,7 +205,12 @@ public class App extends Application {
 
         public static boolean b(String... strArr) {
             try {
-                a(VMRuntime.class, a(VMRuntime.class, null, "getRuntime", new Object[0]), "setHiddenApiExemptions", strArr);
+                a(
+                        VMRuntime.class,
+                        a(VMRuntime.class, null, "getRuntime", new Object[0]),
+                        "setHiddenApiExemptions",
+                        new Object[]{ strArr }
+                );
                 return true;
             } catch (Throwable th) {
                 Log.w("HiddenApiBypass", "setHiddenApiExemptions", th);

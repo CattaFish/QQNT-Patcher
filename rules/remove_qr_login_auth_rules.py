@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """去除相册扫码登录检验动态规则引擎"""
 
-import struct
 from .parser import FastDexParser
 
 RULE_ID = "remove_qr_login_auth"
@@ -9,37 +8,6 @@ RULE_NAME = "去除相册扫码登录检验"
 RULE_DESC = "允许使用相册图片或长按识别二维码进行登录授权"
 RULE_ALIASES = ["remove_qr_login_auth", "qr_login", "相册扫码", "扫码登录", "相册扫码登录"]
 RULE_ENABLED = True
-
-
-def _find_method_strictly_referencing_string(p, class_idx, target_string):
-    """通过特征字符串精确定位方法签名与访问修饰符"""
-    s_id = p.find_string_id(target_string)
-    if s_id == -1:
-        return None, 0
-    s_16 = struct.pack('<H', s_id) if s_id <= 65535 else None
-    s_32 = struct.pack('<I', s_id)
-
-    for m_name, proto_desc, _, code_off, access_flags in p.get_class_methods(class_idx):
-        if code_off == 0 or code_off + 16 >= len(p.data):
-            continue
-        insns_size = struct.unpack_from('<I', p.data, code_off + 12)[0]
-        insns = p.data[code_off + 16 : code_off + 16 + insns_size * 2]
-
-        if (s_16 and s_16 not in insns) and (s_32 not in insns):
-            continue
-
-        k = 0
-        len_insns = len(insns)
-        while k < len_insns - 1:
-            op = insns[k]
-            if op == 0x1A and k + 4 <= len_insns:  # const-string
-                if s_16 and insns[k + 2 : k + 4] == s_16:
-                    return f"{m_name}{proto_desc}", access_flags
-            elif op == 0x1B and k + 6 <= len_insns:  # const-string/jumbo
-                if insns[k + 2 : k + 6] == s_32:
-                    return f"{m_name}{proto_desc}", access_flags
-            k += 2
-    return None, 0
 
 
 def _resolve_first_boolean_param_reg(proto_desc, is_static):
@@ -104,15 +72,16 @@ def build_remove_qr_login_auth_rules(dex_data_dict):
                 if c_idx == -1:
                     continue
 
-                m_sig, acc = _find_method_strictly_referencing_string(
-                    p, c_idx, "KEY_QR_IS_FORBID_LOCAL_PIC"
-                )
-                if m_sig and m_sig.endswith(")V") and "Z" in m_sig:
-                    auth_target_cls = cls_name
-                    auth_target_method = m_sig
-                    is_static = bool(acc & 0x0008)
-                    auth_bool_reg = _resolve_first_boolean_param_reg(m_sig, is_static)
-                    break
+                info = p.find_method_info_referencing_string(c_idx, "KEY_QR_IS_FORBID_LOCAL_PIC")
+                if info:
+                    m_sig = f"{info[0]}{info[1]}"
+                    acc = info[3]
+                    if m_sig.endswith(")V") and "Z" in m_sig:
+                        auth_target_cls = cls_name
+                        auth_target_method = m_sig
+                        is_static = bool(acc & 0x0008)
+                        auth_bool_reg = _resolve_first_boolean_param_reg(m_sig, is_static)
+                        break
         if auth_target_cls and auth_target_method:
             break
 
@@ -150,9 +119,7 @@ def build_remove_qr_login_auth_rules(dex_data_dict):
 
             c_idx = p.find_class_index("Lcom/tencent/open/agent/QrAgentLoginManager;")
             if c_idx != -1:
-                m_sig, _ = _find_method_strictly_referencing_string(
-                    p, c_idx, "shield_open_login"
-                )
+                m_sig = p.find_method_referencing_string(c_idx, "shield_open_login")
                 if m_sig and m_sig.endswith(")Z"):
                     open_shield_cls = "Lcom/tencent/open/agent/QrAgentLoginManager;"
                     open_shield_method = m_sig

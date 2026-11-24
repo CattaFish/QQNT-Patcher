@@ -18,6 +18,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import com.tencent.qqnt.patch.util.ThemeHelper;
+import com.tencent.qqnt.patch.util.UiUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -609,9 +610,6 @@ public class SettingDialogBuilder {
     }
 
     public static int dp2px(Context c, float dp) {
-        if (c == null || c.getResources() == null || c.getResources().getDisplayMetrics() == null) {
-            return (int) (dp * 2f + 0.5f);
-        }
-        return (int) (dp * c.getResources().getDisplayMetrics().density + 0.5f);
+        return UiUtils.dp2px(c, dp);
     }
 }

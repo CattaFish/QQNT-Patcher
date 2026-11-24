@@ -55,9 +55,9 @@ public class SettingSearchInjector {
             Collections.sort(list, (o1, o2) -> {
                 boolean isZzz1 = isZzzSearchResult(o1);
                 boolean isZzz2 = isZzzSearchResult(o2);
-                if (isZzz1 && !isZzz2) return -1; // o1 排在前面
-                if (!isZzz1 && isZzz2) return 1;  // o2 排在前面
-                return 0; // 稳定排序，保持原内部相对顺序
+                if (isZzz1 && !isZzz2) return -1;
+                if (!isZzz1 && isZzz2) return 1;
+                return 0;
             });
         } catch (Throwable ignored) {}
     }
@@ -65,7 +65,6 @@ public class SettingSearchInjector {
     private static boolean isZzzSearchResult(Object resultObj) {
         if (resultObj == null) return false;
         try {
-            // 检查 description 路径（k.a()）
             Method descM = resultObj.getClass().getMethod("a");
             Object desc = descM.invoke(resultObj);
             if (desc instanceof String) {
@@ -77,7 +76,6 @@ public class SettingSearchInjector {
         } catch (Throwable ignored) {}
 
         try {
-            // 检查 resultNode（k.c()）
             Method nodeM = resultObj.getClass().getMethod("c");
             Object node = nodeM.invoke(resultObj);
             if (node != null) {
@@ -103,7 +101,7 @@ public class SettingSearchInjector {
 
         @Override
         public ArrayList<c> c() {
-            return null; // 叶子节点无子节点
+            return null;
         }
 
         @Override
@@ -113,12 +111,11 @@ public class SettingSearchInjector {
 
         @Override
         public void f(String title, Context context, String search) {
-            // 空实现，由父节点统一分发
         }
     }
 
     /**
-     * 一级容器节点：Zzz 设置（对齐 b.smali 规范，无参构造函数）
+     * 一级容器节点：Zzz 设置（无参构造函数）
      */
     public static class ZzzCoreSearchNode extends c {
         @Override
@@ -153,19 +150,22 @@ public class SettingSearchInjector {
     }
 
     /**
-     * 二级分类节点：聊天（无参构造，硬编码分类）
+     * 二级分类节点公共基类：通过抽象方法返回常量分类，兼容父类 super() 构造期调用 c()
      */
-    public static class ZzzChatSearchNode extends c {
+    public abstract static class ZzzCategorySearchNode extends c {
+        protected abstract String getCategory();
+
         @Override
         public ArrayList<c> c() {
+            String category = getCategory();
             ArrayList<c> leaves = new ArrayList<>();
             for (IPatchModule module : ModuleManager.getModules()) {
-                if (module.showInSettings() && IPatchModule.CATEGORY_CHAT.equals(module.getCategory())) {
+                if (module.showInSettings() && category.equals(module.getCategory())) {
                     leaves.add(new ZzzLeafNode(module.getName()));
                 }
             }
             for (SettingItem item : SettingMenuRegistry.getItems()) {
-                if (item.isSearchable() && !item.isPluginPage() && IPatchModule.CATEGORY_CHAT.equals(item.getCategory())) {
+                if (item.isSearchable() && !item.isPluginPage() && category.equals(item.getCategory())) {
                     leaves.add(new ZzzLeafNode(item.getTitle()));
                 }
             }
@@ -173,107 +173,29 @@ public class SettingSearchInjector {
         }
 
         @Override
-        public String e() {
-            return "聊天";
-        }
-
-        @Override
         public void f(String title, Context context, String search) {
-            ZzzSettingFragment.startCategory(context, IPatchModule.CATEGORY_CHAT, title);
+            ZzzSettingFragment.startCategory(context, getCategory(), title);
         }
     }
 
-    /**
-     * 二级分类节点：净化（无参构造，硬编码分类）
-     */
-    public static class ZzzPurifySearchNode extends c {
-        @Override
-        public ArrayList<c> c() {
-            ArrayList<c> leaves = new ArrayList<>();
-            for (IPatchModule module : ModuleManager.getModules()) {
-                if (module.showInSettings() && IPatchModule.CATEGORY_PURIFY.equals(module.getCategory())) {
-                    leaves.add(new ZzzLeafNode(module.getName()));
-                }
-            }
-            for (SettingItem item : SettingMenuRegistry.getItems()) {
-                if (item.isSearchable() && !item.isPluginPage() && IPatchModule.CATEGORY_PURIFY.equals(item.getCategory())) {
-                    leaves.add(new ZzzLeafNode(item.getTitle()));
-                }
-            }
-            return leaves;
-        }
-
-        @Override
-        public String e() {
-            return "净化";
-        }
-
-        @Override
-        public void f(String title, Context context, String search) {
-            ZzzSettingFragment.startCategory(context, IPatchModule.CATEGORY_PURIFY, title);
-        }
-    }
-    
-    /**
-     * 二级分类节点：杂项（无参构造，硬编码分类）
-     */
-    public static class ZzzMiscSearchNode extends c {
-        @Override
-        public ArrayList<c> c() {
-            ArrayList<c> leaves = new ArrayList<>();
-            for (IPatchModule module : ModuleManager.getModules()) {
-                if (module.showInSettings() && IPatchModule.CATEGORY_MISC.equals(module.getCategory())) {
-                    leaves.add(new ZzzLeafNode(module.getName()));
-                }
-            }
-            for (SettingItem item : SettingMenuRegistry.getItems()) {
-                if (item.isSearchable() && !item.isPluginPage() && IPatchModule.CATEGORY_MISC.equals(item.getCategory())) {
-                    leaves.add(new ZzzLeafNode(item.getTitle()));
-                }
-            }
-            return leaves;
-        }
-
-        @Override
-        public String e() {
-            return "杂项";
-        }
-
-        @Override
-        public void f(String title, Context context, String search) {
-            ZzzSettingFragment.startCategory(context, IPatchModule.CATEGORY_MISC, title);
-        }
+    public static class ZzzChatSearchNode extends ZzzCategorySearchNode {
+        @Override protected String getCategory() { return IPatchModule.CATEGORY_CHAT; }
+        @Override public String e() { return "聊天"; }
     }
 
-    /**
-     * 二级分类节点：高级（无参构造，硬编码分类）
-     */
-    public static class ZzzAdvancedSearchNode extends c {
-        @Override
-        public ArrayList<c> c() {
-            ArrayList<c> leaves = new ArrayList<>();
-            for (IPatchModule module : ModuleManager.getModules()) {
-                if (module.showInSettings() && IPatchModule.CATEGORY_ADVANCED.equals(module.getCategory())) {
-                    leaves.add(new ZzzLeafNode(module.getName()));
-                }
-            }
-            for (SettingItem item : SettingMenuRegistry.getItems()) {
-                if (item.isSearchable() && !item.isPluginPage() && IPatchModule.CATEGORY_ADVANCED.equals(item.getCategory())) {
-                    leaves.add(new ZzzLeafNode(item.getTitle()));
-                }
-            }
-            return leaves;
-        }
+    public static class ZzzPurifySearchNode extends ZzzCategorySearchNode {
+        @Override protected String getCategory() { return IPatchModule.CATEGORY_PURIFY; }
+        @Override public String e() { return "净化"; }
+    }
 
-        @Override
-        public String e() {
-            return "高级";
-        }
+    public static class ZzzMiscSearchNode extends ZzzCategorySearchNode {
+        @Override protected String getCategory() { return IPatchModule.CATEGORY_MISC; }
+        @Override public String e() { return "杂项"; }
+    }
 
-        @Override
-        public void f(String title, Context context, String search) {
-            ZzzSettingFragment.startCategory(context, IPatchModule.CATEGORY_ADVANCED, title);
-        }
+    public static class ZzzAdvancedSearchNode extends ZzzCategorySearchNode {
+        @Override protected String getCategory() { return IPatchModule.CATEGORY_ADVANCED; }
+        @Override public String e() { return "高级"; }
     }
 
     /**

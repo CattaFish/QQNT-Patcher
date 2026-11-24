@@ -5,7 +5,6 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-import android.widget.Toast;
 
 import com.tencent.qqnt.kernelpublic.nativeinterface.Contact;
 import com.tencent.qqnt.patch.util.PLog;
@@ -36,7 +35,12 @@ public class PluginMethod {
     private final File mConfigDir;
     private final Handler mMainHandler;
     private PluginCompiler mCompiler;
-    private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
+    private static final ThreadLocal<SimpleDateFormat> DATE_FORMAT = new ThreadLocal<SimpleDateFormat>() {
+        @Override
+        protected SimpleDateFormat initialValue() {
+            return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
+        }
+    };
 
     public PluginMethod(Context context, File pluginDir) {
         this.mContext = context;
@@ -54,7 +58,7 @@ public class PluginMethod {
 
     public synchronized void log(String fileName, Object msg) {
         try {
-            String time = DATE_FORMAT.format(new Date());
+            String time = DATE_FORMAT.get().format(new Date());
             String line = "[" + time + "] " + String.valueOf(msg) + "\n";
             Log.i(TAG, "[" + mPluginDir.getName() + "][" + fileName + "] " + String.valueOf(msg));
             if (mPluginDir == null || !mPluginDir.exists()) return;
@@ -94,7 +98,7 @@ public class PluginMethod {
                 File dexFile = new File(path);
                 if (!dexFile.exists()) return;
 
-                // ★ 适配 Android 16：载入的插件 dex 必须设置只读属性
+                // 适配 Android 16：载入的插件 dex 必须设置只读属性
                 dexFile.setReadOnly();
 
                 File optDir = new File(mPluginDir, "dex_opt");

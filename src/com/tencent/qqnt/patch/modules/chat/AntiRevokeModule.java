@@ -9,12 +9,12 @@ import com.tencent.qqnt.kernelpublic.nativeinterface.JsonGrayElement;
 import com.tencent.qqnt.ntrelation.friendsinfo.api.IFriendsInfoService;
 import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.IPatchModule;
+import com.tencent.qqnt.patch.util.MiniProto;
 import com.tencent.qqnt.patch.util.PLog;
 import com.tencent.relation.common.api.IRelationNTUinAndUidApi;
 
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Method;
-import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -181,18 +181,18 @@ public class AntiRevokeModule implements IPatchModule {
             int idx = findSequence(data, new byte[]{0x08, 0x07});
             if (idx < 0) return null;
 
-            byte[] notifyBody = Proto.subArray(data, idx);
-            long optEnumType = Proto.getVarint(notifyBody, 1);
+            byte[] notifyBody = MiniProto.subArray(data, idx);
+            long optEnumType = MiniProto.getVarint(notifyBody, 1);
             if (optEnumType != ENUM_TYPE_GROUP_RECALL) return null;
 
-            long groupCode = Proto.getVarint(notifyBody, 4);
-            byte[] tag11 = Proto.getBytes(notifyBody, 11);
+            long groupCode = MiniProto.getVarint(notifyBody, 4);
+            byte[] tag11 = MiniProto.getBytes(notifyBody, 11);
             if (tag11 == null) return null;
 
-            byte[] tag3 = Proto.getBytes(tag11, 3);
+            byte[] tag3 = MiniProto.getBytes(tag11, 3);
             if (tag3 == null) return null;
 
-            long seq = Proto.getVarint(tag3, 1);
+            long seq = MiniProto.getVarint(tag3, 1);
             if (groupCode > 10000L && seq > 0) {
                 return new RecallMeta(String.valueOf(groupCode), 1, seq);
             }
@@ -206,8 +206,8 @@ public class AntiRevokeModule implements IPatchModule {
             int idx = findSequence(data, new byte[]{0x08, (byte) 0x90, 0x04, 0x10, (byte) 0x8A, 0x01});
             if (idx < 0) return null;
 
-            byte[] afterSig = Proto.subArray(data, idx);
-            ProtoReader reader = new ProtoReader(afterSig);
+            byte[] afterSig = MiniProto.subArray(data, idx);
+            MiniProto.Reader reader = new MiniProto.Reader(afterSig);
             while (reader.hasMore()) {
                 long tag = reader.readVarint();
                 int wire = (int) (tag & 7);
@@ -216,9 +216,9 @@ public class AntiRevokeModule implements IPatchModule {
                     byte[] sub = reader.readBytes();
                     if (sub == null) break;
                     if (fn == 1) { // msg_info
-                        long fromUin = Proto.getVarint(sub, 1);
-                        long toUin = Proto.getVarint(sub, 2);
-                        long seq = Proto.getVarint(sub, 3);
+                        long fromUin = MiniProto.getVarint(sub, 1);
+                        long toUin = MiniProto.getVarint(sub, 2);
+                        long seq = MiniProto.getVarint(sub, 3);
                         if (seq > 0 && (fromUin > 10000L || toUin > 10000L)) {
                             String myUin = AppContext.getCurrentUin();
                             String peer = (myUin != null && myUin.equals(String.valueOf(fromUin)))
@@ -305,7 +305,7 @@ public class AntiRevokeModule implements IPatchModule {
         if (data == null || data.length == 0 || !hasRecallSignature(data)) return data;
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
-            ProtoReader reader = new ProtoReader(data);
+            MiniProto.Reader reader = new MiniProto.Reader(data);
 
             while (reader.hasMore()) {
                 int start = reader.getPos();
@@ -316,7 +316,7 @@ public class AntiRevokeModule implements IPatchModule {
                     int l = (int) reader.readVarint();
                     int subStart = reader.getPos();
                     if (l >= 0 && subStart + l <= data.length) {
-                        byte[] sub = Proto.subArray(data, subStart, l);
+                        byte[] sub = MiniProto.subArray(data, subStart, l);
                         reader.skip(l);
 
                         if (shouldDropRecallNodeInSync(sub)) {
@@ -324,16 +324,16 @@ public class AntiRevokeModule implements IPatchModule {
                         }
 
                         if (isDirectRecallNode(sub)) {
-                            Proto.writeVarint(out, tag);
-                            Proto.writeVarint(out, sub.length);
+                            MiniProto.writeVarint(out, tag);
+                            MiniProto.writeVarint(out, sub.length);
                             out.write(sub);
                             continue;
                         }
 
                         if (hasRecallSignature(sub)) {
                             byte[] cleanedSub = filterProtoTree(sub);
-                            Proto.writeVarint(out, tag);
-                            Proto.writeVarint(out, cleanedSub.length);
+                            MiniProto.writeVarint(out, tag);
+                            MiniProto.writeVarint(out, cleanedSub.length);
                             out.write(cleanedSub);
                         } else {
                             out.write(data, start, reader.getPos() - start);
@@ -370,46 +370,46 @@ public class AntiRevokeModule implements IPatchModule {
         IKernelMsgService msgService = session.getMsgService();
         if (msgService == null) return false;
 
-        byte[] qqMsgBytes = Proto.getBytes(buf, 1);
+        byte[] qqMsgBytes = MiniProto.getBytes(buf, 1);
         if (qqMsgBytes == null) return false;
 
-        byte[] headerBytes = Proto.getBytes(qqMsgBytes, 1);
+        byte[] headerBytes = MiniProto.getBytes(qqMsgBytes, 1);
         if (headerBytes == null) return false;
 
-        byte[] bodyBytes = Proto.getBytes(qqMsgBytes, 3);
-        byte[] opBytes = bodyBytes != null ? Proto.getBytes(bodyBytes, 2) : null;
+        byte[] bodyBytes = MiniProto.getBytes(qqMsgBytes, 3);
+        byte[] opBytes = bodyBytes != null ? MiniProto.getBytes(bodyBytes, 2) : null;
         if (opBytes == null || opBytes.length == 0) return false;
 
-        String selfUid = Proto.getString(headerBytes, 6);
+        String selfUid = MiniProto.getString(headerBytes, 6);
         String myUin = AppContext.getCurrentUin();
 
         if (revokeType == 1) {
-            byte[] opBytesSkip7 = (opBytes.length > 7) ? Proto.subArray(opBytes, 7) : opBytes;
+            byte[] opBytesSkip7 = (opBytes.length > 7) ? MiniProto.subArray(opBytes, 7) : opBytes;
 
             // 校验 NotifyMsgBody 的 opt_enum_type (Tag 1) 必须等于 7 (群撤回)
-            long optEnumType = Proto.getVarint(opBytesSkip7, 1);
+            long optEnumType = MiniProto.getVarint(opBytesSkip7, 1);
             if (optEnumType != ENUM_TYPE_GROUP_RECALL) {
                 return false;
             }
 
             // 必须包含真实的 opt_msg_recall 结构体 (Tag 11)
-            byte[] tag11 = Proto.getBytes(opBytesSkip7, 11);
+            byte[] tag11 = MiniProto.getBytes(opBytesSkip7, 11);
             if (tag11 == null || tag11.length == 0) {
                 return false;
             }
 
             // Tag 1: operatorUid (操作撤回的人)
-            String operatorUid = Proto.getString(tag11, 1);
+            String operatorUid = MiniProto.getString(tag11, 1);
 
             // Tag 3: recalled_msg_list (MessageMeta)
-            byte[] tag3 = Proto.getBytes(tag11, 3);
+            byte[] tag3 = MiniProto.getBytes(tag11, 3);
             if (tag3 == null || tag3.length == 0) {
                 return false;
             }
 
             // MessageMeta: Tag 1 为 seq (被撤回消息序号), Tag 6 为原发送人 UID
-            long msgSeq = Proto.getVarint(tag3, 1);
-            String senderUid = Proto.getString(tag3, 6);
+            long msgSeq = MiniProto.getVarint(tag3, 1);
+            String senderUid = MiniProto.getString(tag3, 6);
             if (senderUid == null || senderUid.isEmpty()) {
                 senderUid = operatorUid;
             }
@@ -426,15 +426,15 @@ public class AntiRevokeModule implements IPatchModule {
 
             // 提取群号
             String groupCode = "";
-            long g4 = Proto.getVarint(opBytesSkip7, 4);
+            long g4 = MiniProto.getVarint(opBytesSkip7, 4);
             if (g4 > 10000L) {
                 groupCode = String.valueOf(g4);
             } else {
-                String gCodeStr = Proto.getString(headerBytes, 2);
+                String gCodeStr = MiniProto.getString(headerBytes, 2);
                 if (gCodeStr != null && gCodeStr.matches("\\d+")) {
                     groupCode = gCodeStr;
                 } else {
-                    long gCodeVal = Proto.getVarint(headerBytes, 1);
+                    long gCodeVal = MiniProto.getVarint(headerBytes, 1);
                     if (gCodeVal > 10000L) groupCode = String.valueOf(gCodeVal);
                 }
             }
@@ -477,12 +477,12 @@ public class AntiRevokeModule implements IPatchModule {
             String operatorUid = "";
             long msgSeq = 0L;
 
-            byte[] tag1 = Proto.getBytes(opBytes, 1);
+            byte[] tag1 = MiniProto.getBytes(opBytes, 1);
             if (tag1 != null) {
-                operatorUid = Proto.getString(tag1, 1);
-                msgSeq = Proto.getVarint(tag1, 20);
+                operatorUid = MiniProto.getString(tag1, 1);
+                msgSeq = MiniProto.getVarint(tag1, 20);
             }
-            if (operatorUid.isEmpty()) operatorUid = Proto.getString(headerBytes, 2);
+            if (operatorUid.isEmpty()) operatorUid = MiniProto.getString(headerBytes, 2);
 
             if (msgSeq <= 0 || operatorUid.isEmpty()) {
                 return false;
@@ -589,129 +589,5 @@ public class AntiRevokeModule implements IPatchModule {
 
     private static String escapeJson(String s) {
         return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"");
-    }
-
-    private static class ProtoReader {
-        private final byte[] data;
-        private int pos;
-        private final int limit;
-
-        ProtoReader(byte[] data) {
-            this.data = data;
-            this.pos = 0;
-            this.limit = data != null ? data.length : 0;
-        }
-
-        boolean hasMore() {
-            return data != null && pos < limit;
-        }
-
-        int getPos() {
-            return pos;
-        }
-
-        void skip(int n) {
-            if (n > 0) {
-                pos = Math.min(limit, pos + n);
-            }
-        }
-
-        long readVarint() {
-            long result = 0;
-            for (int shift = 0; shift < 64 && pos < limit; shift += 7) {
-                byte b = data[pos++];
-                result |= (long) (b & 0x7F) << shift;
-                if ((b & 0x80) == 0) break;
-            }
-            return result;
-        }
-
-        byte[] readBytes() {
-            int len = (int) readVarint();
-            if (len < 0 || pos + len > limit) return null;
-            byte[] dest = new byte[len];
-            System.arraycopy(data, pos, dest, 0, len);
-            pos += len;
-            return dest;
-        }
-    }
-
-    private static class Proto {
-        static void writeVarint(ByteArrayOutputStream out, long value) {
-            while ((value & ~0x7FL) != 0) {
-                out.write((int) ((value & 0x7F) | 0x80));
-                value >>>= 7;
-            }
-            out.write((int) (value & 0x7F));
-        }
-
-        static byte[] getBytes(byte[] data, int targetField) {
-            if (data == null) return null;
-            ProtoReader reader = new ProtoReader(data);
-            while (reader.hasMore()) {
-                long tag = reader.readVarint();
-                int field = (int) (tag >>> 3);
-                int wire = (int) (tag & 7);
-                if (wire == 0) {
-                    reader.readVarint();
-                } else if (wire == 1) {
-                    reader.skip(8);
-                } else if (wire == 2) {
-                    byte[] sub = reader.readBytes();
-                    if (sub == null) break;
-                    if (field == targetField) return sub;
-                } else if (wire == 5) {
-                    reader.skip(4);
-                } else {
-                    break;
-                }
-            }
-            return null;
-        }
-
-        static String getString(byte[] data, int targetField) {
-            byte[] b = getBytes(data, targetField);
-            return b != null ? new String(b, StandardCharsets.UTF_8) : "";
-        }
-
-        static long getVarint(byte[] data, int targetField) {
-            if (data == null) return 0;
-            ProtoReader reader = new ProtoReader(data);
-            while (reader.hasMore()) {
-                long tag = reader.readVarint();
-                int field = (int) (tag >>> 3);
-                int wire = (int) (tag & 7);
-                if (wire == 0) {
-                    long val = reader.readVarint();
-                    if (field == targetField) return val;
-                } else if (wire == 1) {
-                    reader.skip(8);
-                } else if (wire == 2) {
-                    int len = (int) reader.readVarint();
-                    if (len < 0) break;
-                    reader.skip(len);
-                } else if (wire == 5) {
-                    reader.skip(4);
-                } else {
-                    break;
-                }
-            }
-            return 0;
-        }
-
-        static byte[] subArray(byte[] src, int start) {
-            if (src == null || start < 0 || start >= src.length) return new byte[0];
-            int length = src.length - start;
-            byte[] dest = new byte[length];
-            System.arraycopy(src, start, dest, 0, length);
-            return dest;
-        }
-
-        static byte[] subArray(byte[] src, int start, int length) {
-            if (src == null || start < 0 || length <= 0 || start + length > src.length) return new byte[0];
-            byte[] dest = new byte[length];
-            System.arraycopy(src, start, dest, 0, length);
-            return dest;
-        }
     }
 }
