@@ -206,16 +206,25 @@ def run_stage4(ctx):
             shutil.copyfile(ctx.preset_plugins_zip, os.path.join(assets_dir, "preset_plugins.zip"))
             injected_summary["assets"].append("preset_plugins.zip")
 
-    if "setting" in ctx.active_features and os.path.isdir(ctx.assets_src_dir):
+    # 按特性归属拷贝静态资产，兼容 --only 精简构建模式
+    need_assets_dir = bool(ctx.active_features & {"setting", "script", "qq_version", "floating_ball"})
+    if need_assets_dir and os.path.isdir(ctx.assets_src_dir):
         for root, _, files in os.walk(ctx.assets_src_dir):
             for f in files:
-                if not f.startswith("."):
-                    src_fp = os.path.join(root, f)
-                    rel_fp = os.path.relpath(src_fp, ctx.assets_src_dir)
-                    dst_fp = os.path.join(assets_dir, rel_fp)
-                    os.makedirs(os.path.dirname(dst_fp), exist_ok=True)
-                    shutil.copyfile(src_fp, dst_fp)
-                    injected_summary["assets"].append(rel_fp)
+                if f.startswith("."):
+                    continue
+                if f == "subid.json" and not (ctx.active_features & {"qq_version", "setting"}):
+                    continue
+                if f == "script_icon.png" and not (ctx.active_features & {"script", "setting"}):
+                    continue
+                if f == "zzz_icon.png" and not (ctx.active_features & {"setting", "floating_ball"}):
+                    continue
+                src_fp = os.path.join(root, f)
+                rel_fp = os.path.relpath(src_fp, ctx.assets_src_dir)
+                dst_fp = os.path.join(assets_dir, rel_fp)
+                os.makedirs(os.path.dirname(dst_fp), exist_ok=True)
+                shutil.copyfile(src_fp, dst_fp)
+                injected_summary["assets"].append(rel_fp)
 
     # 注入自定义图标与名称（修改 AndroidManifest.xml + resources.arsc + res/ + assets/icons/）
     _prepare_custom_icons(ctx, inject_dir, injected_summary)

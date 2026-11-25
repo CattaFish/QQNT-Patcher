@@ -76,15 +76,16 @@ public class PluginManager {
     public static void init(final Context context) {
         if (sInitialized || context == null) return;
         sInitialized = true;
-        PLog.i("Plugin", "收到引擎初始化指令，开始载入插件...");
+        PLog.i("Plugin", "收到引擎初始化指令，开始异步载入插件...");
 
-        try {
-            PresetPluginInstaller.install(context);
-        } catch (Throwable t) {
-            PLog.e("Plugin", "安装预设脚本异常", t);
-        }
-
-        reloadAll(context, null);
+        sWorkerPool.execute(() -> {
+            try {
+                PresetPluginInstaller.install(context);
+            } catch (Throwable t) {
+                PLog.e("Plugin", "安装预设脚本异常", t);
+            }
+            reloadAllSync(context);
+        });
     }
 
     public static boolean hasActivePlugins() {
@@ -428,40 +429,46 @@ public class PluginManager {
         PLog.i("Plugin", "正在重新扫描与重载全部脚本...");
         sWorkerPool.execute(() -> {
             try {
-                synchronized (sLifecycleLock) {
-                    stopAllPlugins();
-                    ClassLoader loader = getOrCreateBshClassLoader(context);
-
-                    File pluginsDir = getPluginsStorageDir(context);
-                    if (!pluginsDir.exists()) pluginsDir.mkdirs();
-
-                    File[] subDirs = pluginsDir.listFiles();
-                    if (subDirs == null) return;
-
-                    int count = 0;
-                    for (File dir : subDirs) {
-                        if (dir.isDirectory()) {
-                            String id = dir.getName();
-                            File mainScript = new File(dir, "main.java");
-                            if (mainScript.exists() && ConfigManager.isPluginEnabled(id)) {
-                                PluginCompiler compiler = new PluginCompiler(context, dir, loader);
-                                if (compiler.start()) {
-                                    sLoadedPlugins.add(compiler);
-                                    count++;
-                                }
-                            }
-                        }
-                    }
-                    PLog.i("Plugin", "全部脚本重载完成，当前生效运行中: " + count + " 个");
-                }
-            } catch (Throwable t) {
-                PLog.e("Plugin", "reloadAll 异常: " + t.getMessage(), t);
+                reloadAllSync(context);
             } finally {
                 if (onComplete != null) {
                     new Handler(Looper.getMainLooper()).post(onComplete);
                 }
             }
         });
+    }
+
+    private static void reloadAllSync(final Context context) {
+        try {
+            synchronized (sLifecycleLock) {
+                stopAllPlugins();
+                ClassLoader loader = getOrCreateBshClassLoader(context);
+
+                File pluginsDir = getPluginsStorageDir(context);
+                if (!pluginsDir.exists()) pluginsDir.mkdirs();
+
+                File[] subDirs = pluginsDir.listFiles();
+                if (subDirs == null) return;
+
+                int count = 0;
+                for (File dir : subDirs) {
+                    if (dir.isDirectory()) {
+                        String id = dir.getName();
+                        File mainScript = new File(dir, "main.java");
+                        if (mainScript.exists() && ConfigManager.isPluginEnabled(id)) {
+                            PluginCompiler compiler = new PluginCompiler(context, dir, loader);
+                            if (compiler.start()) {
+                                sLoadedPlugins.add(compiler);
+                                count++;
+                            }
+                        }
+                    }
+                }
+                PLog.i("Plugin", "全部脚本重载完成，当前生效运行中: " + count + " 个");
+            }
+        } catch (Throwable t) {
+            PLog.e("Plugin", "reloadAll 异常: " + t.getMessage(), t);
+        }
     }
 
     public static File getPluginsStorageDir(Context context) {

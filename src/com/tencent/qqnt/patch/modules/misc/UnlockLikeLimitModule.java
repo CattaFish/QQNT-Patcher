@@ -62,7 +62,7 @@ public class UnlockLikeLimitModule implements IPatchModule {
         if (!isModuleActive() || respSummaryCard == null) {
             return;
         }
-        if (targetUin == null || targetUin.isEmpty() || targetUin.equals(getCurrentSelfUin())) {
+        if (targetUin == null || targetUin.isEmpty() || targetUin.equals(AppContext.getCurrentUin())) {
             return;
         }
         if (isFriendUin(targetUin)) {
@@ -107,7 +107,7 @@ public class UnlockLikeLimitModule implements IPatchModule {
                 return;
             }
             String uinStr = String.valueOf(targetUin);
-            if (uinStr.equals(getCurrentSelfUin()) || isFriendUin(uinStr)) {
+            if (uinStr.equals(AppContext.getCurrentUin()) || isFriendUin(uinStr)) {
                 return;
             }
 
@@ -183,7 +183,7 @@ public class UnlockLikeLimitModule implements IPatchModule {
 
         return sentPackets > 0;
     }
-    
+
     private static boolean isFriendUin(String uin) {
         try {
             IRelationNTUinAndUidApi uinApi = QRoute.api(IRelationNTUinAndUidApi.class);
@@ -237,23 +237,6 @@ public class UnlockLikeLimitModule implements IPatchModule {
             sSendMethodCache.put(handlerClass, found);
         }
         return found;
-    }
-
-    private static String getCurrentSelfUin() {
-        try {
-            Object runtime = AppContext.getAppRuntime();
-            if (runtime == null) return "";
-            try {
-                Method m = runtime.getClass().getMethod("getCurrentAccountUin");
-                Object res = m.invoke(runtime);
-                if (res != null) return String.valueOf(res);
-            } catch (NoSuchMethodException ignored) {}
-            Method m2 = runtime.getClass().getMethod("getAccount");
-            Object res2 = m2.invoke(runtime);
-            return res2 != null ? String.valueOf(res2) : "";
-        } catch (Throwable ignored) {
-            return "";
-        }
     }
 
     private static Field resolveField(Class<?> clazz, String fieldName) {

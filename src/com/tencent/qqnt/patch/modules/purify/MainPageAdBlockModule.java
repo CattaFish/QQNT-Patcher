@@ -59,6 +59,7 @@ public class MainPageAdBlockModule implements IPatchModule {
     };
 
     private static final Map<Integer, String> sProcessorNameCache = new ConcurrentHashMap<>();
+    private static volatile Field sProcessorMapField = null;
 
     @Override
     public String getId() {
@@ -95,7 +96,7 @@ public class MainPageAdBlockModule implements IPatchModule {
     }
 
     /**
-     * 【咽喉要道 1】：状态机总线拦截 (由 BannerManager->D(II) 入口调用)
+     * 状态机总线拦截 (由 BannerManager->D(II) 入口调用)
      * 当 state >= 2 (试图展示) 时，动态判定处理器类型。若属于广告则强制改写为 0 (HIDE)
      */
     public static int filterBannerState(Object bannerManagerObj, int bannerId, int state) {
@@ -127,7 +128,7 @@ public class MainPageAdBlockModule implements IPatchModule {
     }
 
     /**
-     * 【源头致盲 2】：天书广告请求拦截 (由 TianShuManager->isRequestEnable(I) 调用)
+     * 天书广告请求拦截 (由 TianShuManager->isRequestEnable(I) 调用)
      * 针对 VIP 广告横幅位 (0x2cb / 715)，直接返回 true 通知阻断，彻底不发网络请求
      */
     public static boolean shouldBlockTianShuPos(int posId) {
@@ -152,10 +153,7 @@ public class MainPageAdBlockModule implements IPatchModule {
         if (cached != null) return cached;
 
         try {
-            // 从 BannerManager.h (ConcurrentHashMap<Integer, BaseBannerProcessor>) 动态反射
-            Field hField = bannerManagerObj.getClass().getDeclaredField("h");
-            hField.setAccessible(true);
-            Map<?, ?> map = (Map<?, ?>) hField.get(bannerManagerObj);
+            Map<?, ?> map = resolveProcessorMap(bannerManagerObj, bannerId);
             if (map != null) {
                 Object processor = map.get(bannerId);
                 if (processor != null) {
@@ -165,6 +163,52 @@ public class MainPageAdBlockModule implements IPatchModule {
                 }
             }
         } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static Map<?, ?> resolveProcessorMap(Object bannerManagerObj, int bannerId) {
+        Class<?> cls = bannerManagerObj.getClass();
+        Field cachedField = sProcessorMapField;
+        if (cachedField != null && cachedField.getDeclaringClass().isAssignableFrom(cls)) {
+            try {
+                Object val = cachedField.get(bannerManagerObj);
+                if (val instanceof Map) {
+                    return (Map<?, ?>) val;
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        // 优先尝试已知字段名 "h"
+        try {
+            Field hField = cls.getDeclaredField("h");
+            if (Map.class.isAssignableFrom(hField.getType())) {
+                hField.setAccessible(true);
+                Object val = hField.get(bannerManagerObj);
+                if (val instanceof Map) {
+                    sProcessorMapField = hField;
+                    return (Map<?, ?>) val;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        // 兜底：若未来版本混淆字段改名，按 Map 类型与 BannerProcessor 值特征自动定位
+        for (Class<?> cur = cls; cur != null && cur != Object.class; cur = cur.getSuperclass()) {
+            for (Field f : cur.getDeclaredFields()) {
+                if (!Map.class.isAssignableFrom(f.getType())) continue;
+                try {
+                    f.setAccessible(true);
+                    Object val = f.get(bannerManagerObj);
+                    if (val instanceof Map) {
+                        Map<?, ?> candidate = (Map<?, ?>) val;
+                        Object proc = candidate.get(bannerId);
+                        if (proc != null && proc.getClass().getSimpleName().contains("Banner")) {
+                            sProcessorMapField = f;
+                            return candidate;
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+        }
         return null;
     }
 }

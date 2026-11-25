@@ -59,17 +59,18 @@ FEATURE_DEPENDENCIES = {
     "killer": {"tinker"},        # 去签壳必须通过 Tinker/QFix 入口注入挂载
     "chat_history": {"setting"}, # 查看聊天记录必须依赖设置中心容器挂载
     "custom_icon": {"setting"},  # 自定义图标依赖设置中心容器挂载
+    "script": {"setting"},       # 动态脚本入口与二级页面依赖设置中心容器挂载
     "floating_ball": {"script"}, # 脚本悬浮球快捷入口依赖脚本生态
 }
 
 BUS_DEPENDENCIES = {
-    "bus_msf": {"anti_revoke", "auto_remark_apk", "script", "qq_version"},
+    "bus_msf": {"anti_revoke", "auto_remark_apk", "script", "qq_version", "double_tap_repeat", "forward_ptt"},
     "bus_send_msg": {"meow", "auto_remark_apk", "modify_pic_summary", "script", "mixed_emo"},
     "bus_recv_msg": {"flash_pic", "anti_revoke", "script"},
     "bus_aio_msg": {"flash_pic"},
     "bus_aio_lifecycle": {"floating_ball", "script"},
     "bus_aio_menu": {"script"},
-    "bus_setting": {"setting", "chat_history", "custom_icon"},
+    "bus_setting": {"setting", "script", "chat_history", "custom_icon"},
     "bus_troop_member": {"script"},
 }
 
@@ -114,10 +115,15 @@ def resolve_active_features(only_inputs, skip_inputs):
                 fid = resolve_feature_id(part)
                 if fid: active.add(fid)
 
-        # 自动补全前置依赖（Killer 自动关联 Tinker，聊天记录自动关联 Setting）
-        for fid in list(active):
-            if fid in FEATURE_DEPENDENCIES:
-                active.update(FEATURE_DEPENDENCIES[fid])
+        # 自动传递补全前置依赖 (如 floating_ball -> script -> setting)
+        changed = True
+        while changed:
+            changed = False
+            for fid in list(active):
+                deps = FEATURE_DEPENDENCIES.get(fid)
+                if deps and not deps.issubset(active):
+                    active.update(deps)
+                    changed = True
     else:
         active = set(ALL_FEATURES.keys())
 
