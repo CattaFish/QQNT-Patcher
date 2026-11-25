@@ -4,13 +4,13 @@ import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import com.tencent.qqnt.patch.util.ToastHelper;
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.nio.charset.StandardCharsets;
 
 public class UpdateHelper {
 
@@ -25,13 +25,14 @@ public class UpdateHelper {
                 conn.setRequestProperty("User-Agent", "QQNT-Patcher-Client/" + ConfigManager.VERSION);
 
                 if (conn.getResponseCode() == 200) {
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
                     StringBuilder sb = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        sb.append(line);
+                    try (BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            sb.append(line);
+                        }
                     }
-                    reader.close();
 
                     String latestTag = extractJsonField(sb.toString(), "tag_name");
                     if (latestTag != null && isNewerVersion(latestTag, ConfigManager.VERSION)) {
@@ -63,13 +64,14 @@ public class UpdateHelper {
 
                 int code = conn.getResponseCode();
                 if (code == 200) {
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
                     StringBuilder sb = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        sb.append(line);
+                    try (BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            sb.append(line);
+                        }
                     }
-                    reader.close();
 
                     String json = sb.toString();
                     String latestTag = extractJsonField(json, "tag_name");
@@ -116,12 +118,14 @@ public class UpdateHelper {
     }
 
     private static String extractJsonField(String json, String field) {
-        Pattern p = Pattern.compile("\"" + field + "\"\\s*:\\s*\"([^\"]+)\"");
-        Matcher m = p.matcher(json);
-        if (m.find()) {
-            return m.group(1);
+        if (json == null || json.isEmpty()) return null;
+        try {
+            JSONObject obj = new JSONObject(json);
+            String val = obj.optString(field, "");
+            return val.isEmpty() ? null : val;
+        } catch (Throwable ignored) {
+            return null;
         }
-        return null;
     }
 
     private static boolean isNewerVersion(String latest, String current) {

@@ -135,19 +135,22 @@ def run_stage4(ctx):
             shutil.copyfile(local_path, os.path.join(inject_dir, in_zip_name))
             injected_summary["host_dex"] += 1
 
-    libs_dex_name = f"classes{ctx.max_dex_idx + 1}.dex"
-    patch_dex_name = f"classes{ctx.max_dex_idx + 2}.dex"
+    # 顺序递增分配扩展 DEX 编号，避免任一产物缺失时产生跳号断层
+    next_dex_idx = ctx.max_dex_idx + 1
     if ctx.libs_dex_path and os.path.isfile(ctx.libs_dex_path):
-        shutil.copyfile(ctx.libs_dex_path, os.path.join(inject_dir, libs_dex_name))
+        shutil.copyfile(ctx.libs_dex_path, os.path.join(inject_dir, f"classes{next_dex_idx}.dex"))
+        next_dex_idx += 1
         injected_summary["extra_dex"] += 1
 
     if ctx.patch_dex_path and os.path.isfile(ctx.patch_dex_path):
-        shutil.copyfile(ctx.patch_dex_path, os.path.join(inject_dir, patch_dex_name))
+        shutil.copyfile(ctx.patch_dex_path, os.path.join(inject_dir, f"classes{next_dex_idx}.dex"))
+        next_dex_idx += 1
         injected_summary["extra_dex"] += 1
 
     if "killer" in ctx.active_features:
-        for dex_name, src_path in ctx.provider.get_extra_dexes(ctx):
+        for dex_name, src_path in ctx.provider.get_extra_dexes(ctx, next_dex_idx):
             shutil.copyfile(src_path, os.path.join(inject_dir, dex_name))
+            next_dex_idx += 1
             injected_summary["extra_dex"] += 1
 
     if "killer" in ctx.active_features:

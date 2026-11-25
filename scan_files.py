@@ -74,8 +74,11 @@ SKELETON_INFRA_FILES = [
     "src/com/tencent/qqnt/patch/ui/SettingDialogBuilder.java",
     "src/com/tencent/qqnt/patch/ui/NativeSettingHelper.java",
     "src/com/tencent/qqnt/patch/ui/SettingMenuRegistry.java",
+    "src/com/tencent/qqnt/patch/util/MiniProto.java",
     "src/com/tencent/qqnt/patch/util/PLog.java",
+    "src/com/tencent/qqnt/patch/util/StorageHelper.java",
     "src/com/tencent/qqnt/patch/util/ToastHelper.java",
+    "src/com/tencent/qqnt/patch/util/UiUtils.java",
     "src/com/tencent/qqnt/patch/util/PatchAssetHelper.java",
     "src/com/tencent/qqnt/patch/plugin/MsgSender.java",
 ]
@@ -757,6 +760,18 @@ def build_feature_registry_table(rules_meta, modules_meta, builtin_ids):
     return "\n".join(lines)
 
 
+def build_architecture_guardrails():
+    return "\n".join([
+        "【已知架构约束与审查禁区 (AI 审查必读，请勿重复建议改动)】",
+        "1. DexPatcher.java 与 rules/group_file_rules.py：当前 Smali 替换与寄存器分配已在真机多版本验证稳定；在未查看目标方法完整反汇编 Smali 前，禁止修改 REGEX_REPLACE 逻辑或寄存器编号。",
+        "2. killer_native/mt_jni.c：预编译 4 ABI 原生库已稳定运行，非必要不改动 C 代码，避免触发全套 NDK .so 重编。",
+        "3. ConfigManager.ID_ALIASES 与根目录 com.tencent.qqnt.patch.* 兼容壳类：分别用于老版本用户配置平滑升级与外部 BeanShell/QFun 脚本旧包名导入，禁止删除。",
+        "4. QQVersionModule 历史捕获记录：刻意不设单用户条数上限以保留完整设备变动轨迹，请勿添加截断上限。",
+        "5. PatchBridge 老模块静态中转方法、SettingMenuRegistry 静态注册与 MeowModule 自定义弹窗：属于历史稳定代码；新功能不再往 PatchBridge 追加专属方法即可，老代码无需推倒重写。",
+        "6. pipeline/stage2_rules.py 与 stage4_pack.py 的 Killer 编排：当前仅有 3 个 Provider，保持直观流程，无需过度抽象生命周期钩子。",
+    ])
+
+
 def build_dev_cheatsheet():
     return "\n".join([
         "【AI 开发红线与 DexPatcher 速查 (必读)】",
@@ -765,10 +780,12 @@ def build_dev_cheatsheet():
         "3. Java 模块类名与文件名必须以 Module.java 结尾 (stage4_pack.py 依赖该后缀自动生成 zzz_modules.list)，且 defaultEnabled() 必须返回 false。",
         "4. RULE_ID 必须与 Module.getId() 完全一致；rules/*.py 需定义 RULE_ID/RULE_NAME/RULE_DESC/RULE_ALIASES/RULE_ENABLED 与 resolve_rules(dex_data_dict, meta=None)。",
         "5. 仅需判断开关时在 Smali 中直接调用 PatchBridge.isEnabled(\"<id>\")，无需修改 PatchBridge、ModuleManager 或 features.py (除非挂载新总线)。",
-        "6. 模块配置弹窗优先使用 SettingDialogBuilder 链式 DSL，避免手写原始 Dialog；日志统一使用 PLog，提示统一使用 ToastHelper。",
+        "6. 模块配置弹窗优先使用 SettingDialogBuilder 链式 DSL，避免手写原始 Dialog；日志统一使用 PLog，提示统一使用 ToastHelper，目录用 StorageHelper，UI 辅助用 UiUtils，轻量协议解析用 MiniProto。",
         "7. DexPatcher 规则支持 INSERT_BEFORE / REPLACE / REGEX_REPLACE / SUPER_REPLACE；反汇编强制使用 .locals 模式。",
         "8. INSERT_BEFORE 仅扫描片段中 vN 寄存器并按需扩容 .locals (不扫描 pN)；访问高编号形参前建议先 move-object/16 v0, pX 或 move/16 v0, pX。",
         "9. REGEX_REPLACE 的 smali 字段中捕获组用 \\1 / \\2 (引擎会自动转为 Java $1 / $2)；对静态方法插桩时无隐式 this，形参从 p0 开始。",
+        "",
+        build_architecture_guardrails(),
     ])
 
 
@@ -977,6 +994,8 @@ def select_for_full(text_files, image_files, rules_meta, modules_meta, builtin_i
         "模式: Release 全量代码审查 (已自动过滤缓存目录与第三方原生库)",
         "",
         audit_report,
+        "",
+        build_architecture_guardrails(),
         "",
         build_feature_registry_table(rules_meta, modules_meta, builtin_ids),
     ]

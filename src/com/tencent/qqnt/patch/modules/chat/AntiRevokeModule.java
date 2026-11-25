@@ -33,6 +33,9 @@ public class AntiRevokeModule implements IPatchModule {
     // 0x857 通知总线中，群消息撤回的专属枚举值 (opt_enum_type == 7)
     private static final int ENUM_TYPE_GROUP_RECALL = 7;
 
+    private static volatile Class<?> sMessageFacadeClz = null;
+    private static volatile Method sQueryMsgMethod = null;
+
     @Override public String getId() { return "anti_revoke"; }
     @Override public String getName() { return "消息防撤回"; }
     @Override public boolean defaultEnabled() { return false; }
@@ -146,14 +149,24 @@ public class AntiRevokeModule implements IPatchModule {
         return -1;
     }
 
-    // 查库预检核心：查本地消息是否存在
+    // 查库预检核心：查本地消息是否存在（缓存接口类与反射方法，减少漫游同步期反射开销）
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private static boolean queryMsgExists(String peerUin, int istroop, long msgSeq) {
         if (peerUin == null || peerUin.isEmpty() || msgSeq <= 0) return false;
         try {
-            Class<?> facadeClz = Class.forName("com.tencent.mobileqq.msg.api.IMessageFacade");
+            Class<?> facadeClz = sMessageFacadeClz;
+            if (facadeClz == null) {
+                facadeClz = Class.forName("com.tencent.mobileqq.msg.api.IMessageFacade");
+                sMessageFacadeClz = facadeClz;
+            }
             Object facade = QRoute.api((Class) facadeClz);
             if (facade != null) {
-                Method queryM = facade.getClass().getMethod("queryMsgItemByShmsgseq", String.class, int.class, long.class, long.class);
+                Method queryM = sQueryMsgMethod;
+                if (queryM == null || !queryM.getDeclaringClass().isAssignableFrom(facade.getClass())) {
+                    queryM = facade.getClass().getMethod("queryMsgItemByShmsgseq", String.class, int.class, long.class, long.class);
+                    queryM.setAccessible(true);
+                    sQueryMsgMethod = queryM;
+                }
                 List<?> list = (List<?>) queryM.invoke(facade, peerUin, istroop, msgSeq, 0L);
                 return list != null && !list.isEmpty();
             }

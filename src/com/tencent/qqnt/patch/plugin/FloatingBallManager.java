@@ -25,6 +25,8 @@ import android.widget.Toast;
 import com.tencent.qqnt.patch.AppContext;
 import com.tencent.qqnt.patch.config.ConfigManager;
 import com.tencent.qqnt.patch.util.PatchAssetHelper;
+import com.tencent.qqnt.patch.util.ThemeHelper;
+import com.tencent.qqnt.patch.util.UiUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -76,12 +78,12 @@ public class FloatingBallManager {
         if (sPopupWindow != null && sPopupWindow.isShowing()) return;
 
         try {
-            int size = dp2px(activity, 44f);
+            int size = UiUtils.dp2px(activity, 44f);
             int screenW = activity.getResources().getDisplayMetrics().widthPixels;
             int screenH = activity.getResources().getDisplayMetrics().heightPixels;
 
             SharedPreferences sp = activity.getSharedPreferences("zzz_floating_pref", Context.MODE_PRIVATE);
-            sLastX = sp.getInt("float_x", screenW - size - dp2px(activity, 16f));
+            sLastX = sp.getInt("float_x", screenW - size - UiUtils.dp2px(activity, 16f));
             sLastY = sp.getInt("float_y", (int) (screenH * 0.62f));
 
             ImageView imageView = new ImageView(activity);
@@ -188,6 +190,16 @@ public class FloatingBallManager {
             }
         }
 
+        boolean isNight = false;
+        try {
+            isNight = ThemeHelper.isNightMode();
+        } catch (Throwable ignored) {}
+
+        int bgColor = isNight ? Color.parseColor("#1C1C1E") : Color.WHITE;
+        int titleColor = isNight ? Color.WHITE : Color.parseColor("#1D1D1F");
+        int subTextColor = isNight ? Color.parseColor("#8E8E93") : Color.GRAY;
+        int reloadBgColor = isNight ? Color.parseColor("#2C2C2E") : Color.parseColor("#F2F2F7");
+
         final Dialog dialog = new Dialog(activity);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         if (dialog.getWindow() != null) {
@@ -196,29 +208,29 @@ public class FloatingBallManager {
 
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp2px(activity, 20f);
+        int pad = UiUtils.dp2px(activity, 20f);
         root.setPadding(pad, pad, pad, pad);
 
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.WHITE);
-        bg.setCornerRadius(dp2px(activity, 20f));
+        bg.setColor(bgColor);
+        bg.setCornerRadius(UiUtils.dp2px(activity, 20f));
         root.setBackground(bg);
 
         TextView title = new TextView(activity);
         title.setText("脚本快捷菜单");
         title.setTextSize(18);
-        title.setTextColor(Color.parseColor("#1D1D1F"));
+        title.setTextColor(titleColor);
         title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 0, 0, dp2px(activity, 15f));
+        title.setPadding(0, 0, 0, UiUtils.dp2px(activity, 15f));
         root.addView(title);
 
         if (actions.isEmpty()) {
             TextView empty = new TextView(activity);
             empty.setText("当前已开启的脚本暂未注册菜单\n(请在设置中开启包含 addItem 的脚本)");
             empty.setTextSize(14);
-            empty.setTextColor(Color.GRAY);
+            empty.setTextColor(subTextColor);
             empty.setGravity(Gravity.CENTER);
-            empty.setPadding(0, dp2px(activity, 10f), 0, dp2px(activity, 15f));
+            empty.setPadding(0, UiUtils.dp2px(activity, 10f), 0, UiUtils.dp2px(activity, 15f));
             root.addView(empty);
         } else {
             for (ActionItem action : actions) {
@@ -230,11 +242,11 @@ public class FloatingBallManager {
 
                 GradientDrawable btnBg = new GradientDrawable();
                 btnBg.setColor(Color.parseColor("#007AFF"));
-                btnBg.setCornerRadius(dp2px(activity, 12f));
+                btnBg.setCornerRadius(UiUtils.dp2px(activity, 12f));
                 btn.setBackground(btnBg);
 
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(activity, 46f));
-                lp.bottomMargin = dp2px(activity, 10f);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, UiUtils.dp2px(activity, 46f));
+                lp.bottomMargin = UiUtils.dp2px(activity, 10f);
 
                 btn.setOnClickListener(v -> {
                     dialog.dismiss();
@@ -254,11 +266,11 @@ public class FloatingBallManager {
         reloadBtn.setAllCaps(false);
 
         GradientDrawable rBg = new GradientDrawable();
-        rBg.setColor(Color.parseColor("#F2F2F7"));
-        rBg.setCornerRadius(dp2px(activity, 12f));
+        rBg.setColor(reloadBgColor);
+        rBg.setCornerRadius(UiUtils.dp2px(activity, 12f));
         reloadBtn.setBackground(rBg);
 
-        LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(activity, 44f));
+        LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, UiUtils.dp2px(activity, 44f));
         reloadBtn.setOnClickListener(v -> {
             dialog.dismiss();
             PluginManager.reloadAll(activity);
@@ -273,13 +285,6 @@ public class FloatingBallManager {
             int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.82);
             dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
-    }
-
-    private static int dp2px(Context c, float dp) {
-        if (c == null || c.getResources() == null || c.getResources().getDisplayMetrics() == null) {
-            return (int) (dp * 2f + 0.5f);
-        }
-        return (int) (dp * c.getResources().getDisplayMetrics().density + 0.5f);
     }
 
     private static class ActionItem {

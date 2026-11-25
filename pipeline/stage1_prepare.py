@@ -15,6 +15,29 @@ def _resolve_tool(ctx, name):
     return p
 
 
+def _cleanup_stale_classes(src_dir, bin_dir, java_files):
+    """清理已被删除或重命名的源码残留的旧 .class 文件"""
+    valid_stems = {
+        os.path.splitext(os.path.relpath(jf, src_dir))[0]
+        for jf in java_files
+    }
+    removed = 0
+    for r, _, fs in os.walk(bin_dir):
+        for fname in fs:
+            if not fname.endswith(".class"):
+                continue
+            cf = os.path.join(r, fname)
+            rel_stem = os.path.splitext(os.path.relpath(cf, bin_dir))[0]
+            top_stem = rel_stem.split("$", 1)[0]
+            if top_stem not in valid_stems:
+                try:
+                    os.remove(cf)
+                    removed += 1
+                except OSError:
+                    pass
+    return removed
+
+
 def run_stage1(ctx):
     ctx.print_stage_header(1, 5, "Prepare Environment & Extension Dex")
 
@@ -68,9 +91,14 @@ def run_stage1(ctx):
         shutil.rmtree(libs_temp_dir, ignore_errors=True)
         ctx.log("OK", "基础类库预编译完成 (libs_cached.dex)")
 
+    # 清理已删除/重命名源码遗留的旧 .class 文件
+    removed_stale = _cleanup_stale_classes(src_dir, bin_dir, java_files)
+    if removed_stale > 0:
+        ctx.log("INFO", f"已清理 {removed_stale} 个过期 .class 文件")
+
     # 业务代码增量重编
     latest_src_mtime = max((os.path.getmtime(f) for f in java_files), default=0)
-    if not os.path.exists(target_patch_dex) or os.path.getmtime(target_patch_dex) < latest_src_mtime:
+    if removed_stale > 0 or not os.path.exists(target_patch_dex) or os.path.getmtime(target_patch_dex) < latest_src_mtime:
         modified_java = []
         for jf in java_files:
             rel = os.path.relpath(jf, src_dir)
@@ -147,7 +175,7 @@ def run_stage1(ctx):
         os.makedirs(ctx.engine_bin, exist_ok=True)
         ctx.run_cmd(f"javac -cp {shlex.quote(neoapk_jar)} -d {shlex.quote(ctx.engine_bin)} {shlex.quote(packer_src)}")
         ctx.log("OK", "编译 NeoPacker 流式装配引擎")
-        
+
     # 6. 编译 IconManifestPatcher.java
     icon_patcher_src = os.path.join(ctx.tools_dir, "IconManifestPatcher.java")
     icon_patcher_class = os.path.join(ctx.engine_bin, "com/tencent/qqnt/patcher/IconManifestPatcher.class")

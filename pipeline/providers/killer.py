@@ -10,9 +10,10 @@ from ..context import Colors
 class KillerProvider(BaseProvider):
     name = "killer"
 
-    def get_extra_dexes(self, ctx):
+    def get_extra_dexes(self, ctx, start_dex_idx=None):
         if getattr(ctx, "killer_app_dex", None) and os.path.isfile(ctx.killer_app_dex):
-            dex_name = f"classes{ctx.max_dex_idx + 3}.dex"
+            idx = start_dex_idx if start_dex_idx is not None else (ctx.max_dex_idx + 3)
+            dex_name = f"classes{idx}.dex"
             return [(dex_name, ctx.killer_app_dex)]
         ctx.log("ERR", "killer_app.dex 缺失，无法注入")
         return []

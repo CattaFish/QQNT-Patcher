@@ -12,12 +12,9 @@ import bsh.Interpreter;
 import java.io.File;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -88,34 +85,6 @@ public class PluginCompiler {
         } finally {
             Thread.currentThread().setContextClassLoader(originalTCCL);
         }
-    }
-
-    private void syncNewClassLoaders(String expectedClassName) {
-        try {
-            Method getClassManagerM = interpreter.getClass().getMethod("getClassManager");
-            Object cm = getClassManagerM.invoke(interpreter);
-            if (cm != null) {
-                Class<?> cur = cm.getClass();
-                Field cacheField = null;
-                while (cur != null && cacheField == null) {
-                    try { cacheField = cur.getDeclaredField("absoluteClassCache"); }
-                    catch (NoSuchFieldException e) { cur = cur.getSuperclass(); }
-                }
-                if (cacheField != null) {
-                    cacheField.setAccessible(true);
-                    Map<?, ?> cache = (Map<?, ?>) cacheField.get(cm);
-                    if (cache != null) {
-                        for (Map.Entry<?, ?> entry : cache.entrySet()) {
-                            if (entry.getKey() instanceof String && entry.getValue() instanceof Class) {
-                                String className = (String) entry.getKey();
-                                Class<?> clazz = (Class<?>) entry.getValue();
-                                loader.addClassLoader(clazz.getClassLoader());
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (Throwable ignored) {}
     }
 
     public synchronized boolean start() {

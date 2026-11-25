@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 class BaseProvider(ABC):
     name = "base"
 
-    def get_extra_dexes(self, ctx):
+    def get_extra_dexes(self, ctx, start_dex_idx=None):
         """返回待注入的 Dex 列表: list[(rel_name, abs_path)]"""
         return []
 

@@ -10,6 +10,7 @@ import com.tencent.qqnt.patch.modules.chat.AutoRemarkApkModule;
 import com.tencent.qqnt.patch.modules.chat.DoubleTapRepeatModule;
 import com.tencent.qqnt.patch.modules.chat.ShowDownloadTimesModule;
 
+import java.lang.ref.WeakReference;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
@@ -17,10 +18,14 @@ import java.util.List;
 
 public class PatchBridge {
 
-    private static final ThreadLocal<Object> sCurrentFileItem = new ThreadLocal<>();
+    private static final ThreadLocal<WeakReference<Object>> sCurrentFileItem = new ThreadLocal<>();
 
     public static void setCurrentFileItem(Object fileItem) {
-        sCurrentFileItem.set(fileItem);
+        if (fileItem == null) {
+            sCurrentFileItem.remove();
+        } else {
+            sCurrentFileItem.set(new WeakReference<>(fileItem));
+        }
     }
 
     public static boolean isEnabled(String featureId) {
@@ -62,7 +67,8 @@ public class PatchBridge {
     }
 
     public static String appendDownloadCountToStatusText(String originalStatus) {
-        Object item = sCurrentFileItem.get();
+        WeakReference<Object> ref = sCurrentFileItem.get();
+        Object item = (ref != null) ? ref.get() : null;
         return ShowDownloadTimesModule.appendDownloadCountToStatusText(originalStatus, item);
     }
 

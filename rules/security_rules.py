@@ -11,12 +11,18 @@ RULE_DESC = "安全风控与查签致盲"
 RULE_ALIASES = ["sec", "安全", "查签", "风控"]
 RULE_ENABLED = True
 
+
 def build_security_rules(dex_data_dict, orig_apk_md5="", orig_sig_md5=""):
     sec_rules = []
-    parsers = [FastDexParser(v) for v in dex_data_dict.values() if len(v) >= 0x70 and v[:4] == b'dex\n']
-
     chan_rep_cls = "Lcom/tencent/mobileqq/channel/ChannelReport;"
-    for p in parsers:
+
+    for dex_bytes in dex_data_dict.values():
+        if b"ChannelReport" not in dex_bytes or b"trpc.o3.report.Report.SsoEventReport" not in dex_bytes:
+            continue
+        p = FastDexParser(dex_bytes)
+        if not p.valid:
+            continue
+
         c_idx = p.find_class_index(chan_rep_cls)
         if c_idx != -1:
             sso_event_id = p.find_string_id("trpc.o3.report.Report.SsoEventReport")
@@ -51,6 +57,7 @@ def build_security_rules(dex_data_dict, orig_apk_md5="", orig_sig_md5=""):
     )
 
     return sec_rules
+
 
 def resolve_rules(dex_data_dict, meta=None):
     meta = meta or {}

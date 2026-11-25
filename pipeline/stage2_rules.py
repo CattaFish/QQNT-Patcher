@@ -238,6 +238,12 @@ def resolve_dynamic_rules_with_cache(ctx):
     rules_dir = os.path.join(ctx.root_dir, "rules")
     plugins = discover_rule_plugins(rules_dir)
 
+    shared_rule_mtime = max(
+        get_file_mtime_safe(os.path.join(rules_dir, "parser.py")),
+        get_file_mtime_safe(os.path.join(rules_dir, "stubs.py")),
+        get_file_mtime_safe(os.path.join(ctx.root_dir, "pipeline", "killer_config.py")),
+    )
+
     meta = {
         "orig_apk_md5": ctx.orig_apk_md5,
         "orig_sig_md5": ctx.orig_sig_md5,
@@ -254,7 +260,7 @@ def resolve_dynamic_rules_with_cache(ctx):
         if not p.enabled:
             continue
 
-        mtime = get_file_mtime_safe(p.file_path)
+        mtime = max(get_file_mtime_safe(p.file_path), shared_rule_mtime)
         cached_entry = cache_data.get(p.plugin_id)
 
         if cached_entry and cached_entry.get("mtime") == mtime and "rules" in cached_entry:
